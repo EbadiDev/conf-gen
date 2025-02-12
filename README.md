@@ -1,7 +1,30 @@
-README.md
 # Load Balancer Configuration Generator
 
 This script generates JSON configuration files for both server and Iran-side setups of a load balancer system.
+
+## Quick Install & Usage
+
+You can directly run the script with parameters using curl:
+
+```bash
+# Server Configuration
+bash <(curl -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/create_lb_config.sh) server triple_tunnel 192.168.1.100 20631 10.0.0.50 20631 2001:db8::1234 20631
+
+# Iran Configuration
+bash <(curl -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/create_lb_config.sh) iran config1 14000 14999 192.168.1.100 13787
+```
+
+Or you can download and use the script locally:
+
+```bash
+# Clone the repository
+git clone https://github.com/EbadiDev/conf-gen.git
+cd conf-gen
+chmod +x create_lb_config.sh
+
+# Then use as normal
+./create_lb_config.sh <type> <config_name> [parameters...]
+```
 
 ## Usage
 

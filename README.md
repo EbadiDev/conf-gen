@@ -7,8 +7,8 @@ This script generates JSON configuration files for both server and Iran-side set
 You can directly run the script with parameters using curl:
 
 ```bash
-# Server Configuration
-bash <(curl -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/create_lb_config.sh) server triple_tunnel 192.168.1.100 20631 10.0.0.50 20631 2001:db8::1234 20631
+# Server Configuration (when all servers use the same port)
+bash <(curl -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/create_lb_config.sh) server triple_tunnel -p 20631 192.168.1.100 10.0.0.50 2001:db8::1234
 
 # Iran Configuration
 bash <(curl -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/create_lb_config.sh) iran config1 14000 14999 192.168.1.100 13787
@@ -37,13 +37,17 @@ chmod +x create_lb_config.sh
 For creating a server-side configuration with multiple balanced servers:
 
 ```bash
+# When servers have different ports
 ./create_lb_config.sh server <config_name> <server1_address> <server1_port> [<server2_address> <server2_port> ...]
+
+# When all servers use the same port
+./create_lb_config.sh server <config_name> -p <port> <server1_address> [<server2_address> ...]
 ```
 
 Example:
 ```bash
-# Example with both IPv4 and IPv6 servers
-./create_lb_config.sh server triple_tunnel 192.168.1.100 20631 10.0.0.50 20631 2001:db8::1234 20631
+# Example with both IPv4 and IPv6 servers using the same port
+./create_lb_config.sh server triple_tunnel -p 20631 192.168.1.100 10.0.0.50 2001:db8::1234
 ```
 
 This will create a load-balanced configuration with three servers.

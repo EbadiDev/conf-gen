@@ -2,7 +2,9 @@
 
 if [ "$#" -lt 2 ]; then
     echo "Usage: $0 <type> <config_name> [parameters...]"
-    echo "For server config: $0 server <config_name> <server1_address> <server1_port> [<server2_address> <server2_port> ...]"
+    echo "For server config:"
+    echo "  With different ports: $0 server <config_name> <server1_address> <server1_port> [<server2_address> <server2_port> ...]"
+    echo "  With same port: $0 server <config_name> -p <port> <server1_address> [<server2_address> ...]"
     echo "For iran config: $0 iran <config_name> <start_port> <end_port> <kharej_ip> <kharej_port>"
     exit 1
 fi
@@ -13,17 +15,33 @@ shift 2
 
 if [ "$TYPE" = "server" ]; then
     # Server configuration logic
-    if [ "$#" -lt 2 ]; then
-        echo "Error: Server config needs at least one server address and port"
-        exit 1
+    if [ "$1" = "-p" ]; then
+        if [ "$#" -lt 3 ]; then
+            echo "Error: Server config with -p needs port and at least one server address"
+            exit 1
+        fi
+        COMMON_PORT="$2"
+        shift 2
+        SERVER_COUNT=$#
+        
+        # Convert addresses-only format to address-port pairs
+        SERVERS=()
+        for addr in "$@"; do
+            SERVERS+=("$addr" "$COMMON_PORT")
+        done
+        set -- "${SERVERS[@]}"
+    else
+        if [ "$#" -lt 2 ]; then
+            echo "Error: Server config needs at least one server address and port"
+            exit 1
+        fi
+        
+        if [ $(( $# % 2 )) -ne 0 ]; then
+            echo "Error: Each server must have both address and port"
+            exit 1
+        fi
+        SERVER_COUNT=$(( $# / 2 ))
     fi
-    
-    if [ $(( $# % 2 )) -ne 0 ]; then
-        echo "Error: Each server must have both address and port"
-        exit 1
-    fi
-
-    SERVER_COUNT=$(( $# / 2 ))
 
     # Start JSON configuration
     cat << EOF > "${CONFIG_NAME}.json"

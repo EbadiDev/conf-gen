@@ -1,0 +1,71 @@
+README.md
+# Load Balancer Configuration Generator
+
+This script generates JSON configuration files for both server and Iran-side setups of a load balancer system.
+
+## Usage
+
+```bash
+./create_lb_config.sh <type> <config_name> [parameters...]
+```
+
+### Server Configuration
+
+For creating a server-side configuration with multiple balanced servers:
+
+```bash
+./create_lb_config.sh server <config_name> <server1_address> <server1_port> [<server2_address> <server2_port> ...]
+```
+
+Example:
+```bash
+# Example with both IPv4 and IPv6 servers
+./create_lb_config.sh server triple_tunnel 192.168.1.100 20631 10.0.0.50 20631 2001:db8::1234 20631
+```
+
+This will create a load-balanced configuration with three servers.
+
+### Iran Configuration
+
+For creating an Iran-side configuration:
+
+```bash
+./create_lb_config.sh iran <config_name> <start_port> <end_port> <kharej_ip> <kharej_port>
+```
+
+Example:
+```bash
+# Example with IPv4
+./create_lb_config.sh iran config1 14000 14999 192.168.1.100 13787
+```
+
+This will create a configuration with:
+- Port range for incoming connections: 14000-14999
+- Connection to kharej server at 192.168.1.100:13787
+
+## Features
+
+- Supports both IPv4 and IPv6 addresses
+- Automatically detects address type and configures appropriate settings
+  - IPv4: Uses "0.0.0.0" as listen address and /32 for whitelist
+  - IPv6: Uses "::" as listen address and /128 for whitelist
+- Creates load-balanced configurations for multiple servers
+- Generates port range configurations for Iran-side setups
+- Sets proper permissions (644) for generated files
+
+## Output
+
+The script generates a JSON configuration file named `<config_name>.json` in the current directory.
+
+## Requirements
+
+- Bash shell
+- Write permissions in the current directory
+
+## Error Handling
+
+The script includes validation for:
+- Required number of parameters
+- Valid parameter pairs for server configuration
+- Required parameters for Iran configuration
+- Valid configuration type ('server' or 'iran')

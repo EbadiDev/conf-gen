@@ -70,9 +70,7 @@ EOF
             "settings": {
                 "nodelay": true,
                 "address": "127.0.0.1",
-                "port": ${PORT},
-                "balance-group": "core_balance",
-                "balance-interval": 60000
+                "port": ${PORT}
             }
         },
         {

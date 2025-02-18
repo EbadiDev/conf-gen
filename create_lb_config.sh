@@ -1,5 +1,29 @@
 #!/bin/bash
 
+# Function to add config to core.json if it doesn't exist
+add_to_core_json() {
+    local config_name="$1"
+    local core_json="/root/core.json"
+    
+    # Check if core.json exists
+    if [ ! -f "$core_json" ]; then
+        echo "Error: core.json not found in /root/"
+        return 1
+    }
+    
+    # Check if config already exists
+    if grep -q "\"${config_name}.json\"" "$core_json"; then
+        echo "Config ${config_name}.json already exists in core.json"
+        return 0
+    }
+    
+    # Add new config to the configs array
+    # Using sed to insert the new config before the last bracket
+    sed -i "/\"configs\":/,/]/{/]/i\\        \"${config_name}.json\"," "$core_json"
+    
+    echo "Added ${config_name}.json to core.json configurations"
+}
+
 if [ "$#" -lt 2 ]; then
     echo "Usage: $0 <type> <config_name> [parameters...]"
     echo "For server config:"
@@ -194,6 +218,11 @@ if [ "$TYPE" = "server" ]; then
     ]
 }
 EOF
+fi
+
+# After successful config creation, add to core.json
+if [ $? -eq 0 ]; then
+    add_to_core_json "$CONFIG_NAME"
 fi
 
 echo "Configuration file ${CONFIG_NAME}.json has been created successfully!"

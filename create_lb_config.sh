@@ -18,8 +18,21 @@ add_to_core_json() {
     }
     
     # Add new config to the configs array
-    # Using sed to insert the new config before the last bracket
-    sed -i "/\"configs\":/,/]/{/]/i\\        \"${config_name}.json\"," "$core_json"
+    # Using awk for more reliable JSON modification
+    awk -v config="${config_name}.json" '
+    /\"configs\":[[:space:]]*\[/ {
+        print $0
+        if (getline && !/]/) {
+            print "        \"" config "\","
+            print
+        } else {
+            print "        \"" config "\""
+            print
+        }
+        next
+    }
+    { print }
+    ' "$core_json" > "${core_json}.tmp" && mv "${core_json}.tmp" "$core_json"
     
     echo "Added ${config_name}.json to core.json configurations"
 }

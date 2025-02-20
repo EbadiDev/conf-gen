@@ -9,27 +9,36 @@ add_to_core_json() {
     if [ ! -f "$core_json" ]; then
         echo "Error: core.json not found in /root/"
         return 1
-    }
+    fi
     
     # Check if config already exists
     if grep -q "\"${config_name}.json\"" "$core_json"; then
         echo "Config ${config_name}.json already exists in core.json"
         return 0
+    fi
+
+    # Add new config to the configs array using awk
+    awk -v conf="${config_name}.json" '
+    BEGIN { in_array = 0; found_last = 0 }
+    /^[[:space:]]*"configs":[[:space:]]*\[/ {
+        in_array = 1;
+        print;
+        next;
     }
-    
-    # Add new config to the configs array
-    # Using awk for more reliable JSON modification
-    awk -v config="${config_name}.json" '
-    /\"configs\":[[:space:]]*\[/ {
-        print $0
-        if (getline && !/]/) {
-            print "        \"" config "\","
-            print
-        } else {
-            print "        \"" config "\""
-            print
+    in_array && !found_last {
+        if ($0 ~ /^[[:space:]]*\]/) {
+            if (last) {
+                print last;
+                printf "        ,\"%s\"\n", conf;
+            } else {
+                printf "        \"%s\"\n", conf;
+            }
+            found_last = 1;
+        } else if ($0 !~ /^[[:space:]]*$/) {
+            if (last) print last;
+            last = $0;
+            next;
         }
-        next
     }
     { print }
     ' "$core_json" > "${core_json}.tmp" && mv "${core_json}.tmp" "$core_json"

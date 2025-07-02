@@ -52,10 +52,60 @@ if [ "$#" -lt 2 ]; then
     echo "  With different ports: $0 server <config_name> <server1_address> <server1_port> [<server2_address> <server2_port> ...]"
     echo "  With same port: $0 server <config_name> -p <port> <server1_address> [<server2_address> ...]"
     echo "For iran config: $0 iran <config_name> <start_port> <end_port> <kharej_ip> <kharej_port>"
+    echo "For simple iran config: $0 simple iran <config_name> <start_port> <end_port> <ip> <port>"
     exit 1
 fi
 
 TYPE="$1"
+
+# simple iran configuration
+if [ "$TYPE" = "simple" ] && [ "$2" = "iran" ]; then
+    if [ "$#" -lt 6 ]; then
+        echo "Error: Simple iran config needs config_name, start_port, end_port, ip, and port"
+        exit 1
+    fi
+    
+    CONFIG_NAME="$3"
+    START_PORT="$4"
+    END_PORT="$5"
+    IP="$6"
+    PORT="$7"
+    
+    cat << EOF > "${CONFIG_NAME}.json"
+{
+    "name": "${CONFIG_NAME}",
+    "nodes": [
+        {
+            "name": "input",
+            "type": "TcpListener",
+            "settings": {
+                "address": "0.0.0.0",
+                "port": [${START_PORT}, ${END_PORT}],
+                "nodelay": true
+            },
+            "next": "output"
+        },
+        {
+            "name": "output",
+            "type": "TcpConnector",
+            "settings": {
+                "nodelay": true,
+                "address": "${IP}",
+                "port": ${PORT}
+            }
+        }
+    ]
+}
+EOF
+    if [ $? -eq 0 ]; then
+        add_to_core_json "$CONFIG_NAME"
+    fi
+
+    echo "Simple Iran configuration file ${CONFIG_NAME}.json has been created successfully!"
+    chmod 644 "${CONFIG_NAME}.json"
+    exit 0
+fi
+
 CONFIG_NAME="$2"
 shift 2
 

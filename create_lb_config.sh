@@ -46,30 +46,137 @@ add_to_core_json() {
     echo "Added ${config_name}.json to core.json configurations"
 }
 
+# Function to open firewall ports
+open_firewall_ports() {
+    local start_port="$1"
+    local end_port="$2"
+    local protocol="$3"
+    local single_port="$4"
+    
+    # Detect firewall system and open ports
+    if command -v ufw >/dev/null 2>&1 && ufw status >/dev/null 2>&1; then
+        # Ubuntu/Debian with UFW
+        echo "Opening ports using UFW..."
+        if [ -n "$single_port" ]; then
+            ufw allow "$single_port" >/dev/null 2>&1
+            echo "Opened port $single_port (TCP & UDP)"
+        fi
+        if [ "$start_port" != "$end_port" ]; then
+            ufw allow "$start_port:$end_port/tcp" >/dev/null 2>&1
+            ufw allow "$start_port:$end_port/udp" >/dev/null 2>&1
+            echo "Opened port range $start_port:$end_port (TCP & UDP)"
+        else
+            ufw allow "$start_port/tcp" >/dev/null 2>&1
+            ufw allow "$start_port/udp" >/dev/null 2>&1
+            echo "Opened port $start_port (TCP & UDP)"
+        fi
+    elif command -v firewall-cmd >/dev/null 2>&1; then
+        # CentOS/RHEL/Fedora with firewalld
+        echo "Opening ports using firewalld..."
+        if [ -n "$single_port" ]; then
+            firewall-cmd --permanent --add-port="$single_port/tcp" >/dev/null 2>&1
+            firewall-cmd --permanent --add-port="$single_port/udp" >/dev/null 2>&1
+            echo "Opened port $single_port (TCP & UDP)"
+        fi
+        if [ "$start_port" != "$end_port" ]; then
+            firewall-cmd --permanent --add-port="$start_port-$end_port/tcp" >/dev/null 2>&1
+            firewall-cmd --permanent --add-port="$start_port-$end_port/udp" >/dev/null 2>&1
+            echo "Opened port range $start_port-$end_port (TCP & UDP)"
+        else
+            firewall-cmd --permanent --add-port="$start_port/tcp" >/dev/null 2>&1
+            firewall-cmd --permanent --add-port="$start_port/udp" >/dev/null 2>&1
+            echo "Opened port $start_port (TCP & UDP)"
+        fi
+        firewall-cmd --reload >/dev/null 2>&1
+    elif command -v iptables >/dev/null 2>&1; then
+        # Generic iptables
+        echo "Opening ports using iptables..."
+        if [ -n "$single_port" ]; then
+            iptables -A INPUT -p tcp --dport "$single_port" -j ACCEPT >/dev/null 2>&1
+            iptables -A INPUT -p udp --dport "$single_port" -j ACCEPT >/dev/null 2>&1
+            echo "Opened port $single_port (TCP & UDP)"
+        fi
+        if [ "$start_port" != "$end_port" ]; then
+            iptables -A INPUT -p tcp --dport "$start_port:$end_port" -j ACCEPT >/dev/null 2>&1
+            iptables -A INPUT -p udp --dport "$start_port:$end_port" -j ACCEPT >/dev/null 2>&1
+            echo "Opened port range $start_port:$end_port (TCP & UDP)"
+        else
+            iptables -A INPUT -p tcp --dport "$start_port" -j ACCEPT >/dev/null 2>&1
+            iptables -A INPUT -p udp --dport "$start_port" -j ACCEPT >/dev/null 2>&1
+            echo "Opened port $start_port (TCP & UDP)"
+        fi
+        # Try to save iptables rules
+        if command -v iptables-save >/dev/null 2>&1; then
+            iptables-save > /etc/iptables/rules.v4 2>/dev/null || true
+        fi
+    else
+        echo "Warning: No supported firewall system detected. Please manually open ports:"
+        if [ -n "$single_port" ]; then
+            echo "  - Port $single_port (TCP & UDP)"
+        fi
+        if [ "$start_port" != "$end_port" ]; then
+            echo "  - Port range $start_port:$end_port (TCP & UDP)"
+        else
+            echo "  - Port $start_port (TCP & UDP)"
+        fi
+    fi
+}
+
 if [ "$#" -lt 2 ]; then
     echo "Usage: $0 <type> <config_name> [parameters...]"
     echo "For server config:"
     echo "  With different ports: $0 server <config_name> <server1_address> <server1_port> [<server2_address> <server2_port> ...]"
     echo "  With same port: $0 server <config_name> -p <port> <server1_address> [<server2_address> ...]"
     echo "For iran config: $0 iran <config_name> <start_port> <end_port> <kharej_ip> <kharej_port>"
-    echo "For simple iran config: $0 simple iran <config_name> <start_port> <end_port> <ip> <port>"
+    echo "For simple iran config: $0 simple [tcp|udp] iran <config_name> <start_port> <end_port> <ip> <port>"
     exit 1
 fi
 
 TYPE="$1"
 
-# simple iran configuration
-if [ "$TYPE" = "simple" ] && [ "$2" = "iran" ]; then
-    if [ "$#" -lt 6 ]; then
-        echo "Error: Simple iran config needs config_name, start_port, end_port, ip, and port"
+# Check if it's the simple iran configuration
+if [ "$TYPE" = "simple" ]; then
+    # Check if second parameter is tcp, udp, or iran (for backward compatibility)
+    if [ "$2" = "tcp" ] || [ "$2" = "udp" ]; then
+        PROTOCOL="$2"
+        if [ "$3" != "iran" ]; then
+            echo "Error: Third parameter must be 'iran' for simple config"
+            exit 1
+        fi
+        if [ "$#" -lt 8 ]; then
+            echo "Error: Simple iran config needs protocol, config_name, start_port, end_port, ip, and port"
+            exit 1
+        fi
+        CONFIG_NAME="$4"
+        START_PORT="$5"
+        END_PORT="$6"
+        IP="$7"
+        PORT="$8"
+    elif [ "$2" = "iran" ]; then
+        # Backward compatibility - default to TCP
+        PROTOCOL="tcp"
+        if [ "$#" -lt 7 ]; then
+            echo "Error: Simple iran config needs config_name, start_port, end_port, ip, and port"
+            exit 1
+        fi
+        CONFIG_NAME="$3"
+        START_PORT="$4"
+        END_PORT="$5"
+        IP="$6"
+        PORT="$7"
+    else
+        echo "Error: Second parameter must be 'tcp', 'udp', or 'iran' for simple config"
         exit 1
     fi
     
-    CONFIG_NAME="$3"
-    START_PORT="$4"
-    END_PORT="$5"
-    IP="$6"
-    PORT="$7"
+    # Set connection types based on protocol
+    if [ "$PROTOCOL" = "udp" ]; then
+        LISTENER_TYPE="UdpListener"
+        CONNECTOR_TYPE="UdpConnector"
+    else
+        LISTENER_TYPE="TcpListener"
+        CONNECTOR_TYPE="TcpConnector"
+    fi
     
     cat << EOF > "${CONFIG_NAME}.json"
 {
@@ -77,7 +184,7 @@ if [ "$TYPE" = "simple" ] && [ "$2" = "iran" ]; then
     "nodes": [
         {
             "name": "input",
-            "type": "TcpListener",
+            "type": "${LISTENER_TYPE}",
             "settings": {
                 "address": "0.0.0.0",
                 "port": [${START_PORT}, ${END_PORT}],
@@ -87,7 +194,7 @@ if [ "$TYPE" = "simple" ] && [ "$2" = "iran" ]; then
         },
         {
             "name": "output",
-            "type": "TcpConnector",
+            "type": "${CONNECTOR_TYPE}",
             "settings": {
                 "nodelay": true,
                 "address": "${IP}",
@@ -101,8 +208,9 @@ EOF
         add_to_core_json "$CONFIG_NAME"
     fi
 
-    echo "Simple Iran configuration file ${CONFIG_NAME}.json has been created successfully!"
+    echo "Simple ${PROTOCOL^^} Iran configuration file ${CONFIG_NAME}.json has been created successfully!"
     chmod 644 "${CONFIG_NAME}.json"
+    open_firewall_ports "$START_PORT" "$END_PORT" "$PROTOCOL" "$PORT"
     exit 0
 fi
 
@@ -299,3 +407,12 @@ fi
 
 echo "Configuration file ${CONFIG_NAME}.json has been created successfully!"
 chmod 644 "${CONFIG_NAME}.json"
+
+# Open firewall ports for server type configurations
+if [ "$TYPE" = "server" ]; then
+    for ((i=1; i<=SERVER_COUNT; i++)); do
+        PORT=$(( $2 + i - 1 ))
+        open_firewall_ports "$PORT" "$PORT" "tcp" "$PORT"
+        shift 2
+    done
+fi

@@ -282,6 +282,15 @@ if [ "$TYPE" = "half" ]; then
         fi
     fi
     
+    # Set connection types based on protocol
+    if [ "$PROTOCOL" = "udp" ]; then
+        LISTENER_TYPE="UdpListener"
+        CONNECTOR_TYPE="UdpConnector"
+    else
+        LISTENER_TYPE="TcpListener"
+        CONNECTOR_TYPE="TcpConnector"
+    fi
+    
     if [ "$CONFIG_TYPE" = "iran" ]; then
         # Determine if IPv6 for kharej IP
         if [[ "$KHAREJ_IP" == *":"* ]]; then
@@ -297,7 +306,7 @@ if [ "$TYPE" = "half" ]; then
     "nodes": [
         {
             "name": "users_inbound",
-            "type": "TcpListener",
+            "type": "${LISTENER_TYPE}",
             "settings": {
                 "address": "0.0.0.0",
                 "port": [${START_PORT},${END_PORT}],
@@ -362,7 +371,7 @@ if [ "$TYPE" = "half" ]; then
         },
         {
             "name": "kharej_inbound",
-            "type": "TcpListener",
+            "type": "${LISTENER_TYPE}",
             "settings": {
                 "address": "0.0.0.0",
                 "port": ${KHAREJ_PORT},
@@ -375,7 +384,7 @@ if [ "$TYPE" = "half" ]; then
         },
         {
             "name": "reality_dest",
-            "type": "TcpConnector",
+            "type": "${CONNECTOR_TYPE}",
             "settings": {
                 "nodelay": true,
                 "address": "${WEBSITE}",
@@ -402,7 +411,7 @@ EOF
     "nodes": [
         {
             "name": "outbound_to_core",
-            "type": "TcpConnector",
+            "type": "${CONNECTOR_TYPE}",
             "settings": {
                 "nodelay": true,
                 "address": "127.0.0.1",
@@ -475,7 +484,7 @@ EOF
         },
         {
             "name": "outbound_to_iran",
-            "type": "TcpConnector",
+            "type": "${CONNECTOR_TYPE}",
             "settings": {
                 "nodelay": true,
                 "address": "${IRAN_IP}",
@@ -492,6 +501,7 @@ EOF
         
         echo "Half ${PROTOCOL^^} Server configuration file ${CONFIG_NAME}.json has been created successfully!"
         chmod 644 "${CONFIG_NAME}.json"
+        open_firewall_ports "$PORT" "$PORT" "$PROTOCOL" "$PORT"
         
     else
         echo "Error: Half config type must be either 'iran' or 'server'"

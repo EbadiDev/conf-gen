@@ -129,6 +129,8 @@ if [ "$#" -lt 2 ]; then
     echo "  With same port: $0 server <config_name> -p <port> <server1_address> [<server2_address> ...]"
     echo "For iran config: $0 iran <config_name> <start_port> <end_port> <kharej_ip> <kharej_port>"
     echo "For simple iran config: $0 simple [tcp|udp] iran <config_name> <start_port> <end_port> <ip> <port>"
+    echo "For half iran config: $0 half <website> <password> [tcp|udp] iran <config_name> <start_port> <end_port> <kharej_ip> <kharej_port>"
+    echo "For half server config: $0 half <website> <password> [tcp|udp] server <config_name> -p <port> <iran_ip>"
     exit 1
 fi
 
@@ -211,6 +213,291 @@ EOF
     echo "Simple ${PROTOCOL^^} Iran configuration file ${CONFIG_NAME}.json has been created successfully!"
     chmod 644 "${CONFIG_NAME}.json"
     open_firewall_ports "$START_PORT" "$END_PORT" "$PROTOCOL" "$PORT"
+    exit 0
+fi
+
+# Check if it's the half configuration
+if [ "$TYPE" = "half" ]; then
+    if [ "$#" -lt 6 ]; then
+        echo "Error: Half config needs website, password, and other parameters"
+        exit 1
+    fi
+    
+    WEBSITE="$2"
+    PASSWORD="$3"
+    
+    # Check if fourth parameter is tcp, udp, or protocol is omitted
+    if [ "$4" = "tcp" ] || [ "$4" = "udp" ]; then
+        PROTOCOL="$4"
+        CONFIG_TYPE="$5"  # iran or server
+        if [ "$CONFIG_TYPE" = "iran" ]; then
+            if [ "$#" -lt 10 ]; then
+                echo "Error: Half iran config needs website, password, protocol, config_name, start_port, end_port, kharej_ip, and kharej_port"
+                exit 1
+            fi
+            CONFIG_NAME="$6"
+            START_PORT="$7"
+            END_PORT="$8"
+            KHAREJ_IP="$9"
+            KHAREJ_PORT="${10}"
+        elif [ "$CONFIG_TYPE" = "server" ]; then
+            if [ "$#" -lt 9 ]; then
+                echo "Error: Half server config needs website, password, protocol, config_name, -p, port, and iran_ip"
+                exit 1
+            fi
+            CONFIG_NAME="$6"
+            if [ "$7" != "-p" ]; then
+                echo "Error: Half server config requires -p flag"
+                exit 1
+            fi
+            PORT="$8"
+            IRAN_IP="$9"
+        fi
+    else
+        # Backward compatibility - default to TCP
+        PROTOCOL="tcp"
+        CONFIG_TYPE="$4"  # iran or server
+        if [ "$CONFIG_TYPE" = "iran" ]; then
+            if [ "$#" -lt 9 ]; then
+                echo "Error: Half iran config needs website, password, config_name, start_port, end_port, kharej_ip, and kharej_port"
+                exit 1
+            fi
+            CONFIG_NAME="$5"
+            START_PORT="$6"
+            END_PORT="$7"
+            KHAREJ_IP="$8"
+            KHAREJ_PORT="$9"
+        elif [ "$CONFIG_TYPE" = "server" ]; then
+            if [ "$#" -lt 8 ]; then
+                echo "Error: Half server config needs website, password, config_name, -p, port, and iran_ip"
+                exit 1
+            fi
+            CONFIG_NAME="$5"
+            if [ "$6" != "-p" ]; then
+                echo "Error: Half server config requires -p flag"
+                exit 1
+            fi
+            PORT="$7"
+            IRAN_IP="$8"
+        fi
+    fi
+    
+    if [ "$CONFIG_TYPE" = "iran" ]; then
+        # Determine if IPv6 for kharej IP
+        if [[ "$KHAREJ_IP" == *":"* ]]; then
+            IP_SUFFIX="/128"
+        else
+            IP_SUFFIX="/32"
+        fi
+        
+        # Create half Iran configuration
+        cat << EOF > "${CONFIG_NAME}.json"
+{
+    "name": "${CONFIG_NAME}",
+    "nodes": [
+        {
+            "name": "users_inbound",
+            "type": "TcpListener",
+            "settings": {
+                "address": "0.0.0.0",
+                "port": [${START_PORT},${END_PORT}],
+                "nodelay": true
+            },
+            "next": "header"
+        },
+        {
+            "name": "header",
+            "type": "HeaderClient",
+            "settings": {
+                "data": "src_context->port"
+            },
+            "next": "bridge2"
+        },
+        {
+            "name": "bridge2",
+            "type": "Bridge",
+            "settings": {
+                "pair": "bridge1"
+            }
+        },
+        {
+            "name": "bridge1",
+            "type": "Bridge",
+            "settings": {
+                "pair": "bridge2"
+            }
+        },
+        {
+            "name": "reverse_server",
+            "type": "ReverseServer",
+            "settings": {},
+            "next": "bridge1"
+        },
+        {
+            "name": "pbserver",
+            "type": "ProtoBufServer",
+            "settings": {},
+            "next": "reverse_server"
+        },
+        {
+            "name": "h2server",
+            "type": "Http2Server",
+            "settings": {},
+            "next": "pbserver"
+        },
+        {
+            "name": "halfs",
+            "type": "HalfDuplexServer",
+            "settings": {},
+            "next": "h2server"
+        },
+        {
+            "name": "reality_server",
+            "type": "RealityServer",
+            "settings": {
+                "destination": "reality_dest",
+                "password": "${PASSWORD}"
+            },
+            "next": "halfs"
+        },
+        {
+            "name": "kharej_inbound",
+            "type": "TcpListener",
+            "settings": {
+                "address": "0.0.0.0",
+                "port": ${KHAREJ_PORT},
+                "nodelay": true,
+                "whitelist": [
+                    "${KHAREJ_IP}${IP_SUFFIX}"
+                ]
+            },
+            "next": "reality_server"
+        },
+        {
+            "name": "reality_dest",
+            "type": "TcpConnector",
+            "settings": {
+                "nodelay": true,
+                "address": "${WEBSITE}",
+                "port": 443
+            }
+        }
+    ]
+}
+EOF
+        
+        if [ $? -eq 0 ]; then
+            add_to_core_json "$CONFIG_NAME"
+        fi
+        
+        echo "Half ${PROTOCOL^^} Iran configuration file ${CONFIG_NAME}.json has been created successfully!"
+        chmod 644 "${CONFIG_NAME}.json"
+        open_firewall_ports "$START_PORT" "$END_PORT" "$PROTOCOL" "$KHAREJ_PORT"
+        
+    elif [ "$CONFIG_TYPE" = "server" ]; then
+        # Create half server configuration
+        cat << EOF > "${CONFIG_NAME}.json"
+{
+    "name": "${CONFIG_NAME}",
+    "nodes": [
+        {
+            "name": "outbound_to_core",
+            "type": "TcpConnector",
+            "settings": {
+                "nodelay": true,
+                "address": "127.0.0.1",
+                "port": ${PORT}
+            }
+        },
+        {
+            "name": "header",
+            "type": "HeaderServer",
+            "settings": {
+                "override": "dest_context->port"
+            },
+            "next": "outbound_to_core"
+        },
+        {
+            "name": "bridge1",
+            "type": "Bridge",
+            "settings": {
+                "pair": "bridge2"
+            },
+            "next": "header"
+        },
+        {
+            "name": "bridge2",
+            "type": "Bridge",
+            "settings": {
+                "pair": "bridge1"
+            },
+            "next": "reverse_client"
+        },
+        {
+            "name": "reverse_client",
+            "type": "ReverseClient",
+            "settings": {
+                "minimum-unused": 16
+            },
+            "next": "pbclient"
+        },
+        {
+            "name": "pbclient",
+            "type": "ProtoBufClient",
+            "settings": {},
+            "next": "h2client"
+        },
+        {
+            "name": "h2client",
+            "type": "Http2Client",
+            "settings": {
+                "host": "${WEBSITE}",
+                "port": 443,
+                "path": "/",
+                "content-type": "application/grpc",
+                "concurrency": 64
+            },
+            "next": "halfc"
+        },
+        {
+            "name": "halfc",
+            "type": "HalfDuplexClient",
+            "next": "reality_client"
+        },
+        {
+            "name": "reality_client",
+            "type": "RealityClient",
+            "settings": {
+                "sni": "${WEBSITE}",
+                "password": "${PASSWORD}"
+            },
+            "next": "outbound_to_iran"
+        },
+        {
+            "name": "outbound_to_iran",
+            "type": "TcpConnector",
+            "settings": {
+                "nodelay": true,
+                "address": "${IRAN_IP}",
+                "port": ${PORT}
+            }
+        }
+    ]
+}
+EOF
+        
+        if [ $? -eq 0 ]; then
+            add_to_core_json "$CONFIG_NAME"
+        fi
+        
+        echo "Half ${PROTOCOL^^} Server configuration file ${CONFIG_NAME}.json has been created successfully!"
+        chmod 644 "${CONFIG_NAME}.json"
+        
+    else
+        echo "Error: Half config type must be either 'iran' or 'server'"
+        exit 1
+    fi
+    
     exit 0
 fi
 

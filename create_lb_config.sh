@@ -125,9 +125,9 @@ open_firewall_ports() {
 if [ "$#" -lt 2 ]; then
     echo "Usage: $0 <type> <config_name> [parameters...]"
     echo "For server config:"
-    echo "  With different ports: $0 server <config_name> <server1_address> <server1_port> [<server2_address> <server2_port> ...]"
-    echo "  With same port: $0 server <config_name> -p <port> <server1_address> [<server2_address> ...]"
-    echo "For iran config: $0 iran <config_name> <start_port> <end_port> <kharej_ip> <kharej_port>"
+    echo "  With different ports: $0 server [tcp|udp] <config_name> <server1_address> <server1_port> [<server2_address> <server2_port> ...]"
+    echo "  With same port: $0 server [tcp|udp] <config_name> -p <port> <server1_address> [<server2_address> ...]"
+    echo "For iran config: $0 iran [tcp|udp] <config_name> <start_port> <end_port> <kharej_ip> <kharej_port>"
     echo "For simple iran config: $0 simple [tcp|udp] iran <config_name> <start_port> <end_port> <ip> <port>"
     echo "For half iran config: $0 half <website> <password> [tcp|udp] iran <config_name> <start_port> <end_port> <kharej_ip> <kharej_port>"
     echo "For half server config: $0 half <website> <password> [tcp|udp] server <config_name> -p <port> <iran_ip>"
@@ -511,14 +511,27 @@ EOF
     exit 0
 fi
 
-CONFIG_NAME="$2"
-shift 2
-
 if [ "$TYPE" = "server" ]; then
-    # Set connection types based on protocol (default to TCP for backward compatibility)
-    PROTOCOL="tcp"
-    LISTENER_TYPE="TcpListener"
-    CONNECTOR_TYPE="TcpConnector"
+    # Check if second parameter is a protocol
+    if [ "$2" = "tcp" ] || [ "$2" = "udp" ]; then
+        PROTOCOL="$2"
+        CONFIG_NAME="$3"
+        shift 3  # Remove 'server', protocol, and config_name
+    else
+        # Default to TCP for backward compatibility
+        PROTOCOL="tcp"
+        CONFIG_NAME="$2"
+        shift 2  # Remove 'server' and config_name
+    fi
+    
+    # Set connection types based on protocol
+    if [ "$PROTOCOL" = "udp" ]; then
+        LISTENER_TYPE="UdpListener"
+        CONNECTOR_TYPE="UdpConnector"
+    else
+        LISTENER_TYPE="TcpListener"
+        CONNECTOR_TYPE="TcpConnector"
+    fi
     
     # Server configuration logic
     if [ "$1" = "-p" ]; then
@@ -616,10 +629,26 @@ EOF
     done
 
 elif [ "$TYPE" = "iran" ]; then
-    # Set connection types based on protocol (default to TCP for backward compatibility)
-    PROTOCOL="tcp"
-    LISTENER_TYPE="TcpListener"
-    CONNECTOR_TYPE="TcpConnector"
+    # Check if second parameter is a protocol
+    if [ "$2" = "tcp" ] || [ "$2" = "udp" ]; then
+        PROTOCOL="$2"
+        CONFIG_NAME="$3"
+        shift 3  # Remove 'iran', protocol, and config_name
+    else
+        # Default to TCP for backward compatibility
+        PROTOCOL="tcp"
+        CONFIG_NAME="$2"
+        shift 2  # Remove 'iran' and config_name
+    fi
+    
+    # Set connection types based on protocol
+    if [ "$PROTOCOL" = "udp" ]; then
+        LISTENER_TYPE="UdpListener"
+        CONNECTOR_TYPE="UdpConnector"
+    else
+        LISTENER_TYPE="TcpListener"
+        CONNECTOR_TYPE="TcpConnector"
+    fi
     
     # Iran configuration logic
     if [ "$#" -lt 4 ]; then

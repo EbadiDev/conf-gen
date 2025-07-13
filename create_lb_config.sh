@@ -515,6 +515,11 @@ CONFIG_NAME="$2"
 shift 2
 
 if [ "$TYPE" = "server" ]; then
+    # Set connection types based on protocol (default to TCP for backward compatibility)
+    PROTOCOL="tcp"
+    LISTENER_TYPE="TcpListener"
+    CONNECTOR_TYPE="TcpConnector"
+    
     # Server configuration logic
     if [ "$1" = "-p" ]; then
         if [ "$#" -lt 3 ]; then
@@ -567,7 +572,7 @@ EOF
         cat << EOF >> "${CONFIG_NAME}.json"
         {
             "name": "core${i}_connector",
-            "type": "TcpConnector",
+            "type": "${CONNECTOR_TYPE}",
             "settings": {
                 "nodelay": true,
                 "address": "127.0.0.1",
@@ -600,7 +605,7 @@ EOF
         },
         {
             "name": "iran${i}_connector",
-            "type": "TcpConnector",
+            "type": "${CONNECTOR_TYPE}",
             "settings": {
                 "nodelay": true,
                 "address": "${ADDRESS}",
@@ -611,6 +616,11 @@ EOF
     done
 
 elif [ "$TYPE" = "iran" ]; then
+    # Set connection types based on protocol (default to TCP for backward compatibility)
+    PROTOCOL="tcp"
+    LISTENER_TYPE="TcpListener"
+    CONNECTOR_TYPE="TcpConnector"
+    
     # Iran configuration logic
     if [ "$#" -lt 4 ]; then
         echo "Error: Iran config needs start_port, end_port, kharej_ip, and kharej_port"
@@ -638,7 +648,7 @@ elif [ "$TYPE" = "iran" ]; then
     "nodes": [
         {
             "name": "users_inbound",
-            "type": "TcpListener",
+            "type": "${LISTENER_TYPE}",
             "settings": {
                 "address": "${LISTEN_ADDRESS}",
                 "port": [${START_PORT},${END_PORT}],
@@ -668,7 +678,7 @@ elif [ "$TYPE" = "iran" ]; then
         },
         {
             "name": "kharej_inbound",
-            "type": "TcpListener",
+            "type": "${LISTENER_TYPE}",
             "settings": {
                 "address": "${LISTEN_ADDRESS}",
                 "port": ${KHAREJ_PORT},

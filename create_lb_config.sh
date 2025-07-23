@@ -294,8 +294,10 @@ if [ "$TYPE" = "half" ]; then
     if [ "$CONFIG_TYPE" = "iran" ]; then
         # Determine if IPv6 for kharej IP
         if [[ "$KHAREJ_IP" == *":"* ]]; then
+            LISTEN_ADDRESS="::"
             IP_SUFFIX="/128"
         else
+            LISTEN_ADDRESS="0.0.0.0"
             IP_SUFFIX="/32"
         fi
         
@@ -308,7 +310,7 @@ if [ "$TYPE" = "half" ]; then
             "name": "users_inbound",
             "type": "${LISTENER_TYPE}",
             "settings": {
-                "address": "0.0.0.0",
+                "address": "${LISTEN_ADDRESS}",
                 "port": [${START_PORT},${END_PORT}],
                 "nodelay": true
             },
@@ -373,7 +375,7 @@ if [ "$TYPE" = "half" ]; then
             "name": "kharej_inbound",
             "type": "${LISTENER_TYPE}",
             "settings": {
-                "address": "0.0.0.0",
+                "address": "${LISTEN_ADDRESS}",
                 "port": ${KHAREJ_PORT},
                 "nodelay": true,
                 "whitelist": [

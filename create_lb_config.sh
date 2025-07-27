@@ -131,8 +131,8 @@ if [ "$#" -lt 2 ]; then
     echo "For simple iran config: $0 simple [tcp|udp] iran <config_name> <start_port> <end_port> <ip> <port>"
     echo "For half iran config: $0 half <website> <password> [tcp|udp] iran <config_name> <start_port> <end_port> <kharej_ip> <kharej_port>"
     echo "For half server config: $0 half <website> <password> [tcp|udp] server <config_name> -p <port> <iran_ip>"
-    echo "For v2 iran config: $0 v2 iran <config_name> <start_port> <end_port> <ip_public> <private_ip> <endpoint_port>"
-    echo "For v2 server config: $0 v2 server <config_name> <ip_public> <private_ip> <endpoint_port>"
+    echo "For v2 iran config: $0 v2 iran <config_name> <start_port> <end_port> <non_iran_ip> <iran_ip> <private_ip> <endpoint_port>"
+    echo "For v2 server config: $0 v2 server <config_name> <non_iran_ip> <iran_ip> <private_ip> <endpoint_port>"
     exit 1
 fi
 
@@ -518,22 +518,21 @@ fi
 # --- V2 IRAN and V2 SERVER CONFIGS ---
 if [ "$TYPE" = "v2" ]; then
     if [ "$2" = "iran" ]; then
-        # v2 iran name-of-config start-port end-port ip-public private-ip endpoint-port
-        if [ "$#" -lt 8 ]; then
-            echo "Usage: $0 v2 iran <config_name> <start_port> <end_port> <ip_public> <private_ip> <endpoint_port>"
+        # v2 iran config_name start-port end-port non-iran-ip iran-ip private-ip endpoint-port
+        if [ "$#" -lt 9 ]; then
+            echo "Usage: $0 v2 iran <config_name> <start_port> <end_port> <non_iran_ip> <iran_ip> <private_ip> <endpoint_port>"
             exit 1
         fi
         CONFIG_NAME="$3"
         START_PORT="$4"
         END_PORT="$5"
-        IP_PUBLIC="$6"
-        PRIVATE_IP="$7"
-        ENDPOINT_PORT="$8"
+        NON_IRAN_IP="$6"
+        IRAN_IP="$7"
+        PRIVATE_IP="$8"
+        ENDPOINT_PORT="$9"
 
-        # Prompt for IRAN_IP, NON_IRAN_IP, and desired protocol number
-        read -p "Enter IRAN_IP: " IRAN_IP
-        read -p "Enter NON_IRAN_IP: " NON_IRAN_IP
-        read -p "Enter desired protocol number for protoswap-tcp (e.g., 146): " PROTOSWAP_TCP
+        # Default protocol number for protoswap-tcp
+        PROTOSWAP_TCP=146
 
         # Calculate PRIVATE_IP+1 for output and ipovsrc2
         IFS='.' read -r ip1 ip2 ip3 ip4 <<< "$PRIVATE_IP"
@@ -638,20 +637,19 @@ EOF
         open_firewall_ports "$START_PORT" "$END_PORT" "tcp" "$ENDPOINT_PORT"
         exit 0
     elif [ "$2" = "server" ]; then
-        # v2 server name-of-config ip-public private-ip endpoint-port
-        if [ "$#" -lt 6 ]; then
-            echo "Usage: $0 v2 server <config_name> <ip_public> <private_ip> <endpoint_port>"
+        # v2 server config_name non-iran-ip iran-ip private-ip endpoint-port
+        if [ "$#" -lt 7 ]; then
+            echo "Usage: $0 v2 server <config_name> <non_iran_ip> <iran_ip> <private_ip> <endpoint_port>"
             exit 1
         fi
         CONFIG_NAME="$3"
-        IP_PUBLIC="$4"
-        PRIVATE_IP="$5"
-        ENDPOINT_PORT="$6"
+        NON_IRAN_IP="$4"
+        IRAN_IP="$5"
+        PRIVATE_IP="$6"
+        ENDPOINT_PORT="$7"
 
-        # Prompt for IP_IRAN, IP_KHAREJ, and desired protocol number
-        read -p "Enter IP_IRAN: " IP_IRAN
-        read -p "Enter IP_KHAREJ: " IP_KHAREJ
-        read -p "Enter desired protocol number for protoswap-tcp (e.g., 146): " PROTOSWAP_TCP
+        # Default protocol number for protoswap-tcp
+        PROTOSWAP_TCP=146
 
         # Calculate PRIVATE_IP+1 for ipovsrc2
         IFS='.' read -r ip1 ip2 ip3 ip4 <<< "$PRIVATE_IP"
@@ -666,7 +664,7 @@ EOF
             "type": "RawSocket",
             "settings": {
                 "capture-filter-mode": "source-ip",
-                "capture-ip": "${IP_IRAN}"
+                "capture-ip": "${IRAN_IP}"
             },
             "next": "ipovsrc"
         },
@@ -676,7 +674,7 @@ EOF
             "settings": {
                 "direction": "down",
                 "mode": "source-ip",
-                "ipv4": "${IP_KHAREJ}"
+                "ipv4": "${NON_IRAN_IP}"
             },
             "next": "ipovdest"
         },
@@ -686,7 +684,7 @@ EOF
             "settings": {
                 "direction": "down",
                 "mode": "dest-ip",
-                "ipv4": "${IP_IRAN}"
+                "ipv4": "${IRAN_IP}"
             },
             "next": "manip"
         },

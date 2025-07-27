@@ -131,6 +131,8 @@ if [ "$#" -lt 2 ]; then
     echo "For simple iran config: $0 simple [tcp|udp] iran <config_name> <start_port> <end_port> <ip> <port>"
     echo "For half iran config: $0 half <website> <password> [tcp|udp] iran <config_name> <start_port> <end_port> <kharej_ip> <kharej_port>"
     echo "For half server config: $0 half <website> <password> [tcp|udp] server <config_name> -p <port> <iran_ip>"
+    echo "For v2 iran config: $0 v2 iran <config_name> <start_port> <end_port> <ip_public> <private_ip> <endpoint_port>"
+    echo "For v2 server config: $0 v2 server <config_name> <ip_public> <private_ip> <endpoint_port>"
     exit 1
 fi
 
@@ -513,233 +515,6 @@ EOF
     exit 0
 fi
 
-if [ "$TYPE" = "server" ]; then
-    # Check if second parameter is a protocol
-    if [ "$2" = "tcp" ] || [ "$2" = "udp" ]; then
-        PROTOCOL="$2"
-        CONFIG_NAME="$3"
-        shift 3  # Remove 'server', protocol, and config_name
-    else
-        # Default to TCP for backward compatibility
-        PROTOCOL="tcp"
-        CONFIG_NAME="$2"
-        shift 2  # Remove 'server' and config_name
-    fi
-    
-    # Set connection types based on protocol
-    if [ "$PROTOCOL" = "udp" ]; then
-        LISTENER_TYPE="UdpListener"
-        CONNECTOR_TYPE="UdpConnector"
-    else
-        LISTENER_TYPE="TcpListener"
-        CONNECTOR_TYPE="TcpConnector"
-    fi
-    
-    # Server configuration logic
-    if [ "$1" = "-p" ]; then
-        if [ "$#" -lt 3 ]; then
-            echo "Error: Server config with -p needs port and at least one server address"
-            exit 1
-        fi
-        COMMON_PORT="$2"
-        shift 2
-        SERVER_COUNT=$#
-        
-        # Convert addresses-only format to address-port pairs
-        SERVERS=()
-        for addr in "$@"; do
-            SERVERS+=("$addr" "$COMMON_PORT")
-        done
-        set -- "${SERVERS[@]}"
-    else
-        if [ "$#" -lt 2 ]; then
-            echo "Error: Server config needs at least one server address and port"
-            exit 1
-        fi
-        
-        if [ $(( $# % 2 )) -ne 0 ]; then
-            echo "Error: Each server must have both address and port"
-            exit 1
-        fi
-        SERVER_COUNT=$(( $# / 2 ))
-    fi
-
-    # Start JSON configuration
-    cat << EOF > "${CONFIG_NAME}.json"
-{
-    "name": "${CONFIG_NAME}",
-    "nodes": [
-EOF
-
-    # Generate configuration for each server
-    for ((i=1; i<=SERVER_COUNT; i++)); do
-        ADDRESS=$1
-        PORT=$2
-        shift 2
-
-        # For all servers after the first, prefix with comma
-        if [ $i -gt 1 ]; then
-            cat << EOF >> "${CONFIG_NAME}.json"
-        ,
-EOF
-        fi
-
-        cat << EOF >> "${CONFIG_NAME}.json"
-        {
-            "name": "core${i}_connector",
-            "type": "${CONNECTOR_TYPE}",
-            "settings": {
-                "nodelay": true,
-                "address": "127.0.0.1",
-                "port": ${PORT}
-            }
-        },
-        {
-            "name": "bridge_core${i}_in",
-            "type": "Bridge",
-            "settings": {
-                "pair": "bridge_core${i}_out"
-            },
-            "next": "core${i}_connector"
-        },
-        {
-            "name": "bridge_core${i}_out",
-            "type": "Bridge",
-            "settings": {
-                "pair": "bridge_core${i}_in"
-            },
-            "next": "reverse_iran${i}"
-        },
-        {
-            "name": "reverse_iran${i}",
-            "type": "ReverseClient",
-            "settings": {
-                "minimum-unused": 16
-            },
-            "next": "iran${i}_connector"
-        },
-        {
-            "name": "iran${i}_connector",
-            "type": "${CONNECTOR_TYPE}",
-            "settings": {
-                "nodelay": true,
-                "address": "${ADDRESS}",
-                "port": ${PORT}
-            }
-        }
-EOF
-    done
-
-elif [ "$TYPE" = "iran" ]; then
-    # Check if second parameter is a protocol
-    if [ "$2" = "tcp" ] || [ "$2" = "udp" ]; then
-        PROTOCOL="$2"
-        CONFIG_NAME="$3"
-        shift 3  # Remove 'iran', protocol, and config_name
-    else
-        # Default to TCP for backward compatibility
-        PROTOCOL="tcp"
-        CONFIG_NAME="$2"
-        shift 2  # Remove 'iran' and config_name
-    fi
-    
-    # Set connection types based on protocol
-    if [ "$PROTOCOL" = "udp" ]; then
-        LISTENER_TYPE="UdpListener"
-        CONNECTOR_TYPE="UdpConnector"
-    else
-        LISTENER_TYPE="TcpListener"
-        CONNECTOR_TYPE="TcpConnector"
-    fi
-    
-    # Iran configuration logic
-    if [ "$#" -lt 4 ]; then
-        echo "Error: Iran config needs start_port, end_port, kharej_ip, and kharej_port"
-        exit 1
-    fi
-
-    START_PORT="$1"
-    END_PORT="$2"
-    KHAREJ_IP="$3"
-    KHAREJ_PORT="$4"
-
-    # Determine if IPv6
-    if [[ "$KHAREJ_IP" == *":"* ]]; then
-        LISTEN_ADDRESS="::"
-        IP_SUFFIX="/128"
-    else
-        LISTEN_ADDRESS="0.0.0.0"
-        IP_SUFFIX="/32"
-    fi
-
-    # Create Iran configuration
-    cat << EOF > "${CONFIG_NAME}.json"
-{
-    "name": "${CONFIG_NAME}",
-    "nodes": [
-        {
-            "name": "users_inbound",
-            "type": "${LISTENER_TYPE}",
-            "settings": {
-                "address": "${LISTEN_ADDRESS}",
-                "port": [${START_PORT},${END_PORT}],
-                "nodelay": true
-            },
-            "next":  "bridge2"
-        },
-        {
-            "name": "bridge2",
-            "type": "Bridge",
-            "settings": {
-                "pair": "bridge1"
-            }
-        },
-        {
-            "name": "bridge1",
-            "type": "Bridge",
-            "settings": {
-                "pair": "bridge2"
-            }
-        },
-        {
-            "name": "reverse_server",
-            "type": "ReverseServer",
-            "settings": {},
-            "next": "bridge1"
-        },
-        {
-            "name": "kharej_inbound",
-            "type": "${LISTENER_TYPE}",
-            "settings": {
-                "address": "${LISTEN_ADDRESS}",
-                "port": ${KHAREJ_PORT},
-                "nodelay": true,
-                "whitelist": [
-                    "${KHAREJ_IP}${IP_SUFFIX}"
-                ]
-            },
-            "next": "reverse_server"
-        }
-    ]
-}
-EOF
-
-else
-    echo "Error: First parameter must be either 'server' or 'iran'"
-    exit 1
-fi
-
-# Close JSON structure for server type (iran type already closed)
-if [ "$TYPE" = "server" ]; then
-    cat << EOF >> "${CONFIG_NAME}.json"
-
-    ]
-}
-EOF
-fi
-
-echo "Configuration file ${CONFIG_NAME}.json has been created successfully!"
-
 # --- V2 IRAN and V2 SERVER CONFIGS ---
 if [ "$TYPE" = "v2" ]; then
     if [ "$2" = "iran" ]; then
@@ -967,12 +742,238 @@ EOF
     fi
 fi
 
+if [ "$TYPE" = "server" ]; then
+    # Check if second parameter is a protocol
+    if [ "$2" = "tcp" ] || [ "$2" = "udp" ]; then
+        PROTOCOL="$2"
+        CONFIG_NAME="$3"
+        shift 3  # Remove 'server', protocol, and config_name
+    else
+        # Default to TCP for backward compatibility
+        PROTOCOL="tcp"
+        CONFIG_NAME="$2"
+        shift 2  # Remove 'server' and config_name
+    fi
+    
+    # Set connection types based on protocol
+    if [ "$PROTOCOL" = "udp" ]; then
+        LISTENER_TYPE="UdpListener"
+        CONNECTOR_TYPE="UdpConnector"
+    else
+        LISTENER_TYPE="TcpListener"
+        CONNECTOR_TYPE="TcpConnector"
+    fi
+    
+    # Server configuration logic
+    if [ "$1" = "-p" ]; then
+        if [ "$#" -lt 3 ]; then
+            echo "Error: Server config with -p needs port and at least one server address"
+            exit 1
+        fi
+        COMMON_PORT="$2"
+        shift 2
+        SERVER_COUNT=$#
+        
+        # Convert addresses-only format to address-port pairs
+        SERVERS=()
+        for addr in "$@"; do
+            SERVERS+=("$addr" "$COMMON_PORT")
+        done
+        set -- "${SERVERS[@]}"
+    else
+        if [ "$#" -lt 2 ]; then
+            echo "Error: Server config needs at least one server address and port"
+            exit 1
+        fi
+        
+        if [ $(( $# % 2 )) -ne 0 ]; then
+            echo "Error: Each server must have both address and port"
+            exit 1
+        fi
+        SERVER_COUNT=$(( $# / 2 ))
+    fi
+
+    # Start JSON configuration
+    cat << EOF > "${CONFIG_NAME}.json"
+{
+    "name": "${CONFIG_NAME}",
+    "nodes": [
+EOF
+
+    # Generate configuration for each server
+    for ((i=1; i<=SERVER_COUNT; i++)); do
+        ADDRESS=$1
+        PORT=$2
+        shift 2
+
+        # For all servers after the first, prefix with comma
+        if [ $i -gt 1 ]; then
+            cat << EOF >> "${CONFIG_NAME}.json"
+        ,
+EOF
+        fi
+
+        cat << EOF >> "${CONFIG_NAME}.json"
+        {
+            "name": "core${i}_connector",
+            "type": "${CONNECTOR_TYPE}",
+            "settings": {
+                "nodelay": true,
+                "address": "127.0.0.1",
+                "port": ${PORT}
+            }
+        },
+        {
+            "name": "bridge_core${i}_in",
+            "type": "Bridge",
+            "settings": {
+                "pair": "bridge_core${i}_out"
+            },
+            "next": "core${i}_connector"
+        },
+        {
+            "name": "bridge_core${i}_out",
+            "type": "Bridge",
+            "settings": {
+                "pair": "bridge_core${i}_in"
+            },
+            "next": "reverse_iran${i}"
+        },
+        {
+            "name": "reverse_iran${i}",
+            "type": "ReverseClient",
+            "settings": {
+                "minimum-unused": 16
+            },
+            "next": "iran${i}_connector"
+        },
+        {
+            "name": "iran${i}_connector",
+            "type": "${CONNECTOR_TYPE}",
+            "settings": {
+                "nodelay": true,
+                "address": "${ADDRESS}",
+                "port": ${PORT}
+            }
+        }
+EOF
+    done
+
+elif [ "$TYPE" = "iran" ]; then
+    # Check if second parameter is a protocol
+    if [ "$2" = "tcp" ] || [ "$2" = "udp" ]; then
+        PROTOCOL="$2"
+        CONFIG_NAME="$3"
+        shift 3  # Remove 'iran', protocol, and config_name
+    else
+        # Default to TCP for backward compatibility
+        PROTOCOL="tcp"
+        CONFIG_NAME="$2"
+        shift 2  # Remove 'iran' and config_name
+    fi
+    
+    # Set connection types based on protocol
+    if [ "$PROTOCOL" = "udp" ]; then
+        LISTENER_TYPE="UdpListener"
+        CONNECTOR_TYPE="UdpConnector"
+    else
+        LISTENER_TYPE="TcpListener"
+        CONNECTOR_TYPE="TcpConnector"
+    fi
+    
+    # Iran configuration logic
+    if [ "$#" -lt 4 ]; then
+        echo "Error: Iran config needs start_port, end_port, kharej_ip, and kharej_port"
+        exit 1
+    fi
+
+    START_PORT="$1"
+    END_PORT="$2"
+    KHAREJ_IP="$3"
+    KHAREJ_PORT="$4"
+
+    # Determine if IPv6
+    if [[ "$KHAREJ_IP" == *":"* ]]; then
+        LISTEN_ADDRESS="::"
+        IP_SUFFIX="/128"
+    else
+        LISTEN_ADDRESS="0.0.0.0"
+        IP_SUFFIX="/32"
+    fi
+
+    # Create Iran configuration
+    cat << EOF > "${CONFIG_NAME}.json"
+{
+    "name": "${CONFIG_NAME}",
+    "nodes": [
+        {
+            "name": "users_inbound",
+            "type": "${LISTENER_TYPE}",
+            "settings": {
+                "address": "${LISTEN_ADDRESS}",
+                "port": [${START_PORT},${END_PORT}],
+                "nodelay": true
+            },
+            "next":  "bridge2"
+        },
+        {
+            "name": "bridge2",
+            "type": "Bridge",
+            "settings": {
+                "pair": "bridge1"
+            }
+        },
+        {
+            "name": "bridge1",
+            "type": "Bridge",
+            "settings": {
+                "pair": "bridge2"
+            }
+        },
+        {
+            "name": "reverse_server",
+            "type": "ReverseServer",
+            "settings": {},
+            "next": "bridge1"
+        },
+        {
+            "name": "kharej_inbound",
+            "type": "${LISTENER_TYPE}",
+            "settings": {
+                "address": "${LISTEN_ADDRESS}",
+                "port": ${KHAREJ_PORT},
+                "nodelay": true,
+                "whitelist": [
+                    "${KHAREJ_IP}${IP_SUFFIX}"
+                ]
+            },
+            "next": "reverse_server"
+        }
+    ]
+}
+EOF
+
+else
+    echo "Error: First parameter must be either 'server', 'iran', or 'v2'"
+    exit 1
+fi
+
+# Close JSON structure for server type (iran type already closed)
+if [ "$TYPE" = "server" ]; then
+    cat << EOF >> "${CONFIG_NAME}.json"
+
+    ]
+}
+EOF
+fi
+
+echo "Configuration file ${CONFIG_NAME}.json has been created successfully!"
+
 # After successful config creation, add to core.json
 if [ $? -eq 0 ]; then
     add_to_core_json "$CONFIG_NAME"
 fi
 
-echo "Configuration file ${CONFIG_NAME}.json has been created successfully!"
 chmod 644 "${CONFIG_NAME}.json"
 
 # Open firewall ports for server type configurations

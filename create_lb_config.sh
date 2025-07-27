@@ -131,8 +131,8 @@ if [ "$#" -lt 2 ]; then
     echo "For simple iran config: $0 simple [tcp|udp] iran <config_name> <start_port> <end_port> <ip> <port>"
     echo "For half iran config: $0 half <website> <password> [tcp|udp] iran <config_name> <start_port> <end_port> <kharej_ip> <kharej_port>"
     echo "For half server config: $0 half <website> <password> [tcp|udp] server <config_name> -p <port> <iran_ip>"
-    echo "For v2 iran config: $0 v2 iran <config_name> <start_port> <end_port> <non_iran_ip> <iran_ip> <private_ip> <endpoint_port>"
-    echo "For v2 server config: $0 v2 server <config_name> <non_iran_ip> <iran_ip> <private_ip> <endpoint_port>"
+    echo "For v2 iran config: $0 v2 iran <config_name> <start_port> <end_port> <non_iran_ip> <iran_ip> <private_ip> <endpoint_port> <protocol>"
+    echo "For v2 server config: $0 v2 server <config_name> <non_iran_ip> <iran_ip> <private_ip> <endpoint_port> <protocol>"
     exit 1
 fi
 
@@ -518,9 +518,9 @@ fi
 # --- V2 IRAN and V2 SERVER CONFIGS ---
 if [ "$TYPE" = "v2" ]; then
     if [ "$2" = "iran" ]; then
-        # v2 iran config_name start-port end-port non-iran-ip iran-ip private-ip endpoint-port
-        if [ "$#" -lt 9 ]; then
-            echo "Usage: $0 v2 iran <config_name> <start_port> <end_port> <non_iran_ip> <iran_ip> <private_ip> <endpoint_port>"
+        # v2 iran config_name start-port end-port non-iran-ip iran-ip private-ip endpoint-port protocol
+        if [ "$#" -lt 10 ]; then
+            echo "Usage: $0 v2 iran <config_name> <start_port> <end_port> <non_iran_ip> <iran_ip> <private_ip> <endpoint_port> <protocol>"
             exit 1
         fi
         CONFIG_NAME="$3"
@@ -530,9 +530,7 @@ if [ "$TYPE" = "v2" ]; then
         IRAN_IP="$7"
         PRIVATE_IP="$8"
         ENDPOINT_PORT="$9"
-
-        # Default protocol number for protoswap-tcp
-        PROTOSWAP_TCP=146
+        PROTOSWAP_TCP="${10}"
 
         # Calculate PRIVATE_IP+1 for output and ipovsrc2
         IFS='.' read -r ip1 ip2 ip3 ip4 <<< "$PRIVATE_IP"
@@ -637,9 +635,9 @@ EOF
         open_firewall_ports "$START_PORT" "$END_PORT" "tcp" "$ENDPOINT_PORT"
         exit 0
     elif [ "$2" = "server" ]; then
-        # v2 server config_name non-iran-ip iran-ip private-ip endpoint-port
-        if [ "$#" -lt 7 ]; then
-            echo "Usage: $0 v2 server <config_name> <non_iran_ip> <iran_ip> <private_ip> <endpoint_port>"
+        # v2 server config_name non-iran-ip iran-ip private-ip endpoint-port protocol
+        if [ "$#" -lt 8 ]; then
+            echo "Usage: $0 v2 server <config_name> <non_iran_ip> <iran_ip> <private_ip> <endpoint_port> <protocol>"
             exit 1
         fi
         CONFIG_NAME="$3"
@@ -647,9 +645,7 @@ EOF
         IRAN_IP="$5"
         PRIVATE_IP="$6"
         ENDPOINT_PORT="$7"
-
-        # Default protocol number for protoswap-tcp
-        PROTOSWAP_TCP=146
+        PROTOSWAP_TCP="$8"
 
         # Calculate PRIVATE_IP+1 for ipovsrc2
         IFS='.' read -r ip1 ip2 ip3 ip4 <<< "$PRIVATE_IP"

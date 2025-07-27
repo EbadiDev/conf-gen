@@ -20,10 +20,10 @@ bash <(curl -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/create_
 bash <(curl -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/create_lb_config.sh) half web-cdn.snapp.ir mypassword iran ru 100 199 20.10.0.4 10010
 
 # V2 Iran Configuration (Advanced TUN + IP Manipulation)
-bash <(curl -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/create_lb_config.sh) v2 iran v2_config 100 199 103.71.22.137 10.80.0.1 10.80.0.2 10010
+bash <(curl -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/create_lb_config.sh) v2 iran v2_config 100 199 103.71.22.137 10.80.0.1 10.80.0.2 10010 146
 
 # V2 Server Configuration (Advanced TUN + IP Manipulation)
-bash <(curl -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/create_lb_config.sh) v2 server v2_server 103.71.22.137 10.80.0.1 10.10.0.1 10010
+bash <(curl -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/create_lb_config.sh) v2 server v2_server 103.71.22.137 10.80.0.1 10.10.0.1 10010 146
 ```
 
 Or you can download and use the script locally:
@@ -153,21 +153,21 @@ For creating advanced V2 configurations with TUN devices, IP manipulation, and p
 
 #### V2 Iran Side:
 ```bash
-./create_lb_config.sh v2 iran <config_name> <start_port> <end_port> <non_iran_ip> <iran_ip> <private_ip> <endpoint_port>
+./create_lb_config.sh v2 iran <config_name> <start_port> <end_port> <non_iran_ip> <iran_ip> <private_ip> <endpoint_port> <protocol>
 ```
 
 #### V2 Server Side:
 ```bash
-./create_lb_config.sh v2 server <config_name> <non_iran_ip> <iran_ip> <private_ip> <endpoint_port>
+./create_lb_config.sh v2 server <config_name> <non_iran_ip> <iran_ip> <private_ip> <endpoint_port> <protocol>
 ```
 
 Examples:
 ```bash
 # V2 Iran configuration with TUN device and IP manipulation
-./create_lb_config.sh v2 iran v2_config 100 199 103.71.22.137 10.80.0.1 10.80.0.2 10010
+./create_lb_config.sh v2 iran v2_config 100 199 103.71.22.137 10.80.0.1 10.80.0.2 10010 146
 
 # V2 Server configuration with TUN device and raw socket capture
-./create_lb_config.sh v2 server v2_server 103.71.22.137 10.80.0.1 10.10.0.1 10010
+./create_lb_config.sh v2 server v2_server 103.71.22.137 10.80.0.1 10.10.0.1 10010 146
 ```
 
 **V2 Configuration Features:**
@@ -175,7 +175,7 @@ Examples:
 - **IP Manipulation**: Uses IpOverrider and IpManipulator for packet modification
 - **Raw Socket Capture**: Captures packets based on source IP filtering
 - **Automatic IP Calculation**: Automatically calculates PRIVATE_IP+1 for internal routing
-- **Protocol Swapping**: Uses protoswap-tcp with protocol number 146 by default
+- **Configurable Protocol Swapping**: Uses protoswap-tcp with your desired protocol number (e.g., 146)
 - **No Interactive Prompts**: All parameters are provided via command line
 
 ## Features

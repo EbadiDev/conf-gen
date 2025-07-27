@@ -3,11 +3,22 @@
 # Function to add config to core.json if it doesn't exist
 add_to_core_json() {
     local config_name="$1"
-    local core_json="/root/core.json"
+    local config_type="$2"
+    
+    # Use different path for v2 configurations
+    if [ "$config_type" = "v2" ]; then
+        local core_json="/root/tunnel/core.json"
+    else
+        local core_json="/root/core.json"
+    fi
     
     # Check if core.json exists
     if [ ! -f "$core_json" ]; then
-        echo "Error: core.json not found in /root/"
+        if [ "$config_type" = "v2" ]; then
+            echo "Error: core.json not found in /root/tunnel/"
+        else
+            echo "Error: core.json not found in /root/"
+        fi
         return 1
     fi
     
@@ -209,7 +220,7 @@ if [ "$TYPE" = "simple" ]; then
 }
 EOF
     if [ $? -eq 0 ]; then
-        add_to_core_json "$CONFIG_NAME"
+        add_to_core_json "$CONFIG_NAME" "simple"
     fi
 
     echo "Simple ${PROTOCOL^^} Iran configuration file ${CONFIG_NAME}.json has been created successfully!"
@@ -400,7 +411,7 @@ if [ "$TYPE" = "half" ]; then
 EOF
         
         if [ $? -eq 0 ]; then
-            add_to_core_json "$CONFIG_NAME"
+            add_to_core_json "$CONFIG_NAME" "half"
         fi
         
         echo "Half ${PROTOCOL^^} Iran configuration file ${CONFIG_NAME}.json has been created successfully!"
@@ -500,7 +511,7 @@ EOF
 EOF
         
         if [ $? -eq 0 ]; then
-            add_to_core_json "$CONFIG_NAME"
+            add_to_core_json "$CONFIG_NAME" "half"
         fi
         
         echo "Half ${PROTOCOL^^} Server configuration file ${CONFIG_NAME}.json has been created successfully!"
@@ -628,7 +639,7 @@ if [ "$TYPE" = "v2" ]; then
 }
 EOF
         if [ $? -eq 0 ]; then
-            add_to_core_json "$CONFIG_NAME"
+            add_to_core_json "$CONFIG_NAME" "v2"
         fi
         echo "V2 Iran configuration file ${CONFIG_NAME}.json has been created successfully!"
         chmod 644 "${CONFIG_NAME}.json"
@@ -724,7 +735,7 @@ EOF
 }
 EOF
         if [ $? -eq 0 ]; then
-            add_to_core_json "$CONFIG_NAME"
+            add_to_core_json "$CONFIG_NAME" "v2"
         fi
         echo "V2 Server configuration file ${CONFIG_NAME}.json has been created successfully!"
         chmod 644 "${CONFIG_NAME}.json"
@@ -965,7 +976,7 @@ echo "Configuration file ${CONFIG_NAME}.json has been created successfully!"
 
 # After successful config creation, add to core.json
 if [ $? -eq 0 ]; then
-    add_to_core_json "$CONFIG_NAME"
+    add_to_core_json "$CONFIG_NAME" "$TYPE"
 fi
 
 chmod 644 "${CONFIG_NAME}.json"

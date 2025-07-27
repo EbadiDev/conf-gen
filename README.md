@@ -18,6 +18,12 @@ bash <(curl -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/create_
 
 # Half Reality/gRPC Configuration (Iran side)
 bash <(curl -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/create_lb_config.sh) half web-cdn.snapp.ir mypassword iran ru 100 199 20.10.0.4 10010
+
+# V2 Iran Configuration (Advanced TUN with IP manipulation)
+bash <(curl -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/create_lb_config.sh) v2 iran v2_config 100 199 1.2.3.4 10.80.0.1 10010
+
+# V2 Server Configuration (Advanced TUN with IP manipulation)
+bash <(curl -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/create_lb_config.sh) v2 server v2_server 5.6.7.8 10.10.0.1 10010
 ```
 
 Or you can download and use the script locally:
@@ -34,12 +40,14 @@ chmod +x create_lb_config.sh
 
 ## Configuration Types
 
-The script supports four main configuration types:
+The script supports six main configuration types:
 
 1. **Server Configuration** - Load-balanced server setups
 2. **Iran Configuration** - Iran-side reverse proxy setups  
 3. **Simple Configuration** - Direct port-to-port forwarding
 4. **Half Configuration** - Reality/gRPC tunneling with advanced features
+5. **V2 Iran Configuration** - Advanced TUN device with IP manipulation for Iran side
+6. **V2 Server Configuration** - Advanced TUN device with IP manipulation for server side
 
 ## Usage
 
@@ -140,9 +148,44 @@ Examples:
 ./create_lb_config.sh half web-cdn.snapp.ir mypassword123 server reverse_reality_server -p 10010 188.213.197.166
 ```
 
+### V2 Configuration (Advanced TUN with IP Manipulation)
+
+For creating advanced configurations with TUN device and IP manipulation:
+
+#### V2 Iran Side:
+```bash
+./create_lb_config.sh v2 iran <config_name> <start_port> <end_port> <ip_public> <private_ip> <endpoint_port>
+```
+
+#### V2 Server Side:
+```bash
+./create_lb_config.sh v2 server <config_name> <ip_public> <private_ip> <endpoint_port>
+```
+
+Examples:
+```bash
+# V2 Iran configuration with TUN device and IP manipulation
+./create_lb_config.sh v2 iran v2_iran_config 100 199 1.2.3.4 10.80.0.1 10010
+
+# V2 Server configuration with TUN device and IP manipulation
+./create_lb_config.sh v2 server v2_server_config 5.6.7.8 10.10.0.1 10010
+```
+
+**Note**: V2 configurations will prompt you for additional required values:
+- **For V2 Iran**: IRAN_IP, NON_IRAN_IP, and desired protocol number for protoswap-tcp
+- **For V2 Server**: IP_IRAN, IP_KHAREJ, and desired protocol number for protoswap-tcp
+
+The V2 configurations include:
+- TUN device creation with unique device names (using config name)
+- IP overriding and manipulation for advanced packet routing
+- Raw socket handling for packet capture
+- Automatic calculation of IP+1 addresses for internal routing
+
 ## Features
 
 - **Multi-Protocol Support**: Supports both TCP and UDP protocols for simple and half configurations
+- **Advanced TUN Configurations**: V2 configurations with TUN device creation and IP manipulation
+- **Interactive Parameter Input**: V2 configurations prompt for additional required IP addresses and protocol numbers
 - **IPv4/IPv6 Support**: Automatically detects address type and configures appropriate settings
   - IPv4: Uses "0.0.0.0" as listen address and /32 for whitelist
   - IPv6: Uses "::" as listen address and /128 for whitelist
@@ -153,6 +196,8 @@ Examples:
   - firewalld (CentOS/RHEL/Fedora)  
   - iptables (Generic Linux)
 - **Reality/gRPC Tunneling**: Advanced tunneling with website masquerading
+- **TUN Device Management**: V2 configurations create TUN devices with unique names for network isolation
+- **IP Manipulation**: Advanced packet routing with source/destination IP overriding and protocol swapping
 - **Core Integration**: Automatically adds configurations to core.json
 - **Proper Permissions**: Sets correct file permissions (644) for generated files
 

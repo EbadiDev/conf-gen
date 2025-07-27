@@ -738,6 +738,235 @@ if [ "$TYPE" = "server" ]; then
 EOF
 fi
 
+echo "Configuration file ${CONFIG_NAME}.json has been created successfully!"
+
+# --- V2 IRAN and V2 SERVER CONFIGS ---
+if [ "$TYPE" = "v2" ]; then
+    if [ "$2" = "iran" ]; then
+        # v2 iran name-of-config start-port end-port ip-public private-ip endpoint-port
+        if [ "$#" -lt 8 ]; then
+            echo "Usage: $0 v2 iran <config_name> <start_port> <end_port> <ip_public> <private_ip> <endpoint_port>"
+            exit 1
+        fi
+        CONFIG_NAME="$3"
+        START_PORT="$4"
+        END_PORT="$5"
+        IP_PUBLIC="$6"
+        PRIVATE_IP="$7"
+        ENDPOINT_PORT="$8"
+
+        # Prompt for IRAN_IP, NON_IRAN_IP, and desired protocol number
+        read -p "Enter IRAN_IP: " IRAN_IP
+        read -p "Enter NON_IRAN_IP: " NON_IRAN_IP
+        read -p "Enter desired protocol number for protoswap-tcp (e.g., 146): " PROTOSWAP_TCP
+
+        # Calculate PRIVATE_IP+1 for output and ipovsrc2
+        IFS='.' read -r ip1 ip2 ip3 ip4 <<< "$PRIVATE_IP"
+        IP_PLUS1="$ip1.$ip2.$ip3.$((ip4+1))"
+
+        cat << EOF > "${CONFIG_NAME}.json"
+{
+    "name": "${CONFIG_NAME}",
+    "nodes": [
+        {
+            "name": "my tun",
+            "type": "TunDevice",
+            "settings": {
+                "device-name": "${CONFIG_NAME}",
+                "device-ip": "${PRIVATE_IP}/24"
+            },
+            "next": "ipovsrc"
+        },
+        {
+            "name": "ipovsrc",
+            "type": "IpOverrider",
+            "settings": {
+                "direction": "up",
+                "mode": "source-ip",
+                "ipv4": "${IRAN_IP}"
+            },
+            "next": "ipovdest"
+        },
+        {
+            "name": "ipovdest",
+            "type": "IpOverrider",
+            "settings": {
+                "direction": "up",
+                "mode": "dest-ip",
+                "ipv4": "${NON_IRAN_IP}"
+            },
+            "next": "manip"
+        },
+        {
+            "name": "manip",
+            "type": "IpManipulator",
+            "settings": {
+                "protoswap-tcp": ${PROTOSWAP_TCP}
+            },
+            "next": "ipovsrc2"
+        },
+        {
+            "name": "ipovsrc2",
+            "type": "IpOverrider",
+            "settings": {
+                "direction": "down",
+                "mode": "source-ip",
+                "ipv4": "${IP_PLUS1}"
+            },
+            "next": "ipovdest2"
+        },
+        {
+            "name": "ipovdest2",
+            "type": "IpOverrider",
+            "settings": {
+                "direction": "down",
+                "mode": "dest-ip",
+                "ipv4": "${PRIVATE_IP}"
+            },
+            "next": "rd"
+        },
+        {
+            "name": "rd",
+            "type": "RawSocket",
+            "settings": {
+                "capture-filter-mode": "source-ip",
+                "capture-ip": "${NON_IRAN_IP}"
+            }
+        },
+        {
+            "name": "input",
+            "type": "TcpListener",
+            "settings": {
+                "address": "0.0.0.0",
+                "port": [${START_PORT},${END_PORT}],
+                "nodelay": true
+            },
+            "next": "output"
+        },
+        {
+            "name": "output",
+            "type": "TcpConnector",
+            "settings": {
+                "nodelay": true,
+                "address": "${IP_PLUS1}",
+                "port": ${ENDPOINT_PORT}
+            }
+        }
+    ]
+}
+EOF
+        if [ $? -eq 0 ]; then
+            add_to_core_json "$CONFIG_NAME"
+        fi
+        echo "V2 Iran configuration file ${CONFIG_NAME}.json has been created successfully!"
+        chmod 644 "${CONFIG_NAME}.json"
+        open_firewall_ports "$START_PORT" "$END_PORT" "tcp" "$ENDPOINT_PORT"
+        exit 0
+    elif [ "$2" = "server" ]; then
+        # v2 server name-of-config ip-public private-ip endpoint-port
+        if [ "$#" -lt 6 ]; then
+            echo "Usage: $0 v2 server <config_name> <ip_public> <private_ip> <endpoint_port>"
+            exit 1
+        fi
+        CONFIG_NAME="$3"
+        IP_PUBLIC="$4"
+        PRIVATE_IP="$5"
+        ENDPOINT_PORT="$6"
+
+        # Prompt for IP_IRAN, IP_KHAREJ, and desired protocol number
+        read -p "Enter IP_IRAN: " IP_IRAN
+        read -p "Enter IP_KHAREJ: " IP_KHAREJ
+        read -p "Enter desired protocol number for protoswap-tcp (e.g., 146): " PROTOSWAP_TCP
+
+        # Calculate PRIVATE_IP+1 for ipovsrc2
+        IFS='.' read -r ip1 ip2 ip3 ip4 <<< "$PRIVATE_IP"
+        IP_PLUS1="$ip1.$ip2.$ip3.$((ip4+1))"
+
+        cat << EOF > "${CONFIG_NAME}.json"
+{
+    "name": "${CONFIG_NAME}",
+    "nodes": [
+        {
+            "name": "rd",
+            "type": "RawSocket",
+            "settings": {
+                "capture-filter-mode": "source-ip",
+                "capture-ip": "${IP_IRAN}"
+            },
+            "next": "ipovsrc"
+        },
+        {
+            "name": "ipovsrc",
+            "type": "IpOverrider",
+            "settings": {
+                "direction": "down",
+                "mode": "source-ip",
+                "ipv4": "${IP_KHAREJ}"
+            },
+            "next": "ipovdest"
+        },
+        {
+            "name": "ipovdest",
+            "type": "IpOverrider",
+            "settings": {
+                "direction": "down",
+                "mode": "dest-ip",
+                "ipv4": "${IP_IRAN}"
+            },
+            "next": "manip"
+        },
+        {
+            "name": "manip",
+            "type": "IpManipulator",
+            "settings": {
+                "protoswap-tcp": ${PROTOSWAP_TCP}
+            },
+            "next": "ipovsrc2"
+        },
+        {
+            "name": "ipovsrc2",
+            "type": "IpOverrider",
+            "settings": {
+                "direction": "up",
+                "mode": "source-ip",
+                "ipv4": "${IP_PLUS1}"
+            },
+            "next": "ipovdest2"
+        },
+        {
+            "name": "ipovdest2",
+            "type": "IpOverrider",
+            "settings": {
+                "direction": "up",
+                "mode": "dest-ip",
+                "ipv4": "${PRIVATE_IP}"
+            },
+            "next": "my tun"
+        },
+        {
+            "name": "my tun",
+            "type": "TunDevice",
+            "settings": {
+                "device-name": "${CONFIG_NAME}",
+                "device-ip": "${PRIVATE_IP}/24"
+            }
+        }
+    ]
+}
+EOF
+        if [ $? -eq 0 ]; then
+            add_to_core_json "$CONFIG_NAME"
+        fi
+        echo "V2 Server configuration file ${CONFIG_NAME}.json has been created successfully!"
+        chmod 644 "${CONFIG_NAME}.json"
+        # V2 server doesn't need port range opening since it doesn't listen on external ports
+        exit 0
+    else
+        echo "Error: v2 config type must be either 'iran' or 'server'"
+        exit 1
+    fi
+fi
+
 # After successful config creation, add to core.json
 if [ $? -eq 0 ]; then
     add_to_core_json "$CONFIG_NAME"

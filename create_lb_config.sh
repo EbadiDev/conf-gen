@@ -143,7 +143,6 @@ EOF
     # Enable HAProxy to start on boot
     systemctl enable haproxy >/dev/null 2>&1
 }
-}
 
 # Function to add config to core.json if it doesn't exist
 add_to_core_json() {

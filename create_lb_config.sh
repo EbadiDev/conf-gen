@@ -135,17 +135,18 @@ EOF
         main_interface=$(ip a | grep -E "^[0-9]+: " | grep -v "lo:" | head -1 | cut -d: -f2 | tr -d ' ')
     fi
     
-    echo "Adding IP ranges to interface: $main_interface"
+    echo "Adding individual IP addresses to interface: $main_interface"
     
-    # Add IP ranges to the main interface if they don't already exist
+    # Add individual IP addresses to the main interface if they don't already exist
     for x in {0..10}; do
-        # Check if this IP range is already added
-        if ! ip addr show "$main_interface" | grep -q "192.168.${x}.0/24"; then
-            echo "Adding IP range 192.168.${x}.0/24 to $main_interface"
-            ip addr add "192.168.${x}.0/24" dev "$main_interface" label "${main_interface}:iprange${x}" 2>/dev/null || true
-        else
-            echo "IP range 192.168.${x}.0/24 already exists on $main_interface"
-        fi
+        for y in {0..255}; do
+            # Check if this specific IP is already added
+            if ! ip addr show "$main_interface" | grep -q "192.168.${x}.${y}/32"; then
+                # Add individual IP address with /32 subnet
+                ip addr add "192.168.${x}.${y}/32" dev "$main_interface" 2>/dev/null || true
+            fi
+        done
+        echo "Added IP range 192.168.${x}.0-255 to $main_interface"
     done
     
     # Generate server lines dynamically from 192.168.0.0 to 192.168.10.255

@@ -125,7 +125,7 @@ backend ${config_name}_backend
     option tcp-check
     maxconn 50000
     
-    # IP pool - 2816 IPs from 192.168.0.0 to 192.168.10.255
+    # IP pool - 256 IPs from 192.168.100.1 to 192.168.100.255
 EOF
     
     # Find the main network interface (first interface with an IP that's not lo)
@@ -137,27 +137,23 @@ EOF
     
     echo "Adding individual IP addresses to interface: $main_interface"
     
-    # Add individual IP addresses to the main interface if they don't already exist
-    for x in {0..10}; do
-        for y in {0..255}; do
-            # Check if this specific IP is already added
-            if ! ip addr show "$main_interface" | grep -q "192.168.${x}.${y}/32"; then
-                # Add individual IP address with /32 subnet
-                ip addr add "192.168.${x}.${y}/32" dev "$main_interface" 2>/dev/null || true
-            fi
-        done
-        echo "Added IP range 192.168.${x}.0-255 to $main_interface"
+    # Add individual IP addresses for 192.168.100.1-255 (256 IPs should be plenty)
+    for y in {1..255}; do
+        # Check if this specific IP is already added
+        if ! ip addr show "$main_interface" | grep -q "192.168.100.${y}/32"; then
+            # Add individual IP address with /32 subnet
+            ip addr add "192.168.100.${y}/32" dev "$main_interface" 2>/dev/null || true
+        fi
     done
+    echo "Added IP range 192.168.100.1-255 to $main_interface"
     
-    # Generate server lines dynamically from 192.168.0.0 to 192.168.10.255
+    # Generate server lines dynamically from 192.168.100.1 to 192.168.100.255
     server_count=1
-    for x in {0..10}; do
-        for y in {0..255}; do
-            cat << EOF >> "$haproxy_conf"
-    server ${config_name}${server_count} 127.0.0.1:${backend_port} source 192.168.${x}.${y}
+    for y in {1..255}; do
+        cat << EOF >> "$haproxy_conf"
+    server ${config_name}${server_count} 127.0.0.1:${backend_port} source 192.168.100.${y}
 EOF
-            server_count=$((server_count + 1))
-        done
+        server_count=$((server_count + 1))
     done
     
     cat << EOF >> "$haproxy_conf"

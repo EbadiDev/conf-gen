@@ -76,19 +76,19 @@ EOF
     fi
     
     # Check if this frontend/backend already exists and remove it
-    if grep -q "^# Frontend for ${config_name}" "$haproxy_conf"; then
+    if grep -q "^# ${config_name} -" "$haproxy_conf"; then
         echo "Found existing configuration for ${config_name}, overwriting..."
         
         # Create temp file without the existing config
         awk -v config="$config_name" '
         BEGIN { skip = 0 }
-        /^# Frontend for / {
-            if ($0 ~ "^# Frontend for " config "$") {
+        /^# .* -/ {
+            if ($0 ~ "^# " config " -") {
                 skip = 1
                 next
             }
         }
-        /^# Frontend for / && skip == 1 {
+        /^# .* -/ && skip == 1 {
             skip = 0
         }
         /^#---------------------------------------------------------------------/ && skip == 1 {
@@ -111,18 +111,14 @@ EOF
     cat << EOF >> "$haproxy_conf"
 
 #---------------------------------------------------------------------
-# Frontend for ${config_name}
-# Tunnel: ${private_ip}:${endpoint_port} -> 127.0.0.1:${backend_port}
+# ${config_name} - Tunnel: ${private_ip}:${endpoint_port} -> 127.0.0.1:${backend_port}
+# Connect your service to 127.0.0.1:${backend_port}
 #---------------------------------------------------------------------
 frontend ${config_name}_frontend
     bind ${private_ip}:${endpoint_port}    # Listen on tunnel IP for direct routing
     mode tcp
     default_backend ${config_name}_backend
 
-#---------------------------------------------------------------------
-# Backend for ${config_name}
-# Connect your service to 127.0.0.1:${backend_port}
-#---------------------------------------------------------------------
 backend ${config_name}_backend
     mode tcp
     server ${config_name}_server 127.0.0.1:${backend_port} check inter 1000  # Health checks every second

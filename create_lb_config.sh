@@ -121,7 +121,45 @@ frontend ${config_name}_frontend
 
 backend ${config_name}_backend
     mode tcp
-    server ${config_name}_server 127.0.0.1:${backend_port} check inter 1000  # Health checks every second
+    balance source
+    option tcp-check
+    maxconn 50000
+    
+    # IP pool - 2816 IPs from 192.168.0.0 to 192.168.10.255
+EOF
+    
+    # Find the main network interface (first interface with an IP that's not lo)
+    main_interface=$(ip route | grep default | awk '{print $5}' | head -1)
+    if [ -z "$main_interface" ]; then
+        # Fallback: find first interface that's up and not loopback
+        main_interface=$(ip a | grep -E "^[0-9]+: " | grep -v "lo:" | head -1 | cut -d: -f2 | tr -d ' ')
+    fi
+    
+    echo "Adding IP ranges to interface: $main_interface"
+    
+    # Add IP ranges to the main interface if they don't already exist
+    for x in {0..10}; do
+        # Check if this IP range is already added
+        if ! ip addr show "$main_interface" | grep -q "192.168.${x}.0/24"; then
+            echo "Adding IP range 192.168.${x}.0/24 to $main_interface"
+            ip addr add "192.168.${x}.0/24" dev "$main_interface" label "${main_interface}:iprange${x}" 2>/dev/null || true
+        else
+            echo "IP range 192.168.${x}.0/24 already exists on $main_interface"
+        fi
+    done
+    
+    # Generate server lines dynamically from 192.168.0.0 to 192.168.10.255
+    server_count=1
+    for x in {0..10}; do
+        for y in {0..255}; do
+            cat << EOF >> "$haproxy_conf"
+    server ${config_name}${server_count} 127.0.0.1:${backend_port} source 192.168.${x}.${y}
+EOF
+            server_count=$((server_count + 1))
+        done
+    done
+    
+    cat << EOF >> "$haproxy_conf"
 
 EOF
     

@@ -131,30 +131,18 @@ EOF
     echo "IMPORTANT: Connect your service to 127.0.0.1:${backend_port}"
     echo ""
     
-    # Test HAProxy configuration
-    if haproxy -c -f "$haproxy_conf" >/dev/null 2>&1; then
-        echo "HAProxy configuration test: PASSED"
-        
-        # Restart HAProxy service
-        if systemctl is-active --quiet haproxy; then
-            systemctl reload haproxy
-            echo "HAProxy service reloaded successfully"
-        else
-            systemctl start haproxy
-            echo "HAProxy service started successfully"
-        fi
-        
-        # Enable HAProxy to start on boot
-        systemctl enable haproxy >/dev/null 2>&1
-        
+    # Restart HAProxy service
+    if systemctl is-active --quiet haproxy; then
+        systemctl reload haproxy
+        echo "HAProxy service reloaded successfully"
     else
-        echo "Error: HAProxy configuration test failed!"
-        echo "Restoring backup..."
-        if [ -f "$haproxy_backup" ]; then
-            cp "$haproxy_backup" "$haproxy_conf"
-        fi
-        return 1
+        systemctl start haproxy
+        echo "HAProxy service started successfully"
     fi
+    
+    # Enable HAProxy to start on boot
+    systemctl enable haproxy >/dev/null 2>&1
+}
 }
 
 # Function to add config to core.json if it doesn't exist

@@ -1,5 +1,121 @@
 #!/bin/bash
 
+# Function to generate or update HAProxy configuration
+generate_haproxy_config() {
+    local config_name="$1"
+    local private_ip="$2"
+    local endpoint_port="$3"
+    local backend_port="$4"
+    
+    local haproxy_conf="/etc/haproxy/haproxy.cfg"
+    local haproxy_backup="/etc/haproxy/haproxy.cfg.backup.$(date +%Y%m%d_%H%M%S)"
+    
+    # Create backup if haproxy.cfg exists
+    if [ -f "$haproxy_conf" ]; then
+        cp "$haproxy_conf" "$haproxy_backup"
+        echo "Created backup: $haproxy_backup"
+    fi
+    
+    # Check if this is the first v2 server config (no existing haproxy.cfg or empty)
+    if [ ! -f "$haproxy_conf" ] || [ ! -s "$haproxy_conf" ] || ! grep -q "^global" "$haproxy_conf"; then
+        # Create new HAProxy configuration with global and defaults sections
+        cat << EOF > "$haproxy_conf"
+global
+    log /dev/log local0
+    log /dev/log local1 notice
+    chroot /var/lib/haproxy
+    stats socket /run/haproxy/admin.sock mode 660 level admin expose-fd listeners
+    stats timeout 30s
+    user haproxy
+    group haproxy
+    daemon
+    # Tune for performance
+    tune.bufsize 16384
+    tune.maxrewrite 1024
+
+defaults
+    log     global
+    mode    tcp
+    option  dontlognull
+    option  tcplog
+    # Reduce timeouts for faster failure detection
+    timeout connect 1000    # 1 second connect timeout
+    timeout client  4000    # 4 second client timeout
+    timeout server  4000    # 4 second server timeout
+    timeout tunnel  3600000 # 1 hour for TCP tunnels (keepalive)
+
+EOF
+    fi
+    
+    # Check if this frontend/backend already exists
+    if grep -q "^frontend ${config_name}_frontend" "$haproxy_conf"; then
+        echo "Warning: Frontend ${config_name}_frontend already exists in HAProxy config"
+        return 0
+    fi
+    
+    # Find an available backend port (starting from 5090)
+    local suggested_backend_port=5090
+    while ss -ln 2>/dev/null | grep -q ":${suggested_backend_port} " || netstat -ln 2>/dev/null | grep -q ":${suggested_backend_port} " || grep -q "127.0.0.1:${suggested_backend_port}" "$haproxy_conf" 2>/dev/null; do
+        suggested_backend_port=$((suggested_backend_port + 1))
+        # Prevent infinite loop
+        if [ $suggested_backend_port -gt 6000 ]; then
+            break
+        fi
+    done
+    
+    # If user didn't specify backend_port, use the suggested one
+    if [ -z "$backend_port" ]; then
+        backend_port="$suggested_backend_port"
+    fi
+    
+    # Add frontend and backend configuration
+    cat << EOF >> "$haproxy_conf"
+
+# Frontend for ${config_name}
+frontend ${config_name}_frontend
+    bind ${private_ip}:${endpoint_port}    # Listen on tunnel IP for direct routing
+    mode tcp
+    default_backend ${config_name}_backend
+
+# Backend for ${config_name}
+backend ${config_name}_backend
+    mode tcp
+    server ${config_name}_server 127.0.0.1:${backend_port} check inter 1000  # Health checks every second
+
+EOF
+    
+    echo "HAProxy configuration updated for ${config_name}"
+    echo "Frontend: ${private_ip}:${endpoint_port} -> Backend: 127.0.0.1:${backend_port}"
+    echo ""
+    echo "IMPORTANT: Connect your service to 127.0.0.1:${backend_port}"
+    echo ""
+    
+    # Test HAProxy configuration
+    if haproxy -c -f "$haproxy_conf" >/dev/null 2>&1; then
+        echo "HAProxy configuration test: PASSED"
+        
+        # Restart HAProxy service
+        if systemctl is-active --quiet haproxy; then
+            systemctl reload haproxy
+            echo "HAProxy service reloaded successfully"
+        else
+            systemctl start haproxy
+            echo "HAProxy service started successfully"
+        fi
+        
+        # Enable HAProxy to start on boot
+        systemctl enable haproxy >/dev/null 2>&1
+        
+    else
+        echo "Error: HAProxy configuration test failed!"
+        echo "Restoring backup..."
+        if [ -f "$haproxy_backup" ]; then
+            cp "$haproxy_backup" "$haproxy_conf"
+        fi
+        return 1
+    fi
+}
+
 # Function to add config to core.json if it doesn't exist
 add_to_core_json() {
     local config_name="$1"
@@ -144,6 +260,7 @@ if [ "$#" -lt 2 ]; then
     echo "For half server config: $0 half <website> <password> [tcp|udp] server <config_name> -p <port> <iran_ip>"
     echo "For v2 iran config: $0 v2 iran <config_name> <start_port> <end_port> <non_iran_ip> <iran_ip> <private_ip> <endpoint_port> <protocol>"
     echo "For v2 server config: $0 v2 server <config_name> <non_iran_ip> <iran_ip> <private_ip> <endpoint_port> <protocol>"
+    echo "For v2 server config with HAProxy: $0 v2 haproxy server <config_name> <non_iran_ip> <iran_ip> <private_ip> <endpoint_port> <protocol>"
     exit 1
 fi
 
@@ -528,10 +645,24 @@ fi
 
 # --- V2 IRAN and V2 SERVER CONFIGS ---
 if [ "$TYPE" = "v2" ]; then
-    if [ "$2" = "iran" ]; then
+    # Check if haproxy flag is present
+    USE_HAPROXY=false
+    if [ "$2" = "haproxy" ]; then
+        USE_HAPROXY=true
+        CONFIG_TYPE="$3"  # iran or server
+        shift 1  # Remove haproxy flag
+    else
+        CONFIG_TYPE="$2"  # iran or server
+    fi
+    
+    if [ "$CONFIG_TYPE" = "iran" ]; then
         # v2 iran config_name start-port end-port non-iran-ip iran-ip private-ip endpoint-port protocol
         if [ "$#" -lt 10 ]; then
-            echo "Usage: $0 v2 iran <config_name> <start_port> <end_port> <non_iran_ip> <iran_ip> <private_ip> <endpoint_port> <protocol>"
+            if [ "$USE_HAPROXY" = true ]; then
+                echo "Usage: $0 v2 haproxy iran <config_name> <start_port> <end_port> <non_iran_ip> <iran_ip> <private_ip> <endpoint_port> <protocol>"
+            else
+                echo "Usage: $0 v2 iran <config_name> <start_port> <end_port> <non_iran_ip> <iran_ip> <private_ip> <endpoint_port> <protocol>"
+            fi
             exit 1
         fi
         CONFIG_NAME="$3"
@@ -645,10 +776,14 @@ EOF
         chmod 644 "${CONFIG_NAME}.json"
         open_firewall_ports "$START_PORT" "$END_PORT" "tcp" "$ENDPOINT_PORT"
         exit 0
-    elif [ "$2" = "server" ]; then
+    elif [ "$CONFIG_TYPE" = "server" ]; then
         # v2 server config_name non-iran-ip iran-ip private-ip endpoint-port protocol
         if [ "$#" -lt 8 ]; then
-            echo "Usage: $0 v2 server <config_name> <non_iran_ip> <iran_ip> <private_ip> <endpoint_port> <protocol>"
+            if [ "$USE_HAPROXY" = true ]; then
+                echo "Usage: $0 v2 haproxy server <config_name> <non_iran_ip> <iran_ip> <private_ip> <endpoint_port> <protocol>"
+            else
+                echo "Usage: $0 v2 server <config_name> <non_iran_ip> <iran_ip> <private_ip> <endpoint_port> <protocol>"
+            fi
             exit 1
         fi
         CONFIG_NAME="$3"
@@ -657,6 +792,18 @@ EOF
         PRIVATE_IP="$6"
         ENDPOINT_PORT="$7"
         PROTOSWAP_TCP="$8"
+
+        # Check if HAProxy is installed only when haproxy flag is used
+        if [ "$USE_HAPROXY" = true ]; then
+            if ! command -v haproxy >/dev/null 2>&1; then
+                echo "Error: HAProxy is not installed!"
+                echo "Please install HAProxy first:"
+                echo "  Ubuntu/Debian: sudo apt update && sudo apt install haproxy"
+                echo "  CentOS/RHEL/Fedora: sudo yum install haproxy  or  sudo dnf install haproxy"
+                echo "  Arch Linux: sudo pacman -S haproxy"
+                exit 1
+            fi
+        fi
 
         # Calculate PRIVATE_IP+1 for ipovsrc2
         IFS='.' read -r ip1 ip2 ip3 ip4 <<< "$PRIVATE_IP"
@@ -736,13 +883,25 @@ EOF
 EOF
         if [ $? -eq 0 ]; then
             add_to_core_json "$CONFIG_NAME" "v2"
+            # Generate HAProxy configuration only if haproxy flag is used
+            if [ "$USE_HAPROXY" = true ]; then
+                generate_haproxy_config "$CONFIG_NAME" "$PRIVATE_IP" "$ENDPOINT_PORT"
+            fi
         fi
         echo "V2 Server configuration file ${CONFIG_NAME}.json has been created successfully!"
+        if [ "$USE_HAPROXY" = false ]; then
+            echo ""
+            echo "Note: To use HAProxy with this config, run:"
+            echo "$0 v2 haproxy server $CONFIG_NAME $NON_IRAN_IP $IRAN_IP $PRIVATE_IP $ENDPOINT_PORT $PROTOSWAP_TCP"
+        fi
         chmod 644 "${CONFIG_NAME}.json"
         # V2 server doesn't need port range opening since it doesn't listen on external ports
         exit 0
     else
         echo "Error: v2 config type must be either 'iran' or 'server'"
+        if [ "$USE_HAPROXY" = true ]; then
+            echo "For HAProxy configs, use: v2 haproxy server ..."
+        fi
         exit 1
     fi
 fi

@@ -171,10 +171,14 @@ EOF
     create_systemd_service "server" "$name"
     
     print_info "Configuration file path: $(pwd)/$config_file"
-    print_warning "Remember to copy the configuration to /etc/rathole/ for systemd service:"
-    echo "  sudo mkdir -p /etc/rathole"
-    echo "  sudo cp $config_file /etc/rathole/"
-    echo "  sudo chmod 600 /etc/rathole/$config_file"
+    
+    # Only show copy instructions if not running as root or not in /etc/rathole
+    if [ "$EUID" -ne 0 ] || [ "$(pwd)" != "/etc/rathole" ]; then
+        print_warning "Remember to copy the configuration to /etc/rathole/ for systemd service:"
+        echo "  sudo mkdir -p /etc/rathole"
+        echo "  sudo cp $config_file /etc/rathole/"
+        echo "  sudo chmod 600 /etc/rathole/$config_file"
+    fi
 }
 
 # Function to create client configuration
@@ -240,10 +244,14 @@ EOF
     create_systemd_service "client" "$name"
     
     print_info "Configuration file path: $(pwd)/$config_file"
-    print_warning "Remember to copy the configuration to /etc/rathole/ for systemd service:"
-    echo "  sudo mkdir -p /etc/rathole"
-    echo "  sudo cp $config_file /etc/rathole/"
-    echo "  sudo chmod 600 /etc/rathole/$config_file"
+    
+    # Only show copy instructions if not running as root or not in /etc/rathole
+    if [ "$EUID" -ne 0 ] || [ "$(pwd)" != "/etc/rathole" ]; then
+        print_warning "Remember to copy the configuration to /etc/rathole/ for systemd service:"
+        echo "  sudo mkdir -p /etc/rathole"
+        echo "  sudo cp $config_file /etc/rathole/"
+        echo "  sudo chmod 600 /etc/rathole/$config_file"
+    fi
 }
 
 # Function to create systemd service files

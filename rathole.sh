@@ -80,8 +80,16 @@ extract_keys() {
     local private_key
     local public_key
     
-    private_key=$(echo "$keys_output" | grep "Private Key:" | cut -d' ' -f3)
-    public_key=$(echo "$keys_output" | grep "Public Key:" | cut -d' ' -f3)
+    # Debug: show what we're parsing
+    # echo "DEBUG: Parsing keys from:"
+    # echo "$keys_output"
+    
+    private_key=$(echo "$keys_output" | grep "Private Key:" | sed 's/Private Key: //')
+    public_key=$(echo "$keys_output" | grep "Public Key:" | sed 's/Public Key: //')
+    
+    # Debug: show extracted keys
+    # echo "DEBUG: Extracted private key: '$private_key'"
+    # echo "DEBUG: Extracted public key: '$public_key'"
     
     echo "$private_key|$public_key"
 }
@@ -94,6 +102,9 @@ get_remote_public_key() {
     echo ""
     echo -n "Enter remote public key: "
     read -r remote_public_key
+    
+    # Clean the input - remove any extra whitespace or newlines
+    remote_public_key=$(echo "$remote_public_key" | tr -d '\n\r' | xargs)
     
     # Basic validation - check if it looks like a base64 key
     if [[ -z "$remote_public_key" ]]; then
@@ -131,6 +142,14 @@ create_server_config() {
     local local_public_key
     local_private_key=$(echo "$keys" | cut -d'|' -f1)
     local_public_key=$(echo "$keys" | cut -d'|' -f2)
+    
+    # Verify we got the keys correctly
+    if [[ -z "$local_private_key" ]] || [[ -z "$local_public_key" ]]; then
+        print_error "Failed to extract keys properly"
+        print_error "Private key: '$local_private_key'"
+        print_error "Public key: '$local_public_key'"
+        exit 1
+    fi
     
     echo ""
     print_success "Your server's public key is: $local_public_key"
@@ -202,6 +221,14 @@ create_client_config() {
     local local_public_key
     local_private_key=$(echo "$keys" | cut -d'|' -f1)
     local_public_key=$(echo "$keys" | cut -d'|' -f2)
+    
+    # Verify we got the keys correctly
+    if [[ -z "$local_private_key" ]] || [[ -z "$local_public_key" ]]; then
+        print_error "Failed to extract keys properly"
+        print_error "Private key: '$local_private_key'"
+        print_error "Public key: '$local_public_key'"
+        exit 1
+    fi
     
     echo ""
     print_success "Your client's public key is: $local_public_key"

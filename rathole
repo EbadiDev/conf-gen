@@ -53,15 +53,21 @@ show_usage() {
 
 # Function to generate keys
 generate_keys() {
-    print_info "Generating rathole keys..."
-    if ! command -v rathole &> /dev/null; then
-        print_error "rathole command not found. Please install rathole first."
+    local rathole_binary="./rathole"
+    
+    if [ ! -f "$rathole_binary" ]; then
+        print_error "rathole binary not found in current directory: $rathole_binary"
+        exit 1
+    fi
+    
+    if [ ! -x "$rathole_binary" ]; then
+        print_error "rathole binary is not executable: $rathole_binary"
         exit 1
     fi
     
     local keys_output
-    keys_output=$(rathole --genkey 2>/dev/null || {
-        print_error "Failed to generate keys. Make sure rathole is properly installed."
+    keys_output=$($rathole_binary --genkey 2>/dev/null || {
+        print_error "Failed to generate keys using $rathole_binary"
         exit 1
     })
     
@@ -113,7 +119,6 @@ create_server_config() {
     local nodelay="$6"
     
     # Generate keys for server
-    print_info "Generating keys for server..."
     local keys_output
     keys_output=$(generate_keys)
     echo "$keys_output"
@@ -180,7 +185,6 @@ create_client_config() {
     local nodelay="$6"
     
     # Generate keys for client
-    print_info "Generating keys for client..."
     local keys_output
     keys_output=$(generate_keys)
     echo "$keys_output"

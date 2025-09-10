@@ -200,7 +200,7 @@ pattern = "Noise_KK_25519_ChaChaPoly_BLAKE2s"
 local_private_key = "${local_private_key}"
 remote_public_key = "${remote_public_key}"
 
-[server.services.${name}]
+[server.services."${client_port}"]
 type = "${protocol}"
 bind_addr = "0.0.0.0:${client_port}"
 nodelay = ${nodelay}
@@ -278,7 +278,7 @@ pattern = "Noise_KK_25519_ChaChaPoly_BLAKE2s"
 local_private_key = "${local_private_key}"
 remote_public_key = "${remote_public_key}"
 
-[client.services.${name}]
+[client.services."${client_port}"]
 type = "${protocol}"
 local_addr = "127.0.0.1:${client_port}"
 nodelay = ${nodelay}

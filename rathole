@@ -167,18 +167,17 @@ EOF
     
     print_success "Server configuration created: $config_file"
     
-    # Create systemd service file
+    # Copy configuration to /etc/rathole/ automatically
+    print_info "Installing configuration..."
+    mkdir -p /etc/rathole
+    cp "$config_file" /etc/rathole/
+    chmod 600 "/etc/rathole/$config_file"
+    
+    # Create and install systemd service file
     create_systemd_service "server" "$name"
     
     print_info "Configuration file path: $(pwd)/$config_file"
-    
-    # Only show copy instructions if not running as root or not in /etc/rathole
-    if [ "$EUID" -ne 0 ] || [ "$(pwd)" != "/etc/rathole" ]; then
-        print_warning "Remember to copy the configuration to /etc/rathole/ for systemd service:"
-        echo "  sudo mkdir -p /etc/rathole"
-        echo "  sudo cp $config_file /etc/rathole/"
-        echo "  sudo chmod 600 /etc/rathole/$config_file"
-    fi
+    print_success "Configuration copied to: /etc/rathole/$config_file"
 }
 
 # Function to create client configuration
@@ -240,18 +239,17 @@ EOF
     
     print_success "Client configuration created: $config_file"
     
-    # Create systemd service file
+    # Copy configuration to /etc/rathole/ automatically
+    print_info "Installing configuration..."
+    mkdir -p /etc/rathole
+    cp "$config_file" /etc/rathole/
+    chmod 600 "/etc/rathole/$config_file"
+    
+    # Create and install systemd service file
     create_systemd_service "client" "$name"
     
     print_info "Configuration file path: $(pwd)/$config_file"
-    
-    # Only show copy instructions if not running as root or not in /etc/rathole
-    if [ "$EUID" -ne 0 ] || [ "$(pwd)" != "/etc/rathole" ]; then
-        print_warning "Remember to copy the configuration to /etc/rathole/ for systemd service:"
-        echo "  sudo mkdir -p /etc/rathole"
-        echo "  sudo cp $config_file /etc/rathole/"
-        echo "  sudo chmod 600 /etc/rathole/$config_file"
-    fi
+    print_success "Configuration copied to: /etc/rathole/$config_file"
 }
 
 # Function to create systemd service files
@@ -266,6 +264,9 @@ create_systemd_service() {
         service_name="ratholec@.service"
     fi
     
+    # Get the current directory path for rathole binary
+    local rathole_path="$(pwd)/rathole"
+    
     # Create the systemd service file
     cat > "$service_name" << EOF
 [Unit]
@@ -275,7 +276,7 @@ After=network.target
 [Service]
 Type=simple
 User=root
-ExecStart=/usr/bin/rathole --${type} /etc/rathole/%i.toml
+ExecStart=${rathole_path} --${type} /etc/rathole/%i.toml
 Restart=always
 RestartSec=5
 
@@ -285,9 +286,14 @@ EOF
 
     print_success "Systemd service file created: $service_name"
     
-    print_info "To install and start the service:"
-    echo "  sudo cp $service_name /etc/systemd/system/"
-    echo "  sudo systemctl daemon-reload"
+    # Install the service file
+    print_info "Installing systemd service..."
+    cp "$service_name" /etc/systemd/system/
+    systemctl daemon-reload
+    
+    print_success "Service installed successfully!"
+    
+    print_info "To enable and start the service:"
     echo "  sudo systemctl enable ${service_name%@.service}@${name}_${type} --now"
     echo ""
     print_info "To check service status:"

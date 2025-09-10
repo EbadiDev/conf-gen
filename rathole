@@ -1,0 +1,338 @@
+#!/bin/bash
+
+# Rathole Configuration Generator
+# This script generates rathole server and client configurations with systemd services
+
+set -e
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Function to print colored output
+print_info() {
+    echo -e "${BLUE}[INFO]${NC} $1"
+}
+
+print_success() {
+    echo -e "${GREEN}[SUCCESS]${NC} $1"
+}
+
+print_warning() {
+    echo -e "${YELLOW}[WARNING]${NC} $1"
+}
+
+print_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
+# Function to show usage
+show_usage() {
+    echo "Usage:"
+    echo "  Server: $0 server <name> <port> <default_token> <remote_public_key> <client_port> <tcp|udp> <nodelay>"
+    echo "  Client: $0 client <name> <domain/ip:port> <default_token> <remote_public_key> <client_port> <tcp|udp> <nodelay>"
+    echo ""
+    echo "Examples:"
+    echo "  $0 server myapp 2333 mysecrettoken GQYTKSbWLBUSZiGfdWPSgek9yoOuaiwGD/GIX8Z1kkE= 8080 tcp true"
+    echo "  $0 client myapp example.com:2333 mysecrettoken cQ/vwIqNPJZmuM/OikglzBo/+jlYGrOt9i0k5h5vn1Q= 8080 tcp false"
+    echo ""
+    echo "Parameters:"
+    echo "  name              - Configuration name"
+    echo "  port              - Server bind port (server only)"
+    echo "  domain/ip:port    - Server address (client only)"
+    echo "  default_token     - Authentication token"
+    echo "  remote_public_key - Remote peer's public key"
+    echo "  client_port       - Client service port"
+    echo "  tcp|udp           - Protocol type"
+    echo "  nodelay           - Enable/disable TCP nodelay (true/false)"
+}
+
+# Function to generate keys
+generate_keys() {
+    print_info "Generating rathole keys..."
+    if ! command -v rathole &> /dev/null; then
+        print_error "rathole command not found. Please install rathole first."
+        exit 1
+    fi
+    
+    local keys_output
+    keys_output=$(rathole --genkey 2>/dev/null || {
+        print_error "Failed to generate keys. Make sure rathole is properly installed."
+        exit 1
+    })
+    
+    echo "$keys_output"
+}
+
+# Function to extract keys from output
+extract_keys() {
+    local keys_output="$1"
+    local private_key
+    local public_key
+    
+    private_key=$(echo "$keys_output" | grep "Private Key:" | cut -d' ' -f3)
+    public_key=$(echo "$keys_output" | grep "Public Key:" | cut -d' ' -f3)
+    
+    echo "$private_key|$public_key"
+}
+
+# Function to create server configuration
+create_server_config() {
+    local name="$1"
+    local port="$2"
+    local default_token="$3"
+    local remote_public_key="$4"
+    local client_port="$5"
+    local protocol="$6"
+    local nodelay="$7"
+    
+    # Generate keys for server
+    print_info "Generating keys for server..."
+    local keys_output
+    keys_output=$(generate_keys)
+    echo "$keys_output"
+    echo ""
+    
+    local keys
+    keys=$(extract_keys "$keys_output")
+    local local_private_key
+    local_private_key=$(echo "$keys" | cut -d'|' -f1)
+    
+    # Create server configuration file
+    local config_file="${name}_server.toml"
+    
+    cat > "$config_file" << EOF
+[server]
+bind_addr = "0.0.0.0:${port}"
+default_token = "${default_token}"
+heartbeat_interval = 35
+
+[server.transport]
+type = "noise"
+[server.transport.noise]
+pattern = "Noise_KK_25519_ChaChaPoly_BLAKE2s"
+local_private_key = "${local_private_key}"
+remote_public_key = "${remote_public_key}"
+
+[server.services.${name}]
+type = "${protocol}"
+bind_addr = "0.0.0.0:${client_port}"
+nodelay = ${nodelay}
+EOF
+
+    # Set secure permissions
+    chmod 600 "$config_file"
+    
+    print_success "Server configuration created: $config_file"
+    
+    # Create systemd service file
+    create_systemd_service "server" "$name"
+    
+    print_info "Configuration file path: $(pwd)/$config_file"
+    print_warning "Remember to copy the configuration to /etc/rathole/ for systemd service:"
+    echo "  sudo mkdir -p /etc/rathole"
+    echo "  sudo cp $config_file /etc/rathole/"
+    echo "  sudo chmod 600 /etc/rathole/$config_file"
+}
+
+# Function to create client configuration
+create_client_config() {
+    local name="$1"
+    local remote_addr="$2"
+    local default_token="$3"
+    local remote_public_key="$4"
+    local client_port="$5"
+    local protocol="$6"
+    local nodelay="$7"
+    
+    # Generate keys for client
+    print_info "Generating keys for client..."
+    local keys_output
+    keys_output=$(generate_keys)
+    echo "$keys_output"
+    echo ""
+    
+    local keys
+    keys=$(extract_keys "$keys_output")
+    local local_private_key
+    local_private_key=$(echo "$keys" | cut -d'|' -f1)
+    
+    # Create client configuration file
+    local config_file="${name}_client.toml"
+    
+    cat > "$config_file" << EOF
+[client]
+remote_addr = "${remote_addr}"
+default_token = "${default_token}"
+heartbeat_timeout = 35
+retry_interval = 1
+
+[client.transport]
+type = "noise"
+[client.transport.noise]
+pattern = "Noise_KK_25519_ChaChaPoly_BLAKE2s"
+local_private_key = "${local_private_key}"
+remote_public_key = "${remote_public_key}"
+
+[client.services.${name}]
+type = "${protocol}"
+local_addr = "127.0.0.1:${client_port}"
+nodelay = ${nodelay}
+EOF
+
+    # Set secure permissions
+    chmod 600 "$config_file"
+    
+    print_success "Client configuration created: $config_file"
+    
+    # Create systemd service file
+    create_systemd_service "client" "$name"
+    
+    print_info "Configuration file path: $(pwd)/$config_file"
+    print_warning "Remember to copy the configuration to /etc/rathole/ for systemd service:"
+    echo "  sudo mkdir -p /etc/rathole"
+    echo "  sudo cp $config_file /etc/rathole/"
+    echo "  sudo chmod 600 /etc/rathole/$config_file"
+}
+
+# Function to create systemd service files
+create_systemd_service() {
+    local type="$1"  # server or client
+    local name="$2"
+    
+    local service_name
+    if [ "$type" = "server" ]; then
+        service_name="ratholes@.service"
+    else
+        service_name="ratholec@.service"
+    fi
+    
+    # Create the systemd service file
+    cat > "$service_name" << EOF
+[Unit]
+Description=Rathole ${type^} %i
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/rathole --${type} /etc/rathole/%i.toml
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    print_success "Systemd service file created: $service_name"
+    
+    print_info "To install and start the service:"
+    echo "  sudo cp $service_name /etc/systemd/system/"
+    echo "  sudo systemctl daemon-reload"
+    echo "  sudo systemctl enable ${service_name%@.service}@${name}_${type} --now"
+    echo ""
+    print_info "To check service status:"
+    echo "  sudo systemctl status ${service_name%@.service}@${name}_${type}"
+    echo ""
+    print_info "To view logs:"
+    echo "  sudo journalctl -u ${service_name%@.service}@${name}_${type} -f"
+}
+
+# Function to validate protocol
+validate_protocol() {
+    local protocol="$1"
+    if [[ "$protocol" != "tcp" && "$protocol" != "udp" ]]; then
+        print_error "Invalid protocol: $protocol. Must be 'tcp' or 'udp'"
+        exit 1
+    fi
+}
+
+# Function to validate nodelay
+validate_nodelay() {
+    local nodelay="$1"
+    if [[ "$nodelay" != "true" && "$nodelay" != "false" ]]; then
+        print_error "Invalid nodelay value: $nodelay. Must be 'true' or 'false'"
+        exit 1
+    fi
+}
+
+# Function to validate port
+validate_port() {
+    local port="$1"
+    if ! [[ "$port" =~ ^[0-9]+$ ]] || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+        print_error "Invalid port: $port. Must be a number between 1 and 65535"
+        exit 1
+    fi
+}
+
+# Main script logic
+main() {
+    if [ $# -lt 2 ]; then
+        show_usage
+        exit 1
+    fi
+    
+    local type="$1"
+    shift
+    
+    case "$type" in
+        "server")
+            if [ $# -ne 7 ]; then
+                print_error "Server configuration requires exactly 7 parameters"
+                show_usage
+                exit 1
+            fi
+            
+            local name="$1"
+            local port="$2"
+            local default_token="$3"
+            local remote_public_key="$4"
+            local client_port="$5"
+            local protocol="$6"
+            local nodelay="$7"
+            
+            # Validate inputs
+            validate_port "$port"
+            validate_port "$client_port"
+            validate_protocol "$protocol"
+            validate_nodelay "$nodelay"
+            
+            create_server_config "$name" "$port" "$default_token" "$remote_public_key" "$client_port" "$protocol" "$nodelay"
+            ;;
+            
+        "client")
+            if [ $# -ne 7 ]; then
+                print_error "Client configuration requires exactly 7 parameters"
+                show_usage
+                exit 1
+            fi
+            
+            local name="$1"
+            local remote_addr="$2"
+            local default_token="$3"
+            local remote_public_key="$4"
+            local client_port="$5"
+            local protocol="$6"
+            local nodelay="$7"
+            
+            # Validate inputs
+            validate_port "$client_port"
+            validate_protocol "$protocol"
+            validate_nodelay "$nodelay"
+            
+            create_client_config "$name" "$remote_addr" "$default_token" "$remote_public_key" "$client_port" "$protocol" "$nodelay"
+            ;;
+            
+        *)
+            print_error "Invalid type: $type. Must be 'server' or 'client'"
+            show_usage
+            exit 1
+            ;;
+    esac
+}
+
+# Run the main function with all arguments
+main "$@"

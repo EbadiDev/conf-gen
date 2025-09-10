@@ -80,27 +80,54 @@ extract_keys() {
     local private_key
     local public_key
     
-    # Debug: show what we're parsing
-    # echo "DEBUG: Parsing keys from:"
-    # echo "$keys_output"
+    # Handle both styles of rathole --genkey output:
+    #   1) Keys on the next line after the labels
+    #   2) Keys on the same line as the labels
+    private_key=$(awk '
+        /^Private Key:/ {
+            # Remove label and optional spaces
+            line = $0
+            sub(/^Private Key:[[:space:]]*/, "", line)
+            if (length(line) > 0) {
+                print line; exit
+            } else {
+                # Next line contains the key
+                getline; print; exit
+            }
+        }
+    ' <<< "$keys_output")
+
+    public_key=$(awk '
+        /^Public Key:/ {
+            # Remove label and optional spaces
+            line = $0
+            sub(/^Public Key:[[:space:]]*/, "", line)
+            if (length(line) > 0) {
+                print line; exit
+            } else {
+                # Next line contains the key
+                getline; print; exit
+            }
+        }
+    ' <<< "$keys_output")
     
-    private_key=$(echo "$keys_output" | grep "Private Key:" | sed 's/Private Key: //')
-    public_key=$(echo "$keys_output" | grep "Public Key:" | sed 's/Public Key: //')
-    
-    # Debug: show extracted keys
-    # echo "DEBUG: Extracted private key: '$private_key'"
-    # echo "DEBUG: Extracted public key: '$public_key'"
+    # Debug: show extracted keys (kept commented)
+    # echo "DEBUG: Extracted private key: '$private_key'" >&2
+    # echo "DEBUG: Extracted public key: '$public_key'" >&2
     
     echo "$private_key|$public_key"
 }
 
 # Function to get remote public key from user
 get_remote_public_key() {
-    echo ""
-    print_warning "Please provide the remote public key from the other side:"
-    print_info "The remote side should run 'rathole --genkey' and share their PUBLIC KEY with you."
-    echo ""
-    echo -n "Enter remote public key: "
+    # Print prompts and info to stderr to avoid polluting captured stdout
+    {
+        echo ""
+        print_warning "Please provide the remote public key from the other side:"
+        print_info "The remote side should run 'rathole --genkey' and share their PUBLIC KEY with you."
+        echo ""
+        echo -n "Enter remote public key: "
+    } >&2
     read -r remote_public_key
     
     # Clean the input - remove any extra whitespace or newlines

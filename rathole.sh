@@ -316,6 +316,13 @@ create_systemd_service() {
     
     # Get the current directory path for rathole binary
     local rathole_path="$(pwd)/rathole"
+    # Use config suffix per service template so the instance name can be just the 'name'
+    local config_suffix
+    if [ "$type" = "server" ]; then
+        config_suffix="_server"
+    else
+        config_suffix="_client"
+    fi
     
     # Create the systemd service file
     cat > "$service_name" << EOF
@@ -326,7 +333,7 @@ After=network.target
 [Service]
 Type=simple
 User=root
-ExecStart=${rathole_path} --${type} /etc/rathole/%i.toml
+ExecStart=${rathole_path} --${type} /etc/rathole/%i${config_suffix}.toml
 Restart=always
 RestartSec=5
 
@@ -341,8 +348,8 @@ EOF
     cp "$service_name" /etc/systemd/system/
     systemctl daemon-reload
     
-    # Auto-enable and start the service instance
-    local instance="${name}_${type}"
+    # Auto-enable and start the service instance (without _server/_client suffix)
+    local instance="${name}"
     local unit="${service_name%@.service}@${instance}"
     if systemctl enable "$unit" --now; then
         print_success "Service installed, enabled, and started: $unit"

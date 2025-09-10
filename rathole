@@ -121,7 +121,6 @@ create_server_config() {
     # Generate keys for server
     local keys_output
     keys_output=$(generate_keys)
-    echo "$keys_output"
     
     local keys
     keys=$(extract_keys "$keys_output")
@@ -130,6 +129,9 @@ create_server_config() {
     local_private_key=$(echo "$keys" | cut -d'|' -f1)
     local_public_key=$(echo "$keys" | cut -d'|' -f2)
     
+    # Show only the public key
+    echo "Public Key:"
+    echo "$local_public_key"
     echo ""
     print_success "Your server's public key is: $local_public_key"
     print_warning "Share this public key with the client side!"
@@ -187,7 +189,6 @@ create_client_config() {
     # Generate keys for client
     local keys_output
     keys_output=$(generate_keys)
-    echo "$keys_output"
     
     local keys
     keys=$(extract_keys "$keys_output")
@@ -196,6 +197,9 @@ create_client_config() {
     local_private_key=$(echo "$keys" | cut -d'|' -f1)
     local_public_key=$(echo "$keys" | cut -d'|' -f2)
     
+    # Show only the public key
+    echo "Public Key:"
+    echo "$local_public_key"
     echo ""
     print_success "Your client's public key is: $local_public_key"
     print_warning "Share this public key with the server side!"

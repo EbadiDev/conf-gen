@@ -159,9 +159,7 @@ create_server_config() {
     # Generate keys for server
     local keys_output
     keys_output=$(generate_keys)
-    
-    # Show the raw rathole --genkey output
-    echo "$keys_output"
+    # Do not print the raw --genkey output; we'll only show the final public key
     
     local keys
     keys=$(extract_keys "$keys_output")
@@ -238,9 +236,7 @@ create_client_config() {
     # Generate keys for client
     local keys_output
     keys_output=$(generate_keys)
-    
-    # Show the raw rathole --genkey output
-    echo "$keys_output"
+    # Do not print the raw --genkey output; we'll only show the final public key
     
     local keys
     keys=$(extract_keys "$keys_output")
@@ -345,16 +341,22 @@ EOF
     cp "$service_name" /etc/systemd/system/
     systemctl daemon-reload
     
-    print_success "Service installed successfully!"
+    # Auto-enable and start the service instance
+    local instance="${name}_${type}"
+    local unit="${service_name%@.service}@${instance}"
+    if systemctl enable "$unit" --now; then
+        print_success "Service installed, enabled, and started: $unit"
+    else
+        print_warning "Service installed, but failed to enable/start: $unit"
+        print_info "You can manually start it with:"
+        echo "  sudo systemctl enable $unit --now"
+    fi
     
-    print_info "To enable and start the service:"
-    echo "  sudo systemctl enable ${service_name%@.service}@${name}_${type} --now"
-    echo ""
     print_info "To check service status:"
-    echo "  sudo systemctl status ${service_name%@.service}@${name}_${type}"
+    echo "  sudo systemctl status $unit"
     echo ""
     print_info "To view logs:"
-    echo "  sudo journalctl -u ${service_name%@.service}@${name}_${type} -f"
+    echo "  sudo journalctl -u $unit -f"
 }
 
 # Function to validate protocol

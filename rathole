@@ -32,22 +32,23 @@ print_error() {
 # Function to show usage
 show_usage() {
     echo "Usage:"
-    echo "  Server: $0 server <name> <port> <default_token> <remote_public_key> <client_port> <tcp|udp> <nodelay>"
-    echo "  Client: $0 client <name> <domain/ip:port> <default_token> <remote_public_key> <client_port> <tcp|udp> <nodelay>"
+    echo "  Server: $0 server <name> <port> <default_token> <client_port> <tcp|udp> <nodelay>"
+    echo "  Client: $0 client <name> <domain/ip:port> <default_token> <client_port> <tcp|udp> <nodelay>"
     echo ""
     echo "Examples:"
-    echo "  $0 server myapp 2333 mysecrettoken GQYTKSbWLBUSZiGfdWPSgek9yoOuaiwGD/GIX8Z1kkE= 8080 tcp true"
-    echo "  $0 client myapp example.com:2333 mysecrettoken cQ/vwIqNPJZmuM/OikglzBo/+jlYGrOt9i0k5h5vn1Q= 8080 tcp false"
+    echo "  $0 server myapp 2333 mysecrettoken 8080 tcp true"
+    echo "  $0 client myapp example.com:2333 mysecrettoken 8080 tcp false"
     echo ""
     echo "Parameters:"
     echo "  name              - Configuration name"
     echo "  port              - Server bind port (server only)"
     echo "  domain/ip:port    - Server address (client only)"
     echo "  default_token     - Authentication token"
-    echo "  remote_public_key - Remote peer's public key"
     echo "  client_port       - Client service port"
     echo "  tcp|udp           - Protocol type"
     echo "  nodelay           - Enable/disable TCP nodelay (true/false)"
+    echo ""
+    echo "Note: The script will generate keys and ask for the remote public key interactively."
 }
 
 # Function to generate keys
@@ -79,27 +80,58 @@ extract_keys() {
     echo "$private_key|$public_key"
 }
 
+# Function to get remote public key from user
+get_remote_public_key() {
+    echo ""
+    print_warning "Please provide the remote public key from the other side:"
+    print_info "The remote side should run 'rathole --genkey' and share their PUBLIC KEY with you."
+    echo ""
+    echo -n "Enter remote public key: "
+    read -r remote_public_key
+    
+    # Basic validation - check if it looks like a base64 key
+    if [[ -z "$remote_public_key" ]]; then
+        print_error "Remote public key cannot be empty!"
+        exit 1
+    fi
+    
+    if [[ ${#remote_public_key} -lt 40 ]]; then
+        print_error "Remote public key seems too short. Please check the key."
+        exit 1
+    fi
+    
+    echo "$remote_public_key"
+}
+
 # Function to create server configuration
 create_server_config() {
     local name="$1"
     local port="$2"
     local default_token="$3"
-    local remote_public_key="$4"
-    local client_port="$5"
-    local protocol="$6"
-    local nodelay="$7"
+    local client_port="$4"
+    local protocol="$5"
+    local nodelay="$6"
     
     # Generate keys for server
     print_info "Generating keys for server..."
     local keys_output
     keys_output=$(generate_keys)
     echo "$keys_output"
-    echo ""
     
     local keys
     keys=$(extract_keys "$keys_output")
     local local_private_key
+    local local_public_key
     local_private_key=$(echo "$keys" | cut -d'|' -f1)
+    local_public_key=$(echo "$keys" | cut -d'|' -f2)
+    
+    echo ""
+    print_success "Your server's public key is: $local_public_key"
+    print_warning "Share this public key with the client side!"
+    
+    # Get remote public key from user
+    local remote_public_key
+    remote_public_key=$(get_remote_public_key)
     
     # Create server configuration file
     local config_file="${name}_server.toml"
@@ -143,22 +175,30 @@ create_client_config() {
     local name="$1"
     local remote_addr="$2"
     local default_token="$3"
-    local remote_public_key="$4"
-    local client_port="$5"
-    local protocol="$6"
-    local nodelay="$7"
+    local client_port="$4"
+    local protocol="$5"
+    local nodelay="$6"
     
     # Generate keys for client
     print_info "Generating keys for client..."
     local keys_output
     keys_output=$(generate_keys)
     echo "$keys_output"
-    echo ""
     
     local keys
     keys=$(extract_keys "$keys_output")
     local local_private_key
+    local local_public_key
     local_private_key=$(echo "$keys" | cut -d'|' -f1)
+    local_public_key=$(echo "$keys" | cut -d'|' -f2)
+    
+    echo ""
+    print_success "Your client's public key is: $local_public_key"
+    print_warning "Share this public key with the server side!"
+    
+    # Get remote public key from user
+    local remote_public_key
+    remote_public_key=$(get_remote_public_key)
     
     # Create client configuration file
     local config_file="${name}_client.toml"
@@ -280,8 +320,8 @@ main() {
     
     case "$type" in
         "server")
-            if [ $# -ne 7 ]; then
-                print_error "Server configuration requires exactly 7 parameters"
+            if [ $# -ne 6 ]; then
+                print_error "Server configuration requires exactly 6 parameters"
                 show_usage
                 exit 1
             fi
@@ -289,10 +329,9 @@ main() {
             local name="$1"
             local port="$2"
             local default_token="$3"
-            local remote_public_key="$4"
-            local client_port="$5"
-            local protocol="$6"
-            local nodelay="$7"
+            local client_port="$4"
+            local protocol="$5"
+            local nodelay="$6"
             
             # Validate inputs
             validate_port "$port"
@@ -300,12 +339,12 @@ main() {
             validate_protocol "$protocol"
             validate_nodelay "$nodelay"
             
-            create_server_config "$name" "$port" "$default_token" "$remote_public_key" "$client_port" "$protocol" "$nodelay"
+            create_server_config "$name" "$port" "$default_token" "$client_port" "$protocol" "$nodelay"
             ;;
             
         "client")
-            if [ $# -ne 7 ]; then
-                print_error "Client configuration requires exactly 7 parameters"
+            if [ $# -ne 6 ]; then
+                print_error "Client configuration requires exactly 6 parameters"
                 show_usage
                 exit 1
             fi
@@ -313,17 +352,16 @@ main() {
             local name="$1"
             local remote_addr="$2"
             local default_token="$3"
-            local remote_public_key="$4"
-            local client_port="$5"
-            local protocol="$6"
-            local nodelay="$7"
+            local client_port="$4"
+            local protocol="$5"
+            local nodelay="$6"
             
             # Validate inputs
             validate_port "$client_port"
             validate_protocol "$protocol"
             validate_nodelay "$nodelay"
             
-            create_client_config "$name" "$remote_addr" "$default_token" "$remote_public_key" "$client_port" "$protocol" "$nodelay"
+            create_client_config "$name" "$remote_addr" "$default_token" "$client_port" "$protocol" "$nodelay"
             ;;
             
         *)

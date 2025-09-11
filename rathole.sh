@@ -355,9 +355,9 @@ EOF
 frontend ${name}_frontend
     bind *:${external_port}
     mode tcp
-    # option tcplog  # Disabled for performance
-    # Capture client IP for logging (disabled for performance)
-    # tcp-request connection track-sc0 src
+    option tcplog
+    # Track client source IP for real IP forwarding
+    tcp-request connection track-sc0 src
     default_backend ${name}_rathole
 
 backend ${name}_rathole
@@ -365,8 +365,8 @@ backend ${name}_rathole
     option tcp-check
     # Fast server checks
     default-server inter 1000ms rise 2 fall 2
-    # Forward to rathole internal port
-    server rathole1 127.0.0.1:${rathole_port} check maxconn 10000
+    # Forward to rathole internal port with proxy protocol to preserve real IP
+    server rathole1 127.0.0.1:${rathole_port} check maxconn 10000 send-proxy
 EOF
 
     # Move temp config to final location
@@ -515,21 +515,21 @@ EOF
 #---------------------------------------------------------------------
 # ${name} service configuration
 #---------------------------------------------------------------------
-# Frontend receiving from rathole - optimized for speed
+# Frontend receiving from rathole - with real IP forwarding
 frontend ${name}_frontend
-    bind *:${rathole_port}
+    bind *:${rathole_port} accept-proxy
     mode tcp
-    # option tcplog  # Disabled for performance
+    option tcplog
     default_backend ${name}_backend
 
-# Backend to your actual service - optimized for speed
+# Backend to your actual service - with real IP forwarding
 backend ${name}_backend
     mode tcp
     option tcp-check
     # Fast server checks
     default-server inter 1000ms rise 2 fall 2
-    # Forward to your actual service
-    server app1 127.0.0.1:${service_port} check maxconn 10000
+    # Forward to your actual service with proxy protocol to preserve real IP
+    server app1 127.0.0.1:${service_port} check maxconn 10000 send-proxy
 EOF
 
     # Move temp config to final location

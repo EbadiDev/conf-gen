@@ -242,7 +242,6 @@ create_haproxy_server_config() {
 # Global settings - Stable and compatible
 #---------------------------------------------------------------------
 global
-    log stdout local0
     chroot /var/lib/haproxy
     stats socket /run/haproxy/admin.sock mode 660 level admin
     stats timeout 30s
@@ -255,8 +254,6 @@ global
 #---------------------------------------------------------------------
 defaults
     mode tcp
-    log global
-    option tcplog
     option dontlognull
     retries 3
     timeout connect 5000ms
@@ -331,7 +328,6 @@ EOF
 frontend ${name}_frontend
     bind *:${external_port}
     mode tcp
-    option tcplog
     # Simple proxy protocol forwarding without stick tables
     default_backend ${name}_rathole
 
@@ -375,7 +371,6 @@ create_haproxy_client_config() {
 # Global settings - Stable and compatible
 #---------------------------------------------------------------------
 global
-    log stdout local0
     chroot /var/lib/haproxy
     stats socket /run/haproxy/admin.sock mode 660 level admin
     stats timeout 30s
@@ -388,8 +383,6 @@ global
 #---------------------------------------------------------------------
 defaults
     mode tcp
-    log global
-    option tcplog
     option dontlognull
     retries 3
     timeout connect 5000ms
@@ -465,7 +458,6 @@ EOF
 frontend ${name}_frontend
     bind *:${rathole_port} accept-proxy
     mode tcp
-    option tcplog
     default_backend ${name}_backend
 
 # Backend to your actual service - with real IP forwarding

@@ -277,42 +277,43 @@ EOF
             skip_global_defaults = 1
         }
         
-        # Skip global and defaults sections
-        /^global/ { skip_global_defaults = 1; next }
-        /^defaults/ { skip_global_defaults = 1; next }
-        
-        # Detect service section start
-        /^#-+$/ && skip_global_defaults == 0 {
+        # Skip everything until we find the first service section
+        /^#-+$/ {
             getline next_line
             if (next_line ~ "^# .* service configuration") {
+                found_first_service = 1
                 if (next_line ~ "^# " service_name " service configuration") {
-                    skip = 1  # Skip this specific service (will be replaced)
+                    skip_service = 1  # Skip this specific service (will be replaced)
                 } else {
-                    skip = 0  # Keep other services
+                    skip_service = 0  # Keep other services
+                    print $0
+                    print next_line
+                }
+                next
+            } else if (found_first_service) {
+                # After first service, print other separator lines
+                if (skip_service == 0) {
                     print $0
                     print next_line
                 }
                 next
             } else {
-                if (skip == 0) {
-                    print $0
-                    print next_line
-                }
+                # Before first service, skip (global/defaults area)
                 next
             }
         }
         
-        # Handle service section end
-        skip == 1 && /^#-+$/ {
+        # Handle service section transitions
+        skip_service == 1 && /^#-+$/ {
             getline next_line
             if (next_line ~ "^# .* service configuration") {
-                skip = 0
+                skip_service = 0
                 print $0
                 print next_line
                 next
-            } else if (next_line !~ "^# .* service configuration") {
-                skip = 0
-                if (next_line != "") {
+            } else {
+                skip_service = 0
+                if (next_line != "" && found_first_service) {
                     print $0
                     print next_line
                 }
@@ -320,27 +321,8 @@ EOF
             }
         }
         
-        # After defaults section, start including content
-        skip_global_defaults == 1 && (/^$/ || /^#-+$/) {
-            skip_global_defaults = 0
-            if (/^#-+$/) {
-                getline next_line
-                if (next_line ~ "^# .* service configuration") {
-                    if (next_line ~ "^# " service_name " service configuration") {
-                        skip = 1  # Skip this specific service
-                    } else {
-                        skip = 0  # Keep other services
-                        print $0
-                        print next_line
-                    }
-                    next
-                }
-            }
-            next
-        }
-        
-        # Print lines that are not skipped
-        skip == 0 && skip_global_defaults == 0 { print }
+        # Print lines that are not skipped and after first service found
+        found_first_service == 1 && skip_service == 0 { print }
         ' "$haproxy_config" >> "$temp_config"
     fi
     
@@ -454,46 +436,47 @@ EOF
     if [ -f "$haproxy_config" ]; then
         awk -v service_name="${name}" '
         BEGIN { 
-            skip = 0
-            skip_global_defaults = 1
+            skip_service = 0
+            found_first_service = 0
         }
         
-        # Skip global and defaults sections
-        /^global/ { skip_global_defaults = 1; next }
-        /^defaults/ { skip_global_defaults = 1; next }
-        
-        # Detect service section start
-        /^#-+$/ && skip_global_defaults == 0 {
+        # Skip everything until we find the first service section
+        /^#-+$/ {
             getline next_line
             if (next_line ~ "^# .* service configuration") {
+                found_first_service = 1
                 if (next_line ~ "^# " service_name " service configuration") {
-                    skip = 1  # Skip this specific service (will be replaced)
+                    skip_service = 1  # Skip this specific service (will be replaced)
                 } else {
-                    skip = 0  # Keep other services
+                    skip_service = 0  # Keep other services
+                    print $0
+                    print next_line
+                }
+                next
+            } else if (found_first_service) {
+                # After first service, print other separator lines
+                if (skip_service == 0) {
                     print $0
                     print next_line
                 }
                 next
             } else {
-                if (skip == 0) {
-                    print $0
-                    print next_line
-                }
+                # Before first service, skip (global/defaults area)
                 next
             }
         }
         
-        # Handle service section end
-        skip == 1 && /^#-+$/ {
+        # Handle service section transitions
+        skip_service == 1 && /^#-+$/ {
             getline next_line
             if (next_line ~ "^# .* service configuration") {
-                skip = 0
+                skip_service = 0
                 print $0
                 print next_line
                 next
-            } else if (next_line !~ "^# .* service configuration") {
-                skip = 0
-                if (next_line != "") {
+            } else {
+                skip_service = 0
+                if (next_line != "" && found_first_service) {
                     print $0
                     print next_line
                 }
@@ -501,27 +484,8 @@ EOF
             }
         }
         
-        # After defaults section, start including content
-        skip_global_defaults == 1 && (/^$/ || /^#-+$/) {
-            skip_global_defaults = 0
-            if (/^#-+$/) {
-                getline next_line
-                if (next_line ~ "^# .* service configuration") {
-                    if (next_line ~ "^# " service_name " service configuration") {
-                        skip = 1  # Skip this specific service
-                    } else {
-                        skip = 0  # Keep other services
-                        print $0
-                        print next_line
-                    }
-                    next
-                }
-            }
-            next
-        }
-        
-        # Print lines that are not skipped
-        skip == 0 && skip_global_defaults == 0 { print }
+        # Print lines that are not skipped and after first service found
+        found_first_service == 1 && skip_service == 0 { print }
         ' "$haproxy_config" >> "$temp_config"
     fi
     

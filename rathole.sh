@@ -164,48 +164,80 @@ create_haproxy_server_config() {
     
     cat > "$haproxy_config" << EOF
 #---------------------------------------------------------------------
-# Global settings
+# Global settings - Optimized for maximum speed
 #---------------------------------------------------------------------
 global
-    log stdout local0
+    # Performance optimizations
+    nbproc 1
+    nbthread $(nproc)
+    cpu-map auto:1/1-$(nproc) 0-$(($(nproc)-1))
+    
+    # Disable logging for maximum performance (enable only if needed)
+    # log stdout local0 info
+    
+    # Security and operational settings
     chroot /var/lib/haproxy
-    stats socket /run/haproxy/admin.sock mode 660 level admin
+    stats socket /run/haproxy/admin.sock mode 660 level admin expose-fd listeners
     stats timeout 30s
     user haproxy
     group haproxy
     daemon
+    
+    # Memory and connection optimizations
+    tune.maxrewrite 1024
+    tune.bufsize 32768
+    tune.rcvbuf.server 262144
+    tune.sndbuf.server 262144
+    tune.rcvbuf.client 262144
+    tune.sndbuf.client 262144
 
 #---------------------------------------------------------------------
-# Default settings
+# Default settings - Optimized for speed
 #---------------------------------------------------------------------
 defaults
     mode tcp
-    log global
-    option tcplog
+    # log global  # Disabled for performance
     option dontlognull
-    retries 3
-    timeout connect 5000ms
-    timeout client 50000ms
-    timeout server 50000ms
+    option tcpka
+    option tcp-smart-accept
+    option tcp-smart-connect
+    
+    # Aggressive timeout settings for speed
+    timeout connect 2s
+    timeout client 300s
+    timeout server 300s
+    timeout tunnel 3600s
+    timeout client-fin 10s
+    timeout server-fin 10s
+    
+    # Disable retries for faster failover
+    retries 2
+    
+    # Load balancing algorithm optimized for speed
+    balance roundrobin
 
 #---------------------------------------------------------------------
 # ${name} service configuration
 #---------------------------------------------------------------------
-# Frontend for external clients - logs real IPs
+# Frontend for external clients - optimized for speed
 frontend ${name}_frontend
     bind *:${external_port}
     mode tcp
-    option tcplog
-    # Capture client IP for logging
-    tcp-request connection track-sc0 src
+    # option tcplog  # Disabled for performance
+    # Capture client IP for logging (disabled for performance)
+    # tcp-request connection track-sc0 src
     default_backend ${name}_rathole
 
-# Backend to rathole server
+# Backend to rathole server - optimized for speed
 backend ${name}_rathole
     mode tcp
     option tcp-check
+    # Aggressive health check settings
+    option httpchk GET /
+    # Fast server checks
+    default-server inter 1000ms rise 2 fall 2
     # Forward to rathole internal port
-    server rathole1 127.0.0.1:${rathole_port} check
+    server rathole1 127.0.0.1:${rathole_port} check maxconn 10000
 EOF
 
     print_success "HAProxy server configuration created: $haproxy_config"
@@ -229,46 +261,76 @@ create_haproxy_client_config() {
     
     cat > "$haproxy_config" << EOF
 #---------------------------------------------------------------------
-# Global settings
+# Global settings - Optimized for maximum speed
 #---------------------------------------------------------------------
 global
-    log stdout local0
+    # Performance optimizations
+    nbproc 1
+    nbthread $(nproc)
+    cpu-map auto:1/1-$(nproc) 0-$(($(nproc)-1))
+    
+    # Disable logging for maximum performance (enable only if needed)
+    # log stdout local0 info
+    
+    # Security and operational settings
     chroot /var/lib/haproxy
-    stats socket /run/haproxy/admin.sock mode 660 level admin
+    stats socket /run/haproxy/admin.sock mode 660 level admin expose-fd listeners
     stats timeout 30s
     user haproxy
     group haproxy
     daemon
+    
+    # Memory and connection optimizations
+    tune.maxrewrite 1024
+    tune.bufsize 32768
+    tune.rcvbuf.server 262144
+    tune.sndbuf.server 262144
+    tune.rcvbuf.client 262144
+    tune.sndbuf.client 262144
 
 #---------------------------------------------------------------------
-# Default settings
+# Default settings - Optimized for speed
 #---------------------------------------------------------------------
 defaults
     mode tcp
-    log global
-    option tcplog
+    # log global  # Disabled for performance
     option dontlognull
-    retries 3
-    timeout connect 5000ms
-    timeout client 50000ms
-    timeout server 50000ms
+    option tcpka
+    option tcp-smart-accept
+    option tcp-smart-connect
+    
+    # Aggressive timeout settings for speed
+    timeout connect 2s
+    timeout client 300s
+    timeout server 300s
+    timeout tunnel 3600s
+    timeout client-fin 10s
+    timeout server-fin 10s
+    
+    # Disable retries for faster failover
+    retries 2
+    
+    # Load balancing algorithm optimized for speed
+    balance roundrobin
 
 #---------------------------------------------------------------------
 # ${name} service configuration
 #---------------------------------------------------------------------
-# Frontend receiving from rathole
+# Frontend receiving from rathole - optimized for speed
 frontend ${name}_frontend
     bind *:${rathole_port}
     mode tcp
-    option tcplog
+    # option tcplog  # Disabled for performance
     default_backend ${name}_backend
 
-# Backend to your actual service
+# Backend to your actual service - optimized for speed
 backend ${name}_backend
     mode tcp
     option tcp-check
+    # Fast server checks
+    default-server inter 1000ms rise 2 fall 2
     # Forward to your actual service
-    server app1 127.0.0.1:${service_port} check
+    server app1 127.0.0.1:${service_port} check maxconn 10000
 EOF
 
     print_success "HAProxy client configuration created: $haproxy_config"

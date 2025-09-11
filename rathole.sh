@@ -176,10 +176,6 @@ create_haproxy_server_config() {
 # Global settings - Optimized for maximum speed
 #---------------------------------------------------------------------
 global
-    # Performance optimizations
-    nbproc 1
-    nbthread $(nproc)
-    cpu-map auto:1/1-$(nproc) 0-$(($(nproc)-1))
     
     # Disable logging for maximum performance (enable only if needed)
     # log stdout local0 info
@@ -308,7 +304,6 @@ EOF
 #---------------------------------------------------------------------
 # ${name} service configuration
 #---------------------------------------------------------------------
-# Frontend for external clients - optimized for speed
 frontend ${name}_frontend
     bind *:${external_port}
     mode tcp
@@ -317,7 +312,6 @@ frontend ${name}_frontend
     # tcp-request connection track-sc0 src
     default_backend ${name}_rathole
 
-# Backend to rathole server - optimized for speed
 backend ${name}_rathole
     mode tcp
     option tcp-check
@@ -365,10 +359,9 @@ create_haproxy_client_config() {
 # Global settings - Optimized for maximum speed
 #---------------------------------------------------------------------
 global
-    # Performance optimizations
-    nbproc 1
-    nbthread $(nproc)
-    cpu-map auto:1/1-$(nproc) 0-$(($(nproc)-1))
+    # Performance optimizations for HAProxy 2.5+
+    # nbproc is deprecated, using threads instead
+    # Let HAProxy automatically determine optimal threading
     
     # Disable logging for maximum performance (enable only if needed)
     # log stdout local0 info

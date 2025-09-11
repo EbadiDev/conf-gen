@@ -573,6 +573,9 @@ EOF
     # Create and install systemd service file first
     create_systemd_service "server" "$name"
     
+    # Install rathole monitoring script
+    install_rathole_monitor
+    
     # Create HAProxy configuration if requested (after rathole is running)
     if [[ "$use_haproxy" == "haproxy" ]]; then
         create_haproxy_server_config "$name" "$external_port" "$rathole_bind_port"
@@ -682,6 +685,9 @@ EOF
     # Create and install systemd service file first
     create_systemd_service "client" "$name"
     
+    # Install rathole monitoring script
+    install_rathole_monitor
+    
     # Create HAProxy configuration if requested (after rathole is running)
     if [[ "$use_haproxy" == "haproxy" ]]; then
         create_haproxy_client_config "$name" "$rathole_local_port" "$service_port"
@@ -694,6 +700,128 @@ EOF
     
     print_info "Configuration file path: $(pwd)/$config_file"
     print_success "Configuration copied to: /etc/rathole/$config_file"
+}
+
+# Function to install rathole monitoring cron job
+install_rathole_monitor() {
+    local monitor_script="/usr/local/bin/rathole_monitor.sh"
+    local log_file="/var/log/rathole_monitor.log"
+    
+    print_info "Installing rathole monitoring script..."
+    
+    # Create the monitoring script
+    cat > "$monitor_script" << 'EOF'
+#!/bin/bash
+
+# Rathole Service Monitor Script
+# This script checks for connection timeout errors in rathole logs and restarts the service if needed
+# Should be run via cron every 6 hours
+
+# Error string to search for
+error_string="Connection timed out (os error 110)"
+
+# Function to log messages with timestamp
+log_message() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1"
+}
+
+# Function to get all running rathole services
+get_rathole_services() {
+    systemctl list-units --type=service --state=running | grep -E "rathole[sc]@" | awk '{print $1}'
+}
+
+# Function to check service logs for errors
+check_service_logs() {
+    local service_name="$1"
+    local logs
+    
+    # Get logs from the last 6 hours (since this runs every 6 hours)
+    logs=$(journalctl -u "$service_name" --since "6 hours ago" --no-pager 2>/dev/null)
+    
+    # Check if error string exists in logs
+    if grep -q "$error_string" <<< "$logs"; then
+        return 0  # Error found
+    else
+        return 1  # No error found
+    fi
+}
+
+# Function to restart rathole service
+restart_rathole_service() {
+    local service_name="$1"
+    
+    log_message "Restarting $service_name due to connection timeout errors..."
+    
+    if systemctl restart "$service_name"; then
+        log_message "Service $service_name restarted successfully"
+        
+        # Wait a moment for service to start
+        sleep 5
+        
+        # Check if service is running
+        if systemctl is-active "$service_name" >/dev/null 2>&1; then
+            log_message "Service $service_name is now running"
+        else
+            log_message "ERROR: Service $service_name failed to start after restart"
+        fi
+    else
+        log_message "ERROR: Failed to restart service $service_name"
+    fi
+}
+
+# Main execution
+main() {
+    log_message "Starting rathole service monitor check..."
+    
+    # Get all running rathole services
+    services=$(get_rathole_services)
+    
+    if [ -z "$services" ]; then
+        log_message "No running rathole services found"
+        exit 0
+    fi
+    
+    # Check each service
+    for service in $services; do
+        log_message "Checking service: $service"
+        
+        if check_service_logs "$service"; then
+            log_message "Error '$error_string' found in $service logs"
+            restart_rathole_service "$service"
+        else
+            log_message "No connection timeout errors found in $service - service is healthy"
+        fi
+    done
+    
+    log_message "Rathole service monitor check completed"
+}
+
+# Run main function
+main "$@"
+EOF
+
+    # Make the script executable
+    chmod +x "$monitor_script"
+    
+    # Create log file directory
+    touch "$log_file"
+    chmod 644 "$log_file"
+    
+    # Add cron job (every 6 hours at minute 0)
+    local cron_job="0 */6 * * * $monitor_script >> $log_file 2>&1"
+    
+    # Check if cron job already exists
+    if crontab -l 2>/dev/null | grep -q "$monitor_script"; then
+        print_info "Rathole monitor cron job already exists"
+    else
+        # Add the cron job
+        (crontab -l 2>/dev/null; echo "$cron_job") | crontab -
+        print_success "Rathole monitor cron job installed"
+        print_info "Monitor runs every 6 hours and logs to: $log_file"
+        print_info "To view monitor logs: tail -f $log_file"
+    fi
+    
+    print_success "Rathole monitoring script installed: $monitor_script"
 }
 
 # Function to create systemd service files

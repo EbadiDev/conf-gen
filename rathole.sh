@@ -239,53 +239,29 @@ create_haproxy_server_config() {
     # Extract any existing service configurations, but replace global/defaults
     cat > "$temp_config" << 'EOF'
 #---------------------------------------------------------------------
-# Global settings - Optimized for maximum speed
+# Global settings - Stable and compatible
 #---------------------------------------------------------------------
 global
-    
-    # Enable logging for proxy protocol and IP tracking
-    log stdout local0 info
-    
-    # Security and operational settings
+    log stdout local0
     chroot /var/lib/haproxy
-    stats socket /run/haproxy/admin.sock mode 660 level admin expose-fd listeners
+    stats socket /run/haproxy/admin.sock mode 660 level admin
     stats timeout 30s
     user haproxy
     group haproxy
     daemon
-    
-    # Memory and connection optimizations
-    tune.maxrewrite 1024
-    tune.bufsize 32768
-    tune.rcvbuf.server 262144
-    tune.sndbuf.server 262144
-    tune.rcvbuf.client 262144
-    tune.sndbuf.client 262144
 
 #---------------------------------------------------------------------
-# Default settings - Optimized for speed
+# Default settings - Stable and compatible
 #---------------------------------------------------------------------
 defaults
     mode tcp
     log global
+    option tcplog
     option dontlognull
-    option tcpka
-    option tcp-smart-accept
-    option tcp-smart-connect
-    
-    # Aggressive timeout settings for speed
-    timeout connect 2s
-    timeout client 300s
-    timeout server 300s
-    timeout tunnel 3600s
-    timeout client-fin 10s
-    timeout server-fin 10s
-    
-    # Disable retries for faster failover
-    retries 2
-    
-    # Load balancing algorithm optimized for speed
-    balance roundrobin
+    retries 3
+    timeout connect 5000ms
+    timeout client 50000ms
+    timeout server 50000ms
 
 EOF
 
@@ -362,10 +338,8 @@ frontend ${name}_frontend
 backend ${name}_rathole
     mode tcp
     option tcp-check
-    # Fast server checks
-    default-server inter 1000ms rise 2 fall 2
-    # Forward to rathole internal port with proxy protocol to preserve real IP
-    server rathole1 127.0.0.1:${rathole_port} check maxconn 10000 send-proxy
+    # Just forward with proxy protocol to rathole
+    server rathole1 127.0.0.1:${rathole_port} check send-proxy
 EOF
 
     # Move temp config to final location
@@ -398,56 +372,29 @@ create_haproxy_client_config() {
     # Extract any existing service configurations, but replace global/defaults
     cat > "$temp_config" << 'EOF'
 #---------------------------------------------------------------------
-# Global settings - Optimized for maximum speed
+# Global settings - Stable and compatible
 #---------------------------------------------------------------------
 global
-    # Performance optimizations for HAProxy 2.5+
-    # nbproc is deprecated, using threads instead
-    # Let HAProxy automatically determine optimal threading
-    
-    # Disable logging for maximum performance (enable only if needed)
-    # log stdout local0 info
-    
-    # Security and operational settings
+    log stdout local0
     chroot /var/lib/haproxy
-    stats socket /run/haproxy/admin.sock mode 660 level admin expose-fd listeners
+    stats socket /run/haproxy/admin.sock mode 660 level admin
     stats timeout 30s
     user haproxy
     group haproxy
     daemon
-    
-    # Memory and connection optimizations
-    tune.maxrewrite 1024
-    tune.bufsize 32768
-    tune.rcvbuf.server 262144
-    tune.sndbuf.server 262144
-    tune.rcvbuf.client 262144
-    tune.sndbuf.client 262144
 
 #---------------------------------------------------------------------
-# Default settings - Optimized for speed
+# Default settings - Stable and compatible
 #---------------------------------------------------------------------
 defaults
     mode tcp
     log global
+    option tcplog
     option dontlognull
-    option tcpka
-    option tcp-smart-accept
-    option tcp-smart-connect
-    
-    # Aggressive timeout settings for speed
-    timeout connect 2s
-    timeout client 300s
-    timeout server 300s
-    timeout tunnel 3600s
-    timeout client-fin 10s
-    timeout server-fin 10s
-    
-    # Disable retries for faster failover
-    retries 2
-    
-    # Load balancing algorithm optimized for speed
-    balance roundrobin
+    retries 3
+    timeout connect 5000ms
+    timeout client 50000ms
+    timeout server 50000ms
 
 EOF
 
@@ -525,10 +472,8 @@ frontend ${name}_frontend
 backend ${name}_backend
     mode tcp
     option tcp-check
-    # Fast server checks
-    default-server inter 1000ms rise 2 fall 2
-    # Forward to your actual service with proxy protocol to preserve real IP
-    server app1 127.0.0.1:${service_port} check maxconn 10000 send-proxy
+    # Forward to your actual service with proxy protocol
+    server app1 127.0.0.1:${service_port} check send-proxy
 EOF
 
     # Move temp config to final location

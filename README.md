@@ -1,4 +1,158 @@
-# Load Balancer Configuration Generator
+# Configuration Generators
+
+This repository contains configuration generators for various tunneling and load balancing solutions.
+
+## Scripts
+
+### 1. Load Balancer Configuration Generator (`create_lb_config.sh`)
+
+This script generates JSON configuration files for server and Iran-side setups of a load balancer system with support for multiple configuration types including simple port forwarding and advanced Reality/gRPC tunneling.
+
+### 2. Rathole Configuration Generator (`rathole.sh`)
+
+This script generates rathole server and client configurations with systemd services and optional HAProxy integration for real IP logging and load balancing.
+
+---
+
+## Rathole Configuration Generator
+
+The `rathole.sh` script provides an easy way to generate rathole tunnel configurations with automatic key generation, systemd service creation, and optional HAProxy integration for real IP preservation.
+
+### Features
+
+- **Automatic Key Generation**: Uses rathole binary to generate secure noise protocol keys
+- **Interactive Setup**: Guides you through the configuration process
+- **Systemd Integration**: Automatically creates and installs systemd service files
+- **HAProxy Support**: Optional HAProxy integration for real IP logging and load balancing
+- **Multi-Service Management**: Supports multiple services in a single HAProxy configuration
+- **Performance Optimized**: HAProxy configurations are optimized for maximum speed
+- **Automatic Backup**: Creates timestamped backups before modifying existing configurations
+
+### Prerequisites
+
+- `rathole` binary in the current directory
+- Root/sudo access for system configuration
+- HAProxy installed (if using haproxy option)
+
+### Usage
+
+```bash
+# Server Configuration
+./rathole.sh server <name> <port> <default_token> <client_port> <tcp|udp> <nodelay> [haproxy]
+
+# Client Configuration  
+./rathole.sh client <name> <domain/ip:port> <default_token> <client_port> <tcp|udp> <nodelay> [haproxy]
+```
+
+### Parameters
+
+- `name` - Configuration name (used for files and service names)
+- `port` - Server bind port (server only)
+- `domain/ip:port` - Server address (client only)
+- `default_token` - Authentication token (must match on both sides)
+- `client_port` - Client service port
+- `tcp|udp` - Protocol type
+- `nodelay` - Enable/disable TCP nodelay (true/false)
+- `haproxy` - Optional: Enable HAProxy integration
+
+### Examples
+
+#### Basic Configuration
+
+**Server:**
+```bash
+./rathole.sh server myapp 2333 mysecrettoken 8080 tcp true
+```
+
+**Client:**
+```bash
+./rathole.sh client myapp example.com:2333 mysecrettoken 8080 tcp false
+```
+
+#### With HAProxy (Real IP Logging)
+
+**Server:**
+```bash
+./rathole.sh server webapp 2333 mysecrettoken 8080 tcp true haproxy
+```
+
+**Client:**
+```bash
+./rathole.sh client webapp example.com:2333 mysecrettoken 8080 tcp false haproxy
+```
+
+### HAProxy Integration
+
+When using the `haproxy` option, the script:
+
+1. **Server Side:**
+   - External clients connect to port 8080 (HAProxy)
+   - HAProxy forwards to rathole on port 9080
+   - Real client IPs are logged in HAProxy logs
+
+2. **Client Side:**
+   - Rathole forwards to HAProxy on port 9080
+   - HAProxy forwards to your service on port 8080
+   - Your service receives traffic normally
+
+3. **Configuration Management:**
+   - Creates/updates `/etc/haproxy/haproxy.cfg`
+   - Supports multiple services in one config
+   - Overwrites existing service with same name
+   - Creates timestamped backups
+
+### Multi-Service Example
+
+```bash
+# First service
+./rathole.sh server webapp1 2333 secret1 8080 tcp true haproxy
+
+# Second service (adds to existing HAProxy config)
+./rathole.sh server webapp2 2334 secret2 8081 tcp true haproxy
+
+# Update first service (overwrites webapp1 config)
+./rathole.sh server webapp1 2333 newsecret1 8080 tcp true haproxy
+```
+
+### Generated Files
+
+- `<name>_server.toml` or `<name>_client.toml` - Rathole configuration
+- `/etc/rathole/<name>_server.toml` - Installed rathole config
+- `/etc/systemd/system/ratholes@.service` - Server systemd template
+- `/etc/systemd/system/ratholec@.service` - Client systemd template
+- `/etc/haproxy/haproxy.cfg` - HAProxy configuration (if enabled)
+
+### Service Management
+
+```bash
+# Check service status
+sudo systemctl status ratholes@myapp
+sudo systemctl status ratholec@myapp
+
+# View logs
+sudo journalctl -u ratholes@myapp -f
+sudo journalctl -u ratholec@myapp -f
+
+# Start/stop/restart
+sudo systemctl start ratholes@myapp
+sudo systemctl stop ratholes@myapp
+sudo systemctl restart ratholes@myapp
+```
+
+### HAProxy Performance Optimizations
+
+The generated HAProxy configurations include:
+
+- **Multi-threading**: Uses all available CPU cores
+- **Memory optimization**: Larger buffers (32KB, 256KB receive/send buffers)
+- **TCP optimizations**: Smart accept/connect, keep-alive
+- **Fast timeouts**: 2s connect, aggressive health checks
+- **Disabled logging**: For maximum performance (can be re-enabled)
+- **Load balancing**: Optimized roundrobin algorithm
+
+---
+
+## Load Balancer Configuration Generator
 
 This script generates JSON configuration files for server and Iran-side setups of a load balancer system with support for multiple configuration types including simple port forwarding and advanced Reality/gRPC tunneling.
 

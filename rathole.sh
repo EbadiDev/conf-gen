@@ -160,9 +160,19 @@ create_haproxy_server_config() {
     local external_port="$2"
     local rathole_port="$3"
     
-    local haproxy_config="${name}_server_haproxy.cfg"
+    local haproxy_config="/etc/haproxy/haproxy.cfg"
+    local temp_config="/tmp/haproxy_temp.cfg"
     
-    cat > "$haproxy_config" << EOF
+    # Create backup of existing config
+    if [ -f "$haproxy_config" ]; then
+        cp "$haproxy_config" "${haproxy_config}.backup.$(date +%s)"
+        print_info "Existing HAProxy config backed up"
+    fi
+    
+    # Check if this is the first service or if we need to add to existing config
+    if [ ! -f "$haproxy_config" ] || ! grep -q "^global" "$haproxy_config" 2>/dev/null; then
+        # Create new config with global and defaults sections
+        cat > "$temp_config" << 'EOF'
 #---------------------------------------------------------------------
 # Global settings - Optimized for maximum speed
 #---------------------------------------------------------------------
@@ -215,6 +225,43 @@ defaults
     
     # Load balancing algorithm optimized for speed
     balance roundrobin
+
+EOF
+    else
+        # Copy existing config without the specific service sections
+        awk -v service_name="${name}" '
+        BEGIN { skip = 0 }
+        /^#-+$/ && skip == 0 {
+            getline next_line
+            if (next_line ~ "^# " service_name " service configuration") {
+                skip = 1
+                next
+            } else {
+                print $0
+                print next_line
+                next
+            }
+        }
+        skip == 1 && /^#-+$/ {
+            getline next_line
+            if (next_line ~ "^# .* service configuration" && next_line !~ service_name) {
+                skip = 0
+                print $0
+                print next_line
+                next
+            } else if (next_line !~ "^# .* service configuration") {
+                skip = 0
+                print $0
+                print next_line
+                next
+            }
+        }
+        skip == 0 { print }
+        ' "$haproxy_config" > "$temp_config"
+    fi
+    
+    # Add the new service configuration
+    cat >> "$temp_config" << EOF
 
 #---------------------------------------------------------------------
 # ${name} service configuration
@@ -232,23 +279,27 @@ frontend ${name}_frontend
 backend ${name}_rathole
     mode tcp
     option tcp-check
-    # Aggressive health check settings
-    option httpchk GET /
     # Fast server checks
     default-server inter 1000ms rise 2 fall 2
     # Forward to rathole internal port
     server rathole1 127.0.0.1:${rathole_port} check maxconn 10000
 EOF
 
-    print_success "HAProxy server configuration created: $haproxy_config"
+    # Move temp config to final location
+    mkdir -p /etc/haproxy
+    mv "$temp_config" "$haproxy_config"
+    
+    print_success "HAProxy configuration updated: $haproxy_config"
+    print_info "Service '${name}' added to HAProxy configuration"
     print_info "HAProxy setup instructions:"
     echo "  1. Install HAProxy: sudo apt update && sudo apt install haproxy"
-    echo "  2. Replace /etc/haproxy/haproxy.cfg with this configuration"
-    echo "  3. Test configuration: sudo haproxy -f $haproxy_config -c"
-    echo "  4. Start HAProxy: sudo systemctl enable haproxy && sudo systemctl start haproxy"
+    echo "  2. Test configuration: sudo haproxy -f /etc/haproxy/haproxy.cfg -c"
+    echo "  3. Restart HAProxy: sudo systemctl restart haproxy"
+    echo "  4. Enable HAProxy: sudo systemctl enable haproxy"
     echo "  5. External clients should connect to port ${external_port}"
-    echo "  6. Real client IPs will be logged in HAProxy logs"
+    echo "  6. Real client IPs will be visible in HAProxy logs (if logging enabled)"
     echo ""
+}
 }
 
 # Function to create HAProxy configuration for client
@@ -257,9 +308,19 @@ create_haproxy_client_config() {
     local rathole_port="$2"
     local service_port="$3"
     
-    local haproxy_config="${name}_client_haproxy.cfg"
+    local haproxy_config="/etc/haproxy/haproxy.cfg"
+    local temp_config="/tmp/haproxy_temp.cfg"
     
-    cat > "$haproxy_config" << EOF
+    # Create backup of existing config
+    if [ -f "$haproxy_config" ]; then
+        cp "$haproxy_config" "${haproxy_config}.backup.$(date +%s)"
+        print_info "Existing HAProxy config backed up"
+    fi
+    
+    # Check if this is the first service or if we need to add to existing config
+    if [ ! -f "$haproxy_config" ] || ! grep -q "^global" "$haproxy_config" 2>/dev/null; then
+        # Create new config with global and defaults sections
+        cat > "$temp_config" << 'EOF'
 #---------------------------------------------------------------------
 # Global settings - Optimized for maximum speed
 #---------------------------------------------------------------------
@@ -312,6 +373,43 @@ defaults
     
     # Load balancing algorithm optimized for speed
     balance roundrobin
+
+EOF
+    else
+        # Copy existing config without the specific service sections
+        awk -v service_name="${name}" '
+        BEGIN { skip = 0 }
+        /^#-+$/ && skip == 0 {
+            getline next_line
+            if (next_line ~ "^# " service_name " service configuration") {
+                skip = 1
+                next
+            } else {
+                print $0
+                print next_line
+                next
+            }
+        }
+        skip == 1 && /^#-+$/ {
+            getline next_line
+            if (next_line ~ "^# .* service configuration" && next_line !~ service_name) {
+                skip = 0
+                print $0
+                print next_line
+                next
+            } else if (next_line !~ "^# .* service configuration") {
+                skip = 0
+                print $0
+                print next_line
+                next
+            }
+        }
+        skip == 0 { print }
+        ' "$haproxy_config" > "$temp_config"
+    fi
+    
+    # Add the new service configuration
+    cat >> "$temp_config" << EOF
 
 #---------------------------------------------------------------------
 # ${name} service configuration
@@ -333,15 +431,21 @@ backend ${name}_backend
     server app1 127.0.0.1:${service_port} check maxconn 10000
 EOF
 
-    print_success "HAProxy client configuration created: $haproxy_config"
+    # Move temp config to final location
+    mkdir -p /etc/haproxy
+    mv "$temp_config" "$haproxy_config"
+    
+    print_success "HAProxy configuration updated: $haproxy_config"
+    print_info "Service '${name}' added to HAProxy configuration"
     print_info "HAProxy setup instructions:"
     echo "  1. Install HAProxy: sudo apt update && sudo apt install haproxy"
-    echo "  2. Replace /etc/haproxy/haproxy.cfg with this configuration"
-    echo "  3. Test configuration: sudo haproxy -f $haproxy_config -c"
-    echo "  4. Start HAProxy: sudo systemctl enable haproxy && sudo systemctl start haproxy"
+    echo "  2. Test configuration: sudo haproxy -f /etc/haproxy/haproxy.cfg -c"
+    echo "  3. Restart HAProxy: sudo systemctl restart haproxy"
+    echo "  4. Enable HAProxy: sudo systemctl enable haproxy"
     echo "  5. Your service should remain on port ${service_port}"
     echo "  6. Rathole will forward to HAProxy on port ${rathole_port}"
     echo ""
+}
 }
 
 # Function to create server configuration

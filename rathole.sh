@@ -356,10 +356,7 @@ frontend ${name}_frontend
     bind *:${external_port}
     mode tcp
     option tcplog
-    # Create stick table to track client IPs
-    stick-table type ip size 100k expire 30s
-    # Track client source IP for real IP forwarding
-    tcp-request connection track-sc0 src
+    # Simple proxy protocol forwarding without stick tables
     default_backend ${name}_rathole
 
 backend ${name}_rathole

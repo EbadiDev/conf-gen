@@ -164,8 +164,28 @@ get_remote_public_key() {
 manage_haproxy_service() {
     local port="$1"
     local action="$2"  # "start" or "stop"
+    local rathole_port="$3"  # optional rathole port for health check
     
     if [[ "$action" == "start" ]]; then
+        # Check if rathole is listening if port provided
+        if [[ -n "$rathole_port" ]]; then
+            print_info "Checking if rathole is ready on port $rathole_port..."
+            local retries=10
+            while [ $retries -gt 0 ]; do
+                if nc -z 127.0.0.1 "$rathole_port" 2>/dev/null; then
+                    print_success "Rathole is ready on port $rathole_port"
+                    break
+                fi
+                print_info "Waiting for rathole to start... ($retries retries left)"
+                sleep 1
+                retries=$((retries - 1))
+            done
+            
+            if [ $retries -eq 0 ]; then
+                print_warning "Rathole not ready yet, but continuing with HAProxy restart"
+            fi
+        fi
+        
         print_info "Testing HAProxy configuration..."
         if haproxy -f /etc/haproxy/haproxy.cfg -c; then
             print_success "HAProxy configuration is valid"
@@ -608,21 +628,24 @@ EOF
     
     print_success "Server configuration created: $config_file"
     
-    # Create HAProxy configuration if requested
-    if [[ "$use_haproxy" == "haproxy" ]]; then
-        create_haproxy_server_config "$name" "$external_port" "$rathole_bind_port"
-        # Manage HAProxy service and firewall
-        manage_haproxy_service "$external_port" "start"
-    fi
-    
     # Copy configuration to /etc/rathole/ automatically
     print_info "Installing configuration..."
     mkdir -p /etc/rathole
     cp "$config_file" /etc/rathole/
     chmod 600 "/etc/rathole/$config_file"
     
-    # Create and install systemd service file
+    # Create and install systemd service file first
     create_systemd_service "server" "$name"
+    
+    # Create HAProxy configuration if requested (after rathole is running)
+    if [[ "$use_haproxy" == "haproxy" ]]; then
+        create_haproxy_server_config "$name" "$external_port" "$rathole_bind_port"
+        # Wait a moment for rathole to fully start
+        print_info "Waiting for rathole service to start..."
+        sleep 3
+        # Manage HAProxy service and firewall with rathole port check
+        manage_haproxy_service "$external_port" "start" "$rathole_bind_port"
+    fi
     
     print_info "Configuration file path: $(pwd)/$config_file"
     print_success "Configuration copied to: /etc/rathole/$config_file"
@@ -714,21 +737,24 @@ EOF
     
     print_success "Client configuration created: $config_file"
     
-    # Create HAProxy configuration if requested
-    if [[ "$use_haproxy" == "haproxy" ]]; then
-        create_haproxy_client_config "$name" "$rathole_local_port" "$service_port"
-        # Manage HAProxy service and firewall
-        manage_haproxy_service "$rathole_local_port" "start"
-    fi
-    
     # Copy configuration to /etc/rathole/ automatically
     print_info "Installing configuration..."
     mkdir -p /etc/rathole
     cp "$config_file" /etc/rathole/
     chmod 600 "/etc/rathole/$config_file"
     
-    # Create and install systemd service file
+    # Create and install systemd service file first
     create_systemd_service "client" "$name"
+    
+    # Create HAProxy configuration if requested (after rathole is running)
+    if [[ "$use_haproxy" == "haproxy" ]]; then
+        create_haproxy_client_config "$name" "$rathole_local_port" "$service_port"
+        # Wait a moment for rathole to fully start
+        print_info "Waiting for rathole service to start..."
+        sleep 3
+        # Manage HAProxy service and firewall with rathole port check
+        manage_haproxy_service "$rathole_local_port" "start" "$rathole_local_port"
+    fi
     
     print_info "Configuration file path: $(pwd)/$config_file"
     print_success "Configuration copied to: /etc/rathole/$config_file"

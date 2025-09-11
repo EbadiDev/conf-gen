@@ -300,7 +300,6 @@ EOF
     echo "  6. Real client IPs will be visible in HAProxy logs (if logging enabled)"
     echo ""
 }
-}
 
 # Function to create HAProxy configuration for client
 create_haproxy_client_config() {
@@ -445,7 +444,6 @@ EOF
     echo "  5. Your service should remain on port ${service_port}"
     echo "  6. Rathole will forward to HAProxy on port ${rathole_port}"
     echo ""
-}
 }
 
 # Function to create server configuration

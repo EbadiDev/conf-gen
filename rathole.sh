@@ -32,12 +32,17 @@ print_error() {
 # Function to show usage
 show_usage() {
     echo "Usage:"
-    echo "  Server: $0 server <name> <port> <default_token> <client_port> <tcp|udp> <nodelay>"
-    echo "  Client: $0 client <name> <domain/ip:port> <default_token> <client_port> <tcp|udp> <nodelay>"
+    echo "  Server: $0 server <name> <port> <default_token> <client_port> <tcp|udp> <nodelay> [haproxy]"
+    echo "  Client: $0 client <name> <domain/ip:port> <default_token> <client_port> <tcp|udp> <nodelay> [haproxy]"
     echo ""
     echo "Examples:"
-    echo "  $0 server myapp 2333 mysecrettoken 8080 tcp true"
-    echo "  $0 client myapp example.com:2333 mysecrettoken 8080 tcp false"
+    echo "  Basic:"
+    echo "    $0 server myapp 2333 mysecrettoken 8080 tcp true"
+    echo "    $0 client myapp example.com:2333 mysecrettoken 8080 tcp false"
+    echo ""
+    echo "  With HAProxy (for real IP logging and load balancing):"
+    echo "    $0 server myapp 2333 mysecrettoken 8080 tcp true haproxy"
+    echo "    $0 client myapp example.com:2333 mysecrettoken 8080 tcp false haproxy"
     echo ""
     echo "Parameters:"
     echo "  name              - Configuration name"
@@ -47,8 +52,10 @@ show_usage() {
     echo "  client_port       - Client service port"
     echo "  tcp|udp           - Protocol type"
     echo "  nodelay           - Enable/disable TCP nodelay (true/false)"
+    echo "  haproxy           - Optional: Generate HAProxy configuration for real IP logging"
     echo ""
     echo "Note: The script will generate keys and ask for the remote public key interactively."
+    echo "      With haproxy, additional HAProxy configuration files will be generated."
 }
 
 # Function to generate keys
@@ -147,6 +154,134 @@ get_remote_public_key() {
     echo "$remote_public_key"
 }
 
+# Function to create HAProxy configuration for server
+create_haproxy_server_config() {
+    local name="$1"
+    local external_port="$2"
+    local rathole_port="$3"
+    
+    local haproxy_config="${name}_server_haproxy.cfg"
+    
+    cat > "$haproxy_config" << EOF
+#---------------------------------------------------------------------
+# Global settings
+#---------------------------------------------------------------------
+global
+    log stdout local0
+    chroot /var/lib/haproxy
+    stats socket /run/haproxy/admin.sock mode 660 level admin
+    stats timeout 30s
+    user haproxy
+    group haproxy
+    daemon
+
+#---------------------------------------------------------------------
+# Default settings
+#---------------------------------------------------------------------
+defaults
+    mode tcp
+    log global
+    option tcplog
+    option dontlognull
+    retries 3
+    timeout connect 5000ms
+    timeout client 50000ms
+    timeout server 50000ms
+
+#---------------------------------------------------------------------
+# ${name} service configuration
+#---------------------------------------------------------------------
+# Frontend for external clients - logs real IPs
+frontend ${name}_frontend
+    bind *:${external_port}
+    mode tcp
+    option tcplog
+    # Capture client IP for logging
+    tcp-request connection track-sc0 src
+    default_backend ${name}_rathole
+
+# Backend to rathole server
+backend ${name}_rathole
+    mode tcp
+    option tcp-check
+    # Forward to rathole internal port
+    server rathole1 127.0.0.1:${rathole_port} check
+EOF
+
+    print_success "HAProxy server configuration created: $haproxy_config"
+    print_info "HAProxy setup instructions:"
+    echo "  1. Install HAProxy: sudo apt update && sudo apt install haproxy"
+    echo "  2. Replace /etc/haproxy/haproxy.cfg with this configuration"
+    echo "  3. Test configuration: sudo haproxy -f $haproxy_config -c"
+    echo "  4. Start HAProxy: sudo systemctl enable haproxy && sudo systemctl start haproxy"
+    echo "  5. External clients should connect to port ${external_port}"
+    echo "  6. Real client IPs will be logged in HAProxy logs"
+    echo ""
+}
+
+# Function to create HAProxy configuration for client
+create_haproxy_client_config() {
+    local name="$1"
+    local rathole_port="$2"
+    local service_port="$3"
+    
+    local haproxy_config="${name}_client_haproxy.cfg"
+    
+    cat > "$haproxy_config" << EOF
+#---------------------------------------------------------------------
+# Global settings
+#---------------------------------------------------------------------
+global
+    log stdout local0
+    chroot /var/lib/haproxy
+    stats socket /run/haproxy/admin.sock mode 660 level admin
+    stats timeout 30s
+    user haproxy
+    group haproxy
+    daemon
+
+#---------------------------------------------------------------------
+# Default settings
+#---------------------------------------------------------------------
+defaults
+    mode tcp
+    log global
+    option tcplog
+    option dontlognull
+    retries 3
+    timeout connect 5000ms
+    timeout client 50000ms
+    timeout server 50000ms
+
+#---------------------------------------------------------------------
+# ${name} service configuration
+#---------------------------------------------------------------------
+# Frontend receiving from rathole
+frontend ${name}_frontend
+    bind *:${rathole_port}
+    mode tcp
+    option tcplog
+    default_backend ${name}_backend
+
+# Backend to your actual service
+backend ${name}_backend
+    mode tcp
+    option tcp-check
+    # Forward to your actual service
+    server app1 127.0.0.1:${service_port} check
+EOF
+
+    print_success "HAProxy client configuration created: $haproxy_config"
+    print_info "HAProxy setup instructions:"
+    echo "  1. Install HAProxy: sudo apt update && sudo apt install haproxy"
+    echo "  2. Replace /etc/haproxy/haproxy.cfg with this configuration"
+    echo "  3. Test configuration: sudo haproxy -f $haproxy_config -c"
+    echo "  4. Start HAProxy: sudo systemctl enable haproxy && sudo systemctl start haproxy"
+    echo "  5. Your service should remain on port ${service_port}"
+    echo "  6. Rathole will forward to HAProxy on port ${rathole_port}"
+    echo ""
+}
+
 # Function to create server configuration
 create_server_config() {
     local name="$1"
@@ -155,6 +290,7 @@ create_server_config() {
     local client_port="$4"
     local protocol="$5"
     local nodelay="$6"
+    local use_haproxy="${7:-}"
     
     # Generate keys for server
     local keys_output
@@ -184,6 +320,21 @@ create_server_config() {
     local remote_public_key
     remote_public_key=$(get_remote_public_key)
     
+    # Determine rathole bind port based on HAProxy usage
+    local rathole_bind_port
+    local external_port
+    
+    if [[ "$use_haproxy" == "haproxy" ]]; then
+        # Use different port for rathole, HAProxy will handle external port
+        rathole_bind_port=$((client_port + 1000))
+        external_port="$client_port"
+        print_info "HAProxy mode enabled:"
+        print_info "  - External port (HAProxy): $external_port"
+        print_info "  - Rathole internal port: $rathole_bind_port"
+    else
+        rathole_bind_port="$client_port"
+    fi
+    
     # Create server configuration file
     local config_file="${name}_server.toml"
     
@@ -202,7 +353,7 @@ remote_public_key = "${remote_public_key}"
 
 [server.services."${client_port}"]
 type = "${protocol}"
-bind_addr = "0.0.0.0:${client_port}"
+bind_addr = "0.0.0.0:${rathole_bind_port}"
 nodelay = ${nodelay}
 EOF
 
@@ -210,6 +361,11 @@ EOF
     chmod 600 "$config_file"
     
     print_success "Server configuration created: $config_file"
+    
+    # Create HAProxy configuration if requested
+    if [[ "$use_haproxy" == "haproxy" ]]; then
+        create_haproxy_server_config "$name" "$external_port" "$rathole_bind_port"
+    fi
     
     # Copy configuration to /etc/rathole/ automatically
     print_info "Installing configuration..."
@@ -232,6 +388,7 @@ create_client_config() {
     local client_port="$4"
     local protocol="$5"
     local nodelay="$6"
+    local use_haproxy="${7:-}"
     
     # Generate keys for client
     local keys_output
@@ -261,6 +418,21 @@ create_client_config() {
     local remote_public_key
     remote_public_key=$(get_remote_public_key)
     
+    # Determine local address based on HAProxy usage
+    local rathole_local_port
+    local service_port="$client_port"
+    
+    if [[ "$use_haproxy" == "haproxy" ]]; then
+        # Rathole forwards to HAProxy, which then forwards to actual service
+        rathole_local_port=$((client_port + 1000))
+        print_info "HAProxy mode enabled:"
+        print_info "  - Rathole forwards to HAProxy on port: $rathole_local_port"
+        print_info "  - Your service should remain on port: $service_port"
+        print_info "  - HAProxy will forward traffic between them"
+    else
+        rathole_local_port="$client_port"
+    fi
+    
     # Create client configuration file
     local config_file="${name}_client.toml"
     
@@ -280,7 +452,7 @@ remote_public_key = "${remote_public_key}"
 
 [client.services."${client_port}"]
 type = "${protocol}"
-local_addr = "127.0.0.1:${client_port}"
+local_addr = "127.0.0.1:${rathole_local_port}"
 nodelay = ${nodelay}
 EOF
 
@@ -288,6 +460,11 @@ EOF
     chmod 600 "$config_file"
     
     print_success "Client configuration created: $config_file"
+    
+    # Create HAProxy configuration if requested
+    if [[ "$use_haproxy" == "haproxy" ]]; then
+        create_haproxy_client_config "$name" "$rathole_local_port" "$service_port"
+    fi
     
     # Copy configuration to /etc/rathole/ automatically
     print_info "Installing configuration..."
@@ -405,8 +582,8 @@ main() {
     
     case "$type" in
         "server")
-            if [ $# -ne 6 ]; then
-                print_error "Server configuration requires exactly 6 parameters"
+            if [ $# -lt 6 ] || [ $# -gt 7 ]; then
+                print_error "Server configuration requires 6 parameters, with optional 7th for HAProxy"
                 show_usage
                 exit 1
             fi
@@ -417,6 +594,7 @@ main() {
             local client_port="$4"
             local protocol="$5"
             local nodelay="$6"
+            local use_haproxy="${7:-}"
             
             # Validate inputs
             validate_port "$port"
@@ -424,12 +602,17 @@ main() {
             validate_protocol "$protocol"
             validate_nodelay "$nodelay"
             
-            create_server_config "$name" "$port" "$default_token" "$client_port" "$protocol" "$nodelay"
+            if [[ -n "$use_haproxy" && "$use_haproxy" != "haproxy" ]]; then
+                print_error "Invalid HAProxy parameter: $use_haproxy. Use 'haproxy' or omit"
+                exit 1
+            fi
+            
+            create_server_config "$name" "$port" "$default_token" "$client_port" "$protocol" "$nodelay" "$use_haproxy"
             ;;
             
         "client")
-            if [ $# -ne 6 ]; then
-                print_error "Client configuration requires exactly 6 parameters"
+            if [ $# -lt 6 ] || [ $# -gt 7 ]; then
+                print_error "Client configuration requires 6 parameters, with optional 7th for HAProxy"
                 show_usage
                 exit 1
             fi
@@ -440,13 +623,19 @@ main() {
             local client_port="$4"
             local protocol="$5"
             local nodelay="$6"
+            local use_haproxy="${7:-}"
             
             # Validate inputs
             validate_port "$client_port"
             validate_protocol "$protocol"
             validate_nodelay "$nodelay"
             
-            create_client_config "$name" "$remote_addr" "$default_token" "$client_port" "$protocol" "$nodelay"
+            if [[ -n "$use_haproxy" && "$use_haproxy" != "haproxy" ]]; then
+                print_error "Invalid HAProxy parameter: $use_haproxy. Use 'haproxy' or omit"
+                exit 1
+            fi
+            
+            create_client_config "$name" "$remote_addr" "$default_token" "$client_port" "$protocol" "$nodelay" "$use_haproxy"
             ;;
             
         *)

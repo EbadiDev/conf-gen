@@ -169,10 +169,9 @@ create_haproxy_server_config() {
         print_info "Existing HAProxy config backed up"
     fi
     
-    # Check if this is the first service or if we need to add to existing config
-    if [ ! -f "$haproxy_config" ] || ! grep -q "^global" "$haproxy_config" 2>/dev/null; then
-        # Create new config with global and defaults sections
-        cat > "$temp_config" << 'EOF'
+    # Always use optimized global and defaults sections
+    # Extract any existing service configurations, but replace global/defaults
+    cat > "$temp_config" << 'EOF'
 #---------------------------------------------------------------------
 # Global settings - Optimized for maximum speed
 #---------------------------------------------------------------------
@@ -227,37 +226,80 @@ defaults
     balance roundrobin
 
 EOF
-    else
-        # Copy existing config without the specific service sections
+
+    # If config exists, extract existing service configurations (excluding current service)
+    if [ -f "$haproxy_config" ]; then
         awk -v service_name="${name}" '
-        BEGIN { skip = 0 }
-        /^#-+$/ && skip == 0 {
+        BEGIN { 
+            skip = 0
+            skip_global_defaults = 1
+        }
+        
+        # Skip global and defaults sections
+        /^global/ { skip_global_defaults = 1; next }
+        /^defaults/ { skip_global_defaults = 1; next }
+        
+        # Detect service section start
+        /^#-+$/ && skip_global_defaults == 0 {
             getline next_line
-            if (next_line ~ "^# " service_name " service configuration") {
-                skip = 1
+            if (next_line ~ "^# .* service configuration") {
+                if (next_line ~ "^# " service_name " service configuration") {
+                    skip = 1  # Skip this specific service (will be replaced)
+                } else {
+                    skip = 0  # Keep other services
+                    print $0
+                    print next_line
+                }
                 next
             } else {
-                print $0
-                print next_line
+                if (skip == 0) {
+                    print $0
+                    print next_line
+                }
                 next
             }
         }
+        
+        # Handle service section end
         skip == 1 && /^#-+$/ {
             getline next_line
-            if (next_line ~ "^# .* service configuration" && next_line !~ service_name) {
+            if (next_line ~ "^# .* service configuration") {
                 skip = 0
                 print $0
                 print next_line
                 next
             } else if (next_line !~ "^# .* service configuration") {
                 skip = 0
-                print $0
-                print next_line
+                if (next_line != "") {
+                    print $0
+                    print next_line
+                }
                 next
             }
         }
-        skip == 0 { print }
-        ' "$haproxy_config" > "$temp_config"
+        
+        # After defaults section, start including content
+        skip_global_defaults == 1 && (/^$/ || /^#-+$/) {
+            skip_global_defaults = 0
+            if (/^#-+$/) {
+                getline next_line
+                if (next_line ~ "^# .* service configuration") {
+                    if (next_line ~ "^# " service_name " service configuration") {
+                        skip = 1  # Skip this specific service
+                    } else {
+                        skip = 0  # Keep other services
+                        print $0
+                        print next_line
+                    }
+                    next
+                }
+            }
+            next
+        }
+        
+        # Print lines that are not skipped
+        skip == 0 && skip_global_defaults == 0 { print }
+        ' "$haproxy_config" >> "$temp_config"
     fi
     
     # Add the new service configuration
@@ -316,10 +358,9 @@ create_haproxy_client_config() {
         print_info "Existing HAProxy config backed up"
     fi
     
-    # Check if this is the first service or if we need to add to existing config
-    if [ ! -f "$haproxy_config" ] || ! grep -q "^global" "$haproxy_config" 2>/dev/null; then
-        # Create new config with global and defaults sections
-        cat > "$temp_config" << 'EOF'
+    # Always use optimized global and defaults sections
+    # Extract any existing service configurations, but replace global/defaults
+    cat > "$temp_config" << 'EOF'
 #---------------------------------------------------------------------
 # Global settings - Optimized for maximum speed
 #---------------------------------------------------------------------
@@ -374,37 +415,80 @@ defaults
     balance roundrobin
 
 EOF
-    else
-        # Copy existing config without the specific service sections
+
+    # If config exists, extract existing service configurations (excluding current service)
+    if [ -f "$haproxy_config" ]; then
         awk -v service_name="${name}" '
-        BEGIN { skip = 0 }
-        /^#-+$/ && skip == 0 {
+        BEGIN { 
+            skip = 0
+            skip_global_defaults = 1
+        }
+        
+        # Skip global and defaults sections
+        /^global/ { skip_global_defaults = 1; next }
+        /^defaults/ { skip_global_defaults = 1; next }
+        
+        # Detect service section start
+        /^#-+$/ && skip_global_defaults == 0 {
             getline next_line
-            if (next_line ~ "^# " service_name " service configuration") {
-                skip = 1
+            if (next_line ~ "^# .* service configuration") {
+                if (next_line ~ "^# " service_name " service configuration") {
+                    skip = 1  # Skip this specific service (will be replaced)
+                } else {
+                    skip = 0  # Keep other services
+                    print $0
+                    print next_line
+                }
                 next
             } else {
-                print $0
-                print next_line
+                if (skip == 0) {
+                    print $0
+                    print next_line
+                }
                 next
             }
         }
+        
+        # Handle service section end
         skip == 1 && /^#-+$/ {
             getline next_line
-            if (next_line ~ "^# .* service configuration" && next_line !~ service_name) {
+            if (next_line ~ "^# .* service configuration") {
                 skip = 0
                 print $0
                 print next_line
                 next
             } else if (next_line !~ "^# .* service configuration") {
                 skip = 0
-                print $0
-                print next_line
+                if (next_line != "") {
+                    print $0
+                    print next_line
+                }
                 next
             }
         }
-        skip == 0 { print }
-        ' "$haproxy_config" > "$temp_config"
+        
+        # After defaults section, start including content
+        skip_global_defaults == 1 && (/^$/ || /^#-+$/) {
+            skip_global_defaults = 0
+            if (/^#-+$/) {
+                getline next_line
+                if (next_line ~ "^# .* service configuration") {
+                    if (next_line ~ "^# " service_name " service configuration") {
+                        skip = 1  # Skip this specific service
+                    } else {
+                        skip = 0  # Keep other services
+                        print $0
+                        print next_line
+                    }
+                    next
+                }
+            }
+            next
+        }
+        
+        # Print lines that are not skipped
+        skip == 0 && skip_global_defaults == 0 { print }
+        ' "$haproxy_config" >> "$temp_config"
     fi
     
     # Add the new service configuration

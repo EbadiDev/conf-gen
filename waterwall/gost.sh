@@ -77,9 +77,14 @@ create_gost_server_config_range() {
     local backend_port="$5"
     local protocol="$6"   # tcp only, kept for API symmetry
 
-    # Use GOST's native port range support (many-to-one mapping)
-    # Example: -L tcp://:450-499/127.0.0.1:10311?handler.proxyProtocol=1
-    local args=("-L" "tcp://:${start_port}-${end_port}/${backend_ip}:${backend_port}?handler.proxyProtocol=1")
+    # Emit one -L per port to ensure compatibility (many-to-one mappings may
+    # not be supported in all builds). Example per-port:
+    #   -L tcp://:450/127.0.0.1:10311?handler.proxyProtocol=1
+    local args=()
+    local p
+    for ((p=start_port; p<=end_port; p++)); do
+        args+=("-L" "tcp://:${p}/${backend_ip}:${backend_port}?handler.proxyProtocol=1")
+    done
 
     remove_gost_service "$service_name"
     local unit_path

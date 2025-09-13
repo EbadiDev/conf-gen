@@ -3,9 +3,19 @@
 # Main Waterwall Configuration Generator
 # Modular script that delegates to specific configuration modules
 
-# Get the directory where this script is located
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WATERWALL_DIR="$SCRIPT_DIR/waterwall"
+# Detect if running from pipe (curl) and use temp directory
+if [[ "${BASH_SOURCE[0]}" == "/dev/fd/"* ]] || [[ "${BASH_SOURCE[0]}" == *"/fd/"* ]]; then
+    # Running from pipe, use temp directory
+    SCRIPT_DIR="/tmp/waterwall_$(date +%s)_$$"
+    mkdir -p "$SCRIPT_DIR"
+    WATERWALL_DIR="$SCRIPT_DIR/waterwall"
+    RUNNING_FROM_PIPE=true
+else
+    # Running from file, use normal directory
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    WATERWALL_DIR="$SCRIPT_DIR/waterwall"
+    RUNNING_FROM_PIPE=false
+fi
 
 # Auto-download functionality for curl execution
 AUTO_DOWNLOADED=false
@@ -43,9 +53,9 @@ download_modules() {
 
 # Function to cleanup downloaded modules
 cleanup_modules() {
-    if [ "$AUTO_DOWNLOADED" = true ]; then
+    if [ "$AUTO_DOWNLOADED" = true ] && [ "$RUNNING_FROM_PIPE" = true ]; then
         echo "Cleaning up downloaded modules..."
-        rm -rf "$WATERWALL_DIR"
+        rm -rf "$SCRIPT_DIR"
         echo "Cleanup completed."
     fi
 }

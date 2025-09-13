@@ -172,9 +172,9 @@ This script generates JSON configuration files for client and server-side setups
 
 ## Quick Install & Usage
 
-**Important Note:** 
-- **Modular Script (`main.sh`)**: Requires cloning the repository (cannot be run via curl)
-- **Legacy Script (`create_lb_config.sh`)**: Can be run directly via curl without cloning
+**Both scripts now support direct execution via curl:**
+- **Modular Script (`main.sh`)**: Now supports curl execution with auto-download
+- **Legacy Script (`create_lb_config.sh`)**: Single file, no dependencies
 
 You can use either the new modular script or the legacy script:
 

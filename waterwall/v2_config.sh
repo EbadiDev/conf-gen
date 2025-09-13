@@ -8,6 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/common.sh"
 source "$SCRIPT_DIR/haproxy.sh"
 source "$SCRIPT_DIR/caddy.sh"
+source "$SCRIPT_DIR/gost.sh"
 
 # V2 Server Configuration
 create_v2_server_config() {
@@ -21,6 +22,7 @@ create_v2_server_config() {
     local protoswap_tcp="$8"
     local use_haproxy="$9"
     local use_caddy="${10}"
+    local use_gost="${11}"
 
     # Calculate PRIVATE_IP+1 for output and ipovsrc2
     IFS='.' read -r ip1 ip2 ip3 ip4 <<< "$private_ip"
@@ -28,7 +30,7 @@ create_v2_server_config() {
 
     # Determine listener port based on HAProxy/Caddy usage
     local waterwall_listen_port
-    if [ "$use_haproxy" = true ] || [ "$use_caddy" = true ]; then
+    if [ "$use_haproxy" = true ] || [ "$use_caddy" = true ] || [ "$use_gost" = true ]; then
         # With HAProxy/Caddy: waterwall listens on internal port, proxy handles external range
         waterwall_listen_port="$haproxy_port"
     else
@@ -148,7 +150,7 @@ EOF
             print_info "- External clients connect to ports: $start_port-$end_port"
             print_info "- HAProxy forwards to waterwall on: $haproxy_port"
             print_info "- Waterwall connects to: ${ip_plus1}:${haproxy_port}"
-        elif [ "$use_caddy" = true ]; then
+    elif [ "$use_caddy" = true ]; then
             print_info "Setting up Caddy configuration for V2 server..."
             
             # V2 Server acts as server - external clients connect to port range, forward to waterwall on single internal port
@@ -163,6 +165,20 @@ EOF
             print_info "V2 Server with Caddy:"
             print_info "- External clients connect to ports: $start_port-$end_port"
             print_info "- Caddy forwards to waterwall on: $haproxy_port"
+            print_info "- Waterwall connects to: ${ip_plus1}:${haproxy_port}"
+        elif [ "$use_gost" = true ]; then
+            print_info "Setting up GOST configuration for V2 server..."
+            create_gost_server_config_range "$config_name" "$start_port" "$end_port" "127.0.0.1" "$haproxy_port" "tcp"
+            manage_gost_service "$config_name"
+
+            # Open additional ports for V2 Server with GOST
+            print_info "Opening additional firewall ports for V2 Server GOST setup..."
+            open_firewall_ports "$start_port" "$end_port"
+            open_firewall_ports "$haproxy_port" "$haproxy_port"
+
+            print_info "V2 Server with GOST:"
+            print_info "- External clients connect to ports: $start_port-$end_port"
+            print_info "- GOST forwards to waterwall on: $haproxy_port (with Proxy Protocol)"
             print_info "- Waterwall connects to: ${ip_plus1}:${haproxy_port}"
         else
             open_firewall_ports "$start_port" "$end_port"
@@ -189,6 +205,7 @@ create_v2_client_config() {
     local app_port="$7"
     local use_haproxy="$8"
     local use_caddy="$9"
+    local use_gost="${10}"
 
     # Calculate PRIVATE_IP+1 for input address
     IFS='.' read -r ip1 ip2 ip3 ip4 <<< "$private_ip"
@@ -282,7 +299,7 @@ EOF
             print_info "- TUN device routes traffic through: ${private_ip}:${haproxy_port}"
             print_info "- HAProxy binds to: ${private_ip}:${haproxy_port}"
             print_info "- HAProxy forwards to app: 127.0.0.1:${app_port}"
-        elif [ "$use_caddy" = true ]; then
+    elif [ "$use_caddy" = true ]; then
             print_info "Setting up Caddy configuration for V2 client..."
             
             # V2 Client configuration: Caddy binds to private IP and forwards to application
@@ -293,6 +310,15 @@ EOF
             print_info "- TUN device routes traffic through: ${private_ip}:${haproxy_port}"
             print_info "- Caddy binds to: ${private_ip}:${haproxy_port}"
             print_info "- Caddy forwards to app: 127.0.0.1:${app_port}"
+        elif [ "$use_gost" = true ]; then
+            print_info "Setting up GOST configuration for V2 client..."
+            create_gost_client_config "$config_name" "$private_ip" "$haproxy_port" "127.0.0.1" "$app_port" "tcp"
+            manage_gost_service "$config_name"
+
+            print_info "V2 Client with GOST:"
+            print_info "- TUN device routes traffic through: ${private_ip}:${haproxy_port} (accept Proxy Protocol)"
+            print_info "- GOST binds to: ${private_ip}:${haproxy_port}"
+            print_info "- GOST forwards to app: 127.0.0.1:${app_port} (send Proxy Protocol)"
         else
             print_info "V2 Client without proxy:"
             print_info "- TUN device created: ${config_name}"
@@ -318,6 +344,7 @@ EOF
 handle_v2_config() {
     local use_haproxy=false
     local use_caddy=false
+    local use_gost=false
     local config_type
     
     # Check if haproxy or caddy flag is present
@@ -329,6 +356,10 @@ handle_v2_config() {
         use_caddy=true
         config_type="$3"  # server or client
         shift 1  # Remove caddy flag
+    elif [ "$2" = "gost" ]; then
+        use_gost=true
+        config_type="$3"  # server or client
+        shift 1  # Remove gost flag
     else
         config_type="$2"  # server or client
     fi
@@ -338,26 +369,34 @@ handle_v2_config() {
         if [ "$#" -lt 9 ]; then
             if [ "$use_haproxy" = true ]; then
                 echo "Usage: $0 v2 haproxy server <config_name> <start_port> <end_port> <non_iran_ip> <iran_ip> <private_ip> <haproxy_port> <protocol>"
+            elif [ "$use_caddy" = true ]; then
+                echo "Usage: $0 v2 caddy server <config_name> <start_port> <end_port> <non_iran_ip> <iran_ip> <private_ip> <haproxy_port> <protocol>"
+            elif [ "$use_gost" = true ]; then
+                echo "Usage: $0 v2 gost server <config_name> <start_port> <end_port> <non_iran_ip> <iran_ip> <private_ip> <haproxy_port> <protocol>"
             else
                 echo "Usage: $0 v2 server <config_name> <start_port> <end_port> <non_iran_ip> <iran_ip> <private_ip> <haproxy_port> <protocol>"
             fi
             exit 1
         fi
         
-        create_v2_server_config "$3" "$4" "$5" "$6" "$7" "$8" "$9" "${10}" "$use_haproxy" "$use_caddy"
+        create_v2_server_config "$3" "$4" "$5" "$6" "$7" "$8" "$9" "${10}" "$use_haproxy" "$use_caddy" "$use_gost"
         
     elif [ "$config_type" = "client" ]; then
         # v2 client config_name non-iran-ip iran-ip private-ip haproxy-port protocol app-port
         if [ "$#" -lt 8 ]; then
             if [ "$use_haproxy" = true ]; then
                 echo "Usage: $0 v2 haproxy client <config_name> <non_iran_ip> <iran_ip> <private_ip> <haproxy_port> <protocol> <app_port>"
+            elif [ "$use_caddy" = true ]; then
+                echo "Usage: $0 v2 caddy client <config_name> <non_iran_ip> <iran_ip> <private_ip> <haproxy_port> <protocol> <app_port>"
+            elif [ "$use_gost" = true ]; then
+                echo "Usage: $0 v2 gost client <config_name> <non_iran_ip> <iran_ip> <private_ip> <haproxy_port> <protocol> <app_port>"
             else
                 echo "Usage: $0 v2 client <config_name> <non_iran_ip> <iran_ip> <private_ip> <haproxy_port> <protocol> <app_port>"
             fi
             exit 1
         fi
         
-        create_v2_client_config "$3" "$4" "$5" "$6" "$7" "$8" "$9" "$use_haproxy" "$use_caddy"
+        create_v2_client_config "$3" "$4" "$5" "$6" "$7" "$8" "$9" "$use_haproxy" "$use_caddy" "$use_gost"
         
     else
         echo "Error: v2 config type must be either 'server' or 'client'"

@@ -30,7 +30,8 @@ download_modules() {
         "half_config.sh"
         "v2_config.sh"
         "haproxy.sh"
-        "caddy.sh"
+    "caddy.sh"
+    "gost.sh"
     )
     
     local total=${#modules[@]}

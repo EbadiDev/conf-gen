@@ -218,9 +218,13 @@ Configuration Types:
   half            - Reality/gRPC tunneling
   v2              - Advanced TUN device with IP manipulation
 
-HAProxy Integration:
-  Add 'haproxy' flag after type for real IP forwarding:
-  $0 haproxy <type> <protocol> <config_name> [parameters...]
+Proxy Integration:
+    Add 'haproxy', 'caddy', or 'gost' flags with supported types:
+    - HAProxy:   $0 haproxy <type> <protocol> <config_name> [parameters...]
+    - Caddy:     $0 caddy <type> <protocol> <config_name> [parameters...]
+    - GOST (TCP, Proxy Protocol): use with 'v2' flow:
+            $0 v2 gost server <config_name> <start_port> <end_port> <non_iran_ip> <iran_ip> <private_ip> <gost_port> <protocol>
+            $0 v2 gost client <config_name> <non_iran_ip> <iran_ip> <private_ip> <gost_port> <protocol> <app_port>
 
 Examples:
   $0 server myconfig -p 8080 192.168.1.100
@@ -229,6 +233,7 @@ Examples:
   $0 simple tcp server myconfig 300 399 192.168.1.100 8080
   $0 half web-cdn.snapp.ir mypass tcp server myconfig -p 8080 192.168.1.100
   $0 v2 server myconfig 100 199 203.0.113.100 10.80.0.1 10.80.0.2 10311 146
+    $0 v2 gost server geovh 450 499 37.230.48.160 188.213.197.166 10.110.0.1 10311 142
 
 For detailed help: $0 --help <type>
 EOF

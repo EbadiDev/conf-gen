@@ -12,7 +12,17 @@ _gost_write_unit() {
     local unit_path="/etc/systemd/system/gost-${service_name}.service"
 
     # Build ExecStart with quoted -L targets (systemd-safe grouping)
-    local exec_line="/usr/bin/env gost -D error"
+    local gost_bin
+    gost_bin="$(command -v gost 2>/dev/null || true)"
+    if [ -z "$gost_bin" ]; then
+        if [ -x "/usr/local/bin/gost" ]; then
+            gost_bin="/usr/local/bin/gost"
+        else
+            echo "Error: 'gost' binary not found in PATH or at /usr/local/bin/gost" >&2
+            exit 1
+        fi
+    fi
+    local exec_line="${gost_bin}"
     local i=0
     while [ $i -lt ${#exec_args[@]} ]; do
         if [ "${exec_args[$i]}" = "-L" ] && [ $((i+1)) -lt ${#exec_args[@]} ]; then

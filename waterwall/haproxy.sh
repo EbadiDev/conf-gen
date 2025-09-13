@@ -241,13 +241,39 @@ remove_haproxy_service() {
     
     if [ -f "$haproxy_config" ]; then
         # Create temporary file without the service configuration
-        awk "
-        BEGIN { skip = 0 }
-        /^#-+ $service_name service configuration/ { skip = 1; next }
-        /^#-+ .* service configuration/ && !/^#-+ $service_name service configuration/ { skip = 0 }
-        /^$/ && skip { next }
+        awk -v service="$service_name" '
+        BEGIN { 
+            skip = 0 
+            in_service = 0
+        }
+        /^#-+ .* service configuration/ {
+            if ($0 ~ ("#-+ " service " service configuration")) {
+                skip = 1
+                in_service = 1
+                next
+            } else if (in_service) {
+                skip = 0
+                in_service = 0
+            }
+        }
+        /^frontend [^_]*_frontend/ && skip {
+            next
+        }
+        /^backend [^_]*_backend/ && skip {
+            next
+        }
+        /^    / && skip {
+            next
+        }
+        /^$/ && skip {
+            next
+        }
+        /^[^# ]/ && skip && !/^frontend/ && !/^backend/ {
+            skip = 0
+            in_service = 0
+        }
         !skip { print }
-        " "$haproxy_config" > "${haproxy_config}.tmp"
+        ' "$haproxy_config" > "${haproxy_config}.tmp"
         
         mv "${haproxy_config}.tmp" "$haproxy_config"
     fi

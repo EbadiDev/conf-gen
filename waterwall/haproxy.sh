@@ -240,38 +240,28 @@ remove_haproxy_service() {
     local haproxy_config="/etc/haproxy/haproxy.cfg"
     
     if [ -f "$haproxy_config" ]; then
-        # Simple approach: recreate the config without the target service
-        local temp_config="/tmp/haproxy_new.cfg"
+        # Create completely clean config by rebuilding it
+        local temp_config="/tmp/haproxy_rebuilt.cfg"
         
-        # Extract the global and defaults sections
-        sed -n '1,/^$/p' "$haproxy_config" | head -n -1 > "$temp_config"
+        # Extract global and defaults sections (everything before first service)
+        awk '/^#.*service configuration/{exit} {print}' "$haproxy_config" > "$temp_config"
         
-        # Add all service configurations except the target one
-        local in_target_service=false
-        while IFS= read -r line; do
-            # Check if we're entering the target service section
-            if [[ "$line" == *"$service_name service configuration"* ]]; then
-                in_target_service=true
-                continue
-            fi
-            
-            # Check if we're entering a different service section
-            if [[ "$line" == *"service configuration"* ]] && [[ "$line" != *"$service_name service configuration"* ]]; then
-                in_target_service=false
-            fi
-            
-            # Add non-target service lines
-            if [ "$in_target_service" = false ]; then
-                # Skip empty lines at the beginning
-                if [[ -n "$line" || -s "$temp_config" ]]; then
-                    echo "$line" >> "$temp_config"
-                fi
-            fi
-        done < <(grep -A 999999 "^#.*service configuration" "$haproxy_config")
-        
-        # Clean up multiple consecutive empty lines and trailing separators
-        sed -i '/^$/N;/^\n$/d' "$temp_config"
-        sed -i '/^#-\+$/d' "$temp_config"
+        # Extract all service configurations except the target one
+        awk -v target="$service_name" '
+        BEGIN { in_service = 0; current_service = "" }
+        /^#.*service configuration/ {
+            if ($0 ~ target " service configuration") {
+                in_service = 1
+                current_service = target
+            } else {
+                in_service = 0
+                current_service = ""
+                print $0
+            }
+            next
+        }
+        in_service == 0 { print }
+        ' "$haproxy_config" >> "$temp_config"
         
         # Replace the original config
         mv "$temp_config" "$haproxy_config"

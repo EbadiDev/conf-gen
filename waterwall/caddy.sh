@@ -24,6 +24,9 @@ create_caddy_server_config_range() {
     # Initialize Caddy config if it doesn't exist
     if [ ! -f "$caddy_config" ]; then
         create_caddy_base_config > "$caddy_config"
+    else
+        # Clean up existing default configuration
+        clean_default_caddy_config "$caddy_config"
     fi
     
     # Remove existing service configuration if it exists
@@ -72,6 +75,9 @@ create_caddy_server_config() {
     # Initialize Caddy config if it doesn't exist
     if [ ! -f "$caddy_config" ]; then
         create_caddy_base_config > "$caddy_config"
+    else
+        # Clean up existing default configuration
+        clean_default_caddy_config "$caddy_config"
     fi
     
     # Remove existing service configuration if it exists
@@ -121,6 +127,9 @@ create_caddy_client_config() {
     # Initialize Caddy config if it doesn't exist
     if [ ! -f "$caddy_config" ]; then
         create_caddy_base_config > "$caddy_config"
+    else
+        # Clean up existing default configuration
+        clean_default_caddy_config "$caddy_config"
     fi
     
     # Remove existing service configuration if it exists
@@ -172,6 +181,9 @@ create_caddy_client_config_range() {
     # Initialize Caddy config if it doesn't exist
     if [ ! -f "$caddy_config" ]; then
         create_caddy_base_config > "$caddy_config"
+    else
+        # Clean up existing default configuration
+        clean_default_caddy_config "$caddy_config"
     fi
     
     # Remove existing service configuration if it exists
@@ -216,6 +228,23 @@ create_caddy_base_config() {
     }
 }
 EOF
+}
+
+# Clean default Caddy configuration
+clean_default_caddy_config() {
+    local caddy_config="$1"
+    
+    # Remove default :80 site and comments
+    sed -i '/^# The Caddyfile is an easy way/,/^# https:\/\/caddyserver.com\/docs\/caddyfile$/d' "$caddy_config"
+    sed -i '/^:80 {/,/^}$/d' "$caddy_config"
+    # Remove empty lines at the beginning and clean up
+    sed -i '/./,$!d' "$caddy_config"
+    sed -i '/^$/N;/^\n$/d' "$caddy_config"
+    
+    # Check if file has global config block, if not recreate completely
+    if ! grep -q '^{' "$caddy_config"; then
+        create_caddy_base_config > "$caddy_config"
+    fi
 }
 
 # Remove existing Caddy service configuration
@@ -286,6 +315,11 @@ remove_caddy_service() {
 
         # Replace the original config
         mv "$temp_config" "$caddy_config"
+        
+        # Ensure global config block exists
+        if ! grep -q '^{' "$caddy_config"; then
+            create_caddy_base_config > "$caddy_config"
+        fi
     fi
 }
 
@@ -319,17 +353,8 @@ manage_caddy_service() {
     # Create config directory if it doesn't exist
     mkdir -p /etc/caddy
     
-    # Remove default configuration if it exists
-    local caddy_config="/etc/caddy/Caddyfile"
-    if [ -f "$caddy_config" ]; then
-        # Remove default :80 site and comments
-        sed -i '/^:80 {/,/^}$/d' "$caddy_config"
-        sed -i '/^# The Caddyfile is an easy way/,/^# https:\/\/caddyserver.com\/docs\/caddyfile$/d' "$caddy_config"
-        # Remove empty lines at the beginning
-        sed -i '/./,$!d' "$caddy_config"
-    fi
-    
     # Validate Caddy configuration
+    local caddy_config="/etc/caddy/Caddyfile"
     if ! caddy validate --config "$caddy_config" >/dev/null 2>&1; then
         echo "Error: Caddy configuration is invalid"
         caddy validate --config "$caddy_config"

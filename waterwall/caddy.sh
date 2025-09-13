@@ -32,22 +32,28 @@ create_caddy_server_config_range() {
     # Remove existing service configuration if it exists
     remove_caddy_service "$service_name"
     
+    # Generate port list (Caddy doesn't support ranges like HAProxy)
+    local port_list=""
+    for ((port=start_port; port<=end_port; port++)); do
+        if [ -n "$port_list" ]; then
+            port_list="$port_list, :$port"
+        else
+            port_list=":$port"
+        fi
+    done
+    
     # Add new service configuration
     cat << EOF >> "$caddy_config"
 
 #---------------------------------------------------------------------
 # $service_name service configuration
 #---------------------------------------------------------------------
-:${start_port}-${end_port} {
-    reverse_proxy {
-        to ${backend_ip}:${backend_port}
+$port_list {
+    reverse_proxy $backend_ip:$backend_port {
         transport http {
             dial_timeout 2s
             response_header_timeout 30s
         }
-        header_up X-Forwarded-Proto {scheme}
-        header_up X-Real-IP {remote_host}
-        header_up X-Forwarded-For {remote_host}
     }
 }
 EOF
@@ -90,15 +96,11 @@ create_caddy_server_config() {
 # $service_name service configuration
 #---------------------------------------------------------------------
 :${external_port} {
-    reverse_proxy {
-        to ${backend_ip}:${backend_port}
+    reverse_proxy $backend_ip:$backend_port {
         transport http {
             dial_timeout 2s
             response_header_timeout 30s
         }
-        header_up X-Forwarded-Proto {scheme}
-        header_up X-Real-IP {remote_host}
-        header_up X-Forwarded-For {remote_host}
     }
 }
 EOF
@@ -142,17 +144,11 @@ create_caddy_client_config() {
 # $service_name service configuration
 #---------------------------------------------------------------------
 ${bind_ip}:${tunnel_port} {
-    reverse_proxy {
-        to ${app_ip}:${app_port}
+    reverse_proxy $app_ip:$app_port {
         transport http {
             dial_timeout 2s
             response_header_timeout 30s
         }
-        header_up X-Forwarded-Proto {scheme}
-        header_up X-Real-IP {remote_host}
-        header_up X-Forwarded-For {remote_host}
-        # Accept proxy protocol from upstream
-        trusted_proxies ${bind_ip}/32
     }
 }
 EOF
@@ -189,22 +185,28 @@ create_caddy_client_config_range() {
     # Remove existing service configuration if it exists
     remove_caddy_service "$service_name"
     
+    # Generate port list (Caddy doesn't support ranges like HAProxy)
+    local port_list=""
+    for ((port=start_port; port<=end_port; port++)); do
+        if [ -n "$port_list" ]; then
+            port_list="$port_list, :$port"
+        else
+            port_list=":$port"
+        fi
+    done
+    
     # Add new service configuration
     cat << EOF >> "$caddy_config"
 
 #---------------------------------------------------------------------
 # $service_name service configuration
 #---------------------------------------------------------------------
-:${start_port}-${end_port} {
-    reverse_proxy {
-        to ${backend_ip}:${backend_port}
+$port_list {
+    reverse_proxy $backend_ip:$backend_port {
         transport http {
             dial_timeout 2s
             response_header_timeout 30s
         }
-        header_up X-Forwarded-Proto {scheme}
-        header_up X-Real-IP {remote_host}
-        header_up X-Forwarded-For {remote_host}
     }
 }
 EOF

@@ -49,6 +49,7 @@ create_caddy_server_config_range() {
 # $service_name service configuration
 #---------------------------------------------------------------------
 $port_list {
+    bind 0.0.0.0
     reverse_proxy $backend_ip:$backend_port {
         transport http {
             dial_timeout 2s
@@ -96,6 +97,7 @@ create_caddy_server_config() {
 # $service_name service configuration
 #---------------------------------------------------------------------
 :${external_port} {
+    bind ${bind_ip}
     reverse_proxy $backend_ip:$backend_port {
         transport http {
             dial_timeout 2s
@@ -143,7 +145,8 @@ create_caddy_client_config() {
 #---------------------------------------------------------------------
 # $service_name service configuration
 #---------------------------------------------------------------------
-${bind_ip}:${tunnel_port} {
+:${tunnel_port} {
+    bind ${bind_ip}
     reverse_proxy $app_ip:$app_port {
         transport http {
             dial_timeout 2s

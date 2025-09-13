@@ -32,49 +32,87 @@ download_modules() {
         "haproxy.sh"
     )
     
-    echo "Downloading required modules..."
+    local total=${#modules[@]}
+    echo "Downloading $total modules..."
     
     # Create waterwall directory
     mkdir -p "$WATERWALL_DIR"
     
-    # Download all modules in parallel with timeout and progress
-    local pids=()
+    # Progress tracking
+    local completed=0
     local failed=0
+    
+    # Download all modules in parallel with progress tracking
+    local pids=()
     
     for module in "${modules[@]}"; do
         {
             if curl -s -m 10 -f -o "$WATERWALL_DIR/$module" "$base_url/$module" 2>/dev/null; then
-                echo "✓ $module"
+                echo "DONE:$module" > "$WATERWALL_DIR/$module.status"
             else
-                echo "✗ $module"
-                echo "FAILED" > "$WATERWALL_DIR/$module.failed"
+                echo "FAIL:$module" > "$WATERWALL_DIR/$module.status"
             fi
         } &
         pids+=($!)
     done
     
-    # Wait for all downloads to complete
-    for pid in "${pids[@]}"; do
-        wait "$pid"
+    # Progress monitoring
+    echo -n "Progress: [0/$total] "
+    local spinner=('|' '/' '-' '\')
+    local spin_idx=0
+    
+    while [ $completed -lt $total ]; do
+        completed=0
+        failed=0
+        
+        # Count completed downloads
+        for module in "${modules[@]}"; do
+            if [ -f "$WATERWALL_DIR/$module.status" ]; then
+                if grep -q "DONE:" "$WATERWALL_DIR/$module.status" 2>/dev/null; then
+                    ((completed++))
+                elif grep -q "FAIL:" "$WATERWALL_DIR/$module.status" 2>/dev/null; then
+                    ((completed++))
+                    ((failed++))
+                fi
+            fi
+        done
+        
+        # Update progress
+        printf "\rProgress: [%d/%d] %s " "$completed" "$total" "${spinner[$spin_idx]}"
+        spin_idx=$(( (spin_idx + 1) % 4 ))
+        
+        # Small delay
+        sleep 0.1
     done
     
-    # Check for failures
+    # Wait for all background processes to complete
+    for pid in "${pids[@]}"; do
+        wait "$pid" 2>/dev/null
+    done
+    
+    echo # New line after progress
+    
+    # Show final results
     for module in "${modules[@]}"; do
-        if [ -f "$WATERWALL_DIR/$module.failed" ]; then
-            echo "Failed to download: $module"
-            failed=1
-        elif [ ! -f "$WATERWALL_DIR/$module" ]; then
-            echo "Missing: $module"
+        if [ -f "$WATERWALL_DIR/$module.status" ]; then
+            if grep -q "DONE:" "$WATERWALL_DIR/$module.status" 2>/dev/null; then
+                echo "✓ $module"
+            else
+                echo "✗ $module"
+                failed=1
+            fi
+        else
+            echo "✗ $module (timeout)"
             failed=1
         fi
     done
     
+    # Clean up status files
+    rm -f "$WATERWALL_DIR"/*.status
+    
     if [ $failed -eq 1 ]; then
         return 1
     fi
-    
-    # Clean up any failure markers
-    rm -f "$WATERWALL_DIR"/*.failed
     
     AUTO_DOWNLOADED=true
     echo "All modules ready!"

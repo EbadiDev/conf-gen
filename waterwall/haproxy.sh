@@ -240,7 +240,7 @@ remove_haproxy_service() {
     local haproxy_config="/etc/haproxy/haproxy.cfg"
     
     if [ -f "$haproxy_config" ]; then
-        # Use a simple approach: remove everything from service comment to next service comment or EOF
+        # Use Python to clean up the config
         python3 -c "
 import sys
 import re
@@ -257,14 +257,14 @@ while i < len(lines):
     line = lines[i].strip()
     
     # Check if this line is the start of our target service
-    if service_name + ' service configuration' in line and '# ' in line:
+    if service_name + ' service configuration' in line and '#' in line:
         skip = True
         # Skip until we find another service configuration or EOF
         i += 1
         while i < len(lines):
             next_line = lines[i].strip()
             # Stop skipping when we find another service configuration
-            if 'service configuration' in next_line and service_name + ' service configuration' not in next_line and '# ' in next_line:
+            if 'service configuration' in next_line and service_name + ' service configuration' not in next_line and '#' in next_line:
                 skip = False
                 break
             i += 1
@@ -276,8 +276,30 @@ while i < len(lines):
     
     i += 1
 
+# Clean up orphaned comment lines (lines that are just #-----)
+cleaned_lines = []
+for i, line in enumerate(new_lines):
+    # Skip lines that are just comment separators if they appear multiple times in a row
+    if line.strip() == '#' + '-' * 69:
+        # Check if the previous line was also a comment separator
+        if i > 0 and cleaned_lines and cleaned_lines[-1].strip() == '#' + '-' * 69:
+            continue  # Skip this duplicate
+        # Check if this is at the end of file
+        if i == len(new_lines) - 1:
+            continue  # Skip trailing comment separator
+        # Check if next non-empty line is also a comment separator
+        next_non_empty = None
+        for j in range(i + 1, len(new_lines)):
+            if new_lines[j].strip():
+                next_non_empty = new_lines[j].strip()
+                break
+        if next_non_empty == '#' + '-' * 69:
+            continue  # Skip if next non-empty is also a separator
+    
+    cleaned_lines.append(line)
+
 with open('$haproxy_config', 'w') as f:
-    f.writelines(new_lines)
+    f.writelines(cleaned_lines)
 "
     fi
 }

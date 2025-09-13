@@ -240,45 +240,45 @@ remove_haproxy_service() {
     local haproxy_config="/etc/haproxy/haproxy.cfg"
     
     if [ -f "$haproxy_config" ]; then
-        # Create a new config without the service
-        local temp_config="/tmp/haproxy_clean.cfg"
-        local in_service_section=false
-        
-        while IFS= read -r line; do
-            # Check if this is the start of our service section
-            if [[ "$line" == *"$service_name service configuration"* ]]; then
-                in_service_section=true
-                continue
-            fi
-            
-            # Check if this is the start of a different service section
-            if [[ "$line" == *" service configuration"* ]] && [[ "$line" != *"$service_name service configuration"* ]]; then
-                in_service_section=false
-            fi
-            
-            # Skip lines if we're in the service section we want to remove
-            if [ "$in_service_section" = true ]; then
-                # Skip frontend, backend, and indented lines
-                if [[ "$line" =~ ^frontend.*${service_name}_ ]] || \
-                   [[ "$line" =~ ^backend.*${service_name}_ ]] || \
-                   [[ "$line" =~ ^[[:space:]] ]] || \
-                   [[ "$line" =~ ^#-+ ]] || \
-                   [[ -z "$line" ]]; then
-                    continue
-                else
-                    # We've reached the end of the service section
-                    in_service_section=false
-                fi
-            fi
-            
-            # Print the line if we're not in the service section
-            if [ "$in_service_section" = false ]; then
-                echo "$line"
-            fi
-        done < "$haproxy_config" > "$temp_config"
-        
-        # Replace the original config
-        mv "$temp_config" "$haproxy_config"
+        # Use a simple approach: remove everything from service comment to next service comment or EOF
+        python3 -c "
+import sys
+import re
+
+service_name = '$service_name'
+with open('$haproxy_config', 'r') as f:
+    lines = f.readlines()
+
+new_lines = []
+skip = False
+i = 0
+
+while i < len(lines):
+    line = lines[i].strip()
+    
+    # Check if this line is the start of our target service
+    if service_name + ' service configuration' in line and '# ' in line:
+        skip = True
+        # Skip until we find another service configuration or EOF
+        i += 1
+        while i < len(lines):
+            next_line = lines[i].strip()
+            # Stop skipping when we find another service configuration
+            if 'service configuration' in next_line and service_name + ' service configuration' not in next_line and '# ' in next_line:
+                skip = False
+                break
+            i += 1
+        # Don't increment i again as we want to process the line that ended our skip
+        continue
+    
+    if not skip:
+        new_lines.append(lines[i])
+    
+    i += 1
+
+with open('$haproxy_config', 'w') as f:
+    f.writelines(new_lines)
+"
     fi
 }
 

@@ -240,29 +240,66 @@ remove_haproxy_service() {
     local haproxy_config="/etc/haproxy/haproxy.cfg"
     
     if [ -f "$haproxy_config" ]; then
-        # Create completely clean config by rebuilding it
+        # Rebuild config while dropping the entire block (including separators)
+        # for the target service. A service block is defined as:
+        #   #-------------------------------------------------------------
+        #   # <name> service configuration
+        #   #-------------------------------------------------------------
+        #   <frontend + backend ...>
+        # and ends right before the next such separator+header trio or EOF.
+
         local temp_config="/tmp/haproxy_rebuilt.cfg"
-        
-        # Extract global and defaults sections (everything before first service)
-        awk '/^#.*service configuration/{exit} {print}' "$haproxy_config" > "$temp_config"
-        
-        # Extract all service configurations except the target one
+
         awk -v target="$service_name" '
-        BEGIN { in_service = 0; current_service = "" }
-        /^#.*service configuration/ {
-            if ($0 ~ target " service configuration") {
-                in_service = 1
-                current_service = target
-            } else {
-                in_service = 0
-                current_service = ""
-                print $0
-            }
-            next
+        {
+            lines[NR] = $0
         }
-        in_service == 0 { print }
-        ' "$haproxy_config" >> "$temp_config"
-        
+        END {
+            n = NR
+            # Find the first service block start (separator followed by header)
+            start = n + 1
+            for (i = 1; i <= n - 1; i++) {
+                if (lines[i] ~ /^#-+\s*$/ && lines[i+1] ~ /^# [^#]* service configuration\s*$/) {
+                    start = i
+                    break
+                }
+            }
+
+            # Print preamble (global/defaults) exactly once
+            for (i = 1; i < start; i++) {
+                print lines[i]
+            }
+
+            # Walk through all service blocks and print all except the target
+            i = start
+            while (i <= n) {
+                if (i <= n - 1 && lines[i] ~ /^#-+\s*$/ && lines[i+1] ~ /^# ([^#]*) service configuration\s*$/) {
+                    # Extract service name from header
+                    match(lines[i+1], /^# (.*) service configuration\s*$/, m)
+                    name = m[1]
+
+                    # Find end of this block (position just before next block start)
+                    k = i + 2
+                    while (k <= n - 1 && !(lines[k] ~ /^#-+\s*$/ && lines[k+1] ~ /^# [^#]* service configuration\s*$/)) {
+                        k++
+                    }
+                    end = (k <= n - 1 ? k - 1 : n)
+
+                    if (name != target) {
+                        for (p = i; p <= end; p++) {
+                            print lines[p]
+                        }
+                    }
+                    i = end + 1
+                } else {
+                    # Not a recognized block start, just print
+                    print lines[i]
+                    i++
+                }
+            }
+        }
+        ' "$haproxy_config" > "$temp_config"
+
         # Replace the original config
         mv "$temp_config" "$haproxy_config"
     fi

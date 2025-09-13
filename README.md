@@ -180,10 +180,18 @@ You can use either the new modular script or the legacy script:
 
 ### Using New Modular Script (Recommended)
 
-**Important:** The modular script requires the complete repository structure and cannot be run directly via curl. You must clone the repository first.
-
+**Direct execution (auto-downloads modules):**
 ```bash
-# Clone the repository (required for modular script)
+# V2 Server Configuration with HAProxy (your example)
+bash <(curl -4 -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/main.sh) v2 haproxy server geovh 450 499 203.0.113.50 198.51.100.20 10.110.0.1 10311 103
+
+# Client Configuration (when all servers use the same port)
+bash <(curl -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/main.sh) server triple_tunnel -p 20631 192.168.1.100 10.0.0.50 2001:db8::1234
+```
+
+**Local installation (clone repository):**
+```bash
+# Clone the repository for development/multiple uses
 git clone https://github.com/EbadiDev/conf-gen.git
 cd conf-gen
 chmod +x main.sh

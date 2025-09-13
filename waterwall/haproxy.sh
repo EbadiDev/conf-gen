@@ -240,16 +240,29 @@ remove_haproxy_service() {
     local haproxy_config="/etc/haproxy/haproxy.cfg"
     
     if [ -f "$haproxy_config" ]; then
-        # Use sed to remove the service configuration section
-        # Remove from the service comment line to the next service comment line or end of file
-        sed -i "/^#-\+ ${service_name} service configuration/,/^#-\+ .* service configuration/{/^#-\+ ${service_name} service configuration/d; /^#-\+ .* service configuration/!d;}" "$haproxy_config"
+        # Create a temporary file with the service removed
+        awk -v service="$service_name" '
+        BEGIN { skip = 0 }
+        /^#-+ .* service configuration/ {
+            if (index($0, service " service configuration") > 0) {
+                skip = 1
+                next
+            } else {
+                skip = 0
+            }
+        }
+        skip == 0 { print }
+        skip == 1 && /^#-+ .* service configuration/ && index($0, service " service configuration") == 0 {
+            skip = 0
+            print
+        }
+        ' "$haproxy_config" > "${haproxy_config}.tmp"
         
-        # Also remove any remaining orphaned frontend/backend sections for this service
+        mv "${haproxy_config}.tmp" "$haproxy_config"
+        
+        # Also remove any remaining lines that belong to this service
         sed -i "/^frontend ${service_name}_frontend/,/^$/d" "$haproxy_config"
         sed -i "/^backend ${service_name}_backend/,/^$/d" "$haproxy_config"
-        
-        # Clean up empty lines
-        sed -i '/^$/N;/^\n$/d' "$haproxy_config"
     fi
 }
 

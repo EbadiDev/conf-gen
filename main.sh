@@ -50,7 +50,9 @@ download_modules() {
             if curl -s -m 10 -f -o "$WATERWALL_DIR/$module" "$base_url/$module" 2>/dev/null; then
                 echo "DONE:$module" > "$WATERWALL_DIR/$module.status"
             else
-                echo "FAIL:$module" > "$WATERWALL_DIR/$module.status"
+                # Get the HTTP status for debugging
+                local status=$(curl -s -m 10 -w "%{http_code}" -o /dev/null "$base_url/$module" 2>/dev/null)
+                echo "FAIL:$module:$status" > "$WATERWALL_DIR/$module.status"
             fi
         } &
         pids+=($!)
@@ -98,7 +100,9 @@ download_modules() {
             if grep -q "DONE:" "$WATERWALL_DIR/$module.status" 2>/dev/null; then
                 echo "✓ $module"
             else
-                echo "✗ $module"
+                local status_info=$(cat "$WATERWALL_DIR/$module.status" 2>/dev/null)
+                local http_code=$(echo "$status_info" | cut -d: -f3)
+                echo "✗ $module (HTTP: $http_code)"
                 failed=1
             fi
         else

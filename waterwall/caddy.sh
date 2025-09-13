@@ -217,6 +217,7 @@ create_caddy_base_config() {
     cat << 'EOF'
 {
     admin off
+    auto_https off
     
     servers {
         timeouts {

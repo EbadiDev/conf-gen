@@ -261,26 +261,6 @@ create_v2_client_config() {
             "settings": {
                 "device-name": "${config_name}",
                 "device-ip": "${private_ip}/24"
-            },
-            "next": "input"
-        },
-        {
-            "name": "input",
-            "type": "TcpListener",
-            "settings": {
-                "address": "${ip_plus1}",
-                "port": ${haproxy_port},
-                "nodelay": true
-            },
-            "next": "output"
-        },
-        {
-            "name": "output",
-            "type": "TcpConnector",
-            "settings": {
-                "nodelay": true,
-                "address": "127.0.0.1",
-                "port": ${app_port}
             }
         }
     ]
@@ -299,7 +279,7 @@ EOF
             manage_haproxy_service
             
             print_info "V2 Client with HAProxy:"
-            print_info "- Tunnel connects to waterwall on: ${ip_plus1}:${haproxy_port}"
+            print_info "- TUN device routes traffic through: ${private_ip}:${haproxy_port}"
             print_info "- HAProxy binds to: ${private_ip}:${haproxy_port}"
             print_info "- HAProxy forwards to app: 127.0.0.1:${app_port}"
         elif [ "$use_caddy" = true ]; then
@@ -310,9 +290,13 @@ EOF
             manage_caddy_service
             
             print_info "V2 Client with Caddy:"
-            print_info "- Tunnel connects to waterwall on: ${ip_plus1}:${haproxy_port}"
+            print_info "- TUN device routes traffic through: ${private_ip}:${haproxy_port}"
             print_info "- Caddy binds to: ${private_ip}:${haproxy_port}"
             print_info "- Caddy forwards to app: 127.0.0.1:${app_port}"
+        else
+            print_info "V2 Client without proxy:"
+            print_info "- TUN device created: ${config_name}"
+            print_info "- Route traffic manually through TUN device to your application"
         fi
         
         echo "V2 Client configuration file ${config_name}.json has been created successfully!"

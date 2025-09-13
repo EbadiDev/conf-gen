@@ -240,29 +240,45 @@ remove_haproxy_service() {
     local haproxy_config="/etc/haproxy/haproxy.cfg"
     
     if [ -f "$haproxy_config" ]; then
-        # Create a temporary file with the service removed
-        awk -v service="$service_name" '
-        BEGIN { skip = 0 }
-        /^#-+ .* service configuration/ {
-            if (index($0, service " service configuration") > 0) {
-                skip = 1
-                next
-            } else {
-                skip = 0
-            }
-        }
-        skip == 0 { print }
-        skip == 1 && /^#-+ .* service configuration/ && index($0, service " service configuration") == 0 {
-            skip = 0
-            print
-        }
-        ' "$haproxy_config" > "${haproxy_config}.tmp"
+        # Create a new config without the service
+        local temp_config="/tmp/haproxy_clean.cfg"
+        local in_service_section=false
         
-        mv "${haproxy_config}.tmp" "$haproxy_config"
+        while IFS= read -r line; do
+            # Check if this is the start of our service section
+            if [[ "$line" == *"$service_name service configuration"* ]]; then
+                in_service_section=true
+                continue
+            fi
+            
+            # Check if this is the start of a different service section
+            if [[ "$line" == *" service configuration"* ]] && [[ "$line" != *"$service_name service configuration"* ]]; then
+                in_service_section=false
+            fi
+            
+            # Skip lines if we're in the service section we want to remove
+            if [ "$in_service_section" = true ]; then
+                # Skip frontend, backend, and indented lines
+                if [[ "$line" =~ ^frontend.*${service_name}_ ]] || \
+                   [[ "$line" =~ ^backend.*${service_name}_ ]] || \
+                   [[ "$line" =~ ^[[:space:]] ]] || \
+                   [[ "$line" =~ ^#-+ ]] || \
+                   [[ -z "$line" ]]; then
+                    continue
+                else
+                    # We've reached the end of the service section
+                    in_service_section=false
+                fi
+            fi
+            
+            # Print the line if we're not in the service section
+            if [ "$in_service_section" = false ]; then
+                echo "$line"
+            fi
+        done < "$haproxy_config" > "$temp_config"
         
-        # Also remove any remaining lines that belong to this service
-        sed -i "/^frontend ${service_name}_frontend/,/^$/d" "$haproxy_config"
-        sed -i "/^backend ${service_name}_backend/,/^$/d" "$haproxy_config"
+        # Replace the original config
+        mv "$temp_config" "$haproxy_config"
     fi
 }
 

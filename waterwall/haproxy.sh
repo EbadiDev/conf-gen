@@ -240,67 +240,41 @@ remove_haproxy_service() {
     local haproxy_config="/etc/haproxy/haproxy.cfg"
     
     if [ -f "$haproxy_config" ]; then
-        # Use Python to clean up the config
-        python3 -c "
-import sys
-import re
-
-service_name = '$service_name'
-with open('$haproxy_config', 'r') as f:
-    lines = f.readlines()
-
-new_lines = []
-skip = False
-i = 0
-
-while i < len(lines):
-    line = lines[i].strip()
-    
-    # Check if this line is the start of our target service
-    if service_name + ' service configuration' in line and '#' in line:
-        skip = True
-        # Skip until we find another service configuration or EOF
-        i += 1
-        while i < len(lines):
-            next_line = lines[i].strip()
-            # Stop skipping when we find another service configuration
-            if 'service configuration' in next_line and service_name + ' service configuration' not in next_line and '#' in next_line:
-                skip = False
-                break
-            i += 1
-        # Don't increment i again as we want to process the line that ended our skip
-        continue
-    
-    if not skip:
-        new_lines.append(lines[i])
-    
-    i += 1
-
-# Clean up orphaned comment lines (lines that are just #-----)
-cleaned_lines = []
-for i, line in enumerate(new_lines):
-    # Skip lines that are just comment separators if they appear multiple times in a row
-    if line.strip() == '#' + '-' * 69:
-        # Check if the previous line was also a comment separator
-        if i > 0 and cleaned_lines and cleaned_lines[-1].strip() == '#' + '-' * 69:
-            continue  # Skip this duplicate
-        # Check if this is at the end of file
-        if i == len(new_lines) - 1:
-            continue  # Skip trailing comment separator
-        # Check if next non-empty line is also a comment separator
-        next_non_empty = None
-        for j in range(i + 1, len(new_lines)):
-            if new_lines[j].strip():
-                next_non_empty = new_lines[j].strip()
-                break
-        if next_non_empty == '#' + '-' * 69:
-            continue  # Skip if next non-empty is also a separator
-    
-    cleaned_lines.append(line)
-
-with open('$haproxy_config', 'w') as f:
-    f.writelines(cleaned_lines)
-"
+        # Simple approach: recreate the config without the target service
+        local temp_config="/tmp/haproxy_new.cfg"
+        
+        # Extract the global and defaults sections
+        sed -n '1,/^$/p' "$haproxy_config" | head -n -1 > "$temp_config"
+        
+        # Add all service configurations except the target one
+        local in_target_service=false
+        while IFS= read -r line; do
+            # Check if we're entering the target service section
+            if [[ "$line" == *"$service_name service configuration"* ]]; then
+                in_target_service=true
+                continue
+            fi
+            
+            # Check if we're entering a different service section
+            if [[ "$line" == *"service configuration"* ]] && [[ "$line" != *"$service_name service configuration"* ]]; then
+                in_target_service=false
+            fi
+            
+            # Add non-target service lines
+            if [ "$in_target_service" = false ]; then
+                # Skip empty lines at the beginning
+                if [[ -n "$line" || -s "$temp_config" ]]; then
+                    echo "$line" >> "$temp_config"
+                fi
+            fi
+        done < <(grep -A 999999 "^#.*service configuration" "$haproxy_config")
+        
+        # Clean up multiple consecutive empty lines and trailing separators
+        sed -i '/^$/N;/^\n$/d' "$temp_config"
+        sed -i '/^#-\+$/d' "$temp_config"
+        
+        # Replace the original config
+        mv "$temp_config" "$haproxy_config"
     fi
 }
 

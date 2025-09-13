@@ -1,0 +1,101 @@
+#!/bin/bash
+
+# Main Waterwall Configuration Generator
+# Modular script that delegates to specific configuration modules
+
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WATERWALL_DIR="$SCRIPT_DIR/waterwall"
+
+# Source common functions
+source "$WATERWALL_DIR/common.sh"
+
+# Display banner
+show_banner() {
+    cat << 'EOF'
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                     Waterwall Configuration Generator                        ║
+║                              Modular Edition                                 ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+EOF
+}
+
+# Main function to route to appropriate configuration module
+main() {
+    # Show banner
+    show_banner
+    
+    # Check minimum arguments
+    if [ $# -lt 1 ]; then
+        show_help
+        exit 1
+    fi
+    
+    # Handle help requests
+    if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
+        if [ -n "$2" ]; then
+            show_detailed_help "$2"
+        else
+            show_help
+        fi
+        exit 0
+    fi
+    
+    local config_type="$1"
+    
+    # Route to appropriate configuration module
+    case "$config_type" in
+        "server")
+            source "$WATERWALL_DIR/server_client_config.sh"
+            handle_server_config "$@"
+            ;;
+        "client")
+            source "$WATERWALL_DIR/server_client_config.sh"
+            handle_client_config "$@"
+            ;;
+        "simple")
+            source "$WATERWALL_DIR/simple_config.sh"
+            handle_simple_config "$@"
+            ;;
+        "half")
+            source "$WATERWALL_DIR/half_config.sh"
+            handle_half_config "$@"
+            ;;
+        "v2")
+            source "$WATERWALL_DIR/v2_config.sh"
+            handle_v2_config "$@"
+            ;;
+        "haproxy")
+            # HAProxy-enabled configurations
+            local sub_type="$2"
+            case "$sub_type" in
+                "server")
+                    source "$WATERWALL_DIR/server_client_config.sh"
+                    handle_server_config "$@"
+                    ;;
+                "client")
+                    source "$WATERWALL_DIR/server_client_config.sh"
+                    handle_client_config "$@"
+                    ;;
+                *)
+                    print_error "Invalid HAProxy configuration type: $sub_type"
+                    print_info "Supported HAProxy types: server, client"
+                    exit 1
+                    ;;
+            esac
+            ;;
+        *)
+            print_error "Unknown configuration type: $config_type"
+            print_info "Supported types: server, client, simple, half, v2"
+            print_info "For HAProxy integration: haproxy <type> <protocol> ..."
+            show_help
+            exit 1
+            ;;
+    esac
+}
+
+# Handle script interruption
+trap 'print_error "Script interrupted by user"; exit 130' INT
+
+# Run main function with all arguments
+main "$@"

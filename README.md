@@ -4,28 +4,23 @@ This repository contains configuration generators for various tunneling and load
 
 ## Scripts
 
-### 1. Load Balancer Configuration Generator (`create_lb_config.sh`)
+### 1. Load Balancer Configuration Generator (Modular)
 
-This script generates JSON configuration files for cliExample:
-```bash
-# Example with IPv4
-./create_lb_config.sh iran config1 14000 Examples:
-```bash
-# Iran side Reality/gRPC configuration
-./create_lb_config.sh half web-cdn.snapp.ir mypassword123 iran reverse_reality_iran 100 199 198.51.100.4 10010
+**New Modular Structure**: The configuration generator has been restructured into a modular system for better maintainability and organization.
 
-# Server side Reality/gRPC configuration with HAProxy
-./create_lb_config.sh half haproxy web-cdn.snapp.ir mypassword123 tcp server reverse_reality_server -p 10010 203.0.113.50 11010
-```2.168.1.100 13787
+#### Main Scripts:
+- **`main.sh`** - New modular main script with improved organization
+- **`create_lb_config.sh`** - Legacy monolithic script (still functional)
 
-# Example with HAProxy (tunnel connects to HAProxy, which forwards to your service)
-./create_lb_config.sh haproxy iran tcp config1 14000 14999 192.168.1.100 13787 15000
-```
+#### Waterwall Modules:
+- **`waterwall/server_client_config.sh`** - Server and client configurations
+- **`waterwall/simple_config.sh`** - Simple port forwarding
+- **`waterwall/half_config.sh`** - Reality/gRPC tunneling  
+- **`waterwall/v2_config.sh`** - Advanced V2 configurations with TUN devices
+- **`waterwall/haproxy.sh`** - HAProxy integration module
+- **`waterwall/common.sh`** - Shared utilities and functions
 
-This will create a configuration with:
-- Port range for incoming connections: 14000-14999
-- Connection to kharej server at 192.168.1.100:13787
-- With HAProxy: traffic flows from tunnel → HAProxy (port 15000) → your service (port 14000)r-side setups of a load balancer system with support for multiple configuration types including simple port forwarding and advanced Reality/gRPC tunneling. Now includes optional HAProxy integration for real IP forwarding and load balancing.
+Both scripts generate JSON configuration files for client and server-side setups with support for multiple configuration types including simple port forwarding and advanced Reality/gRPC tunneling, now with optional HAProxy integration for real IP forwarding and load balancing.
 
 ### 2. Rathole Configuration Generator (`rathole.sh`)
 
@@ -177,7 +172,51 @@ This script generates JSON configuration files for client and server-side setups
 
 ## Quick Install & Usage
 
-You can directly run the script with parameters using curl:
+You can use either the new modular script or the legacy script:
+
+### Using New Modular Script (Recommended)
+
+```bash
+# Clone the repository
+git clone https://github.com/EbadiDev/conf-gen.git
+cd conf-gen
+chmod +x main.sh
+
+# Client Configuration (when all servers use the same port)
+./main.sh server triple_tunnel -p 20631 192.168.1.100 10.0.0.50 2001:db8::1234
+
+# Client Configuration with HAProxy
+./main.sh haproxy server tcp triple_tunnel -p 20631 192.168.1.100
+
+# Server Configuration
+./main.sh client config1 14000 14999 192.168.1.100 13787
+
+# Server Configuration with HAProxy
+./main.sh haproxy client tcp config1 14000 14999 192.168.1.100 13787
+
+# Simple TCP Port Forwarding
+./main.sh simple tcp server tr 300 399 10.0.0.10 10410
+
+# Half Reality/gRPC Configuration (Server side)
+./main.sh half web-cdn.snapp.ir mypassword server ru -p 10010 198.51.100.4
+
+# Half Reality/gRPC Configuration with HAProxy (Internal port: 11010)
+./main.sh half web-cdn.snapp.ir mypassword haproxy tcp server ru -p 10010 198.51.100.4 11010
+
+# V2 Server Configuration (Advanced TUN + IP Manipulation)
+./main.sh v2 server v2_config 100 199 203.0.113.100 10.80.0.1 10.80.0.2 10010 146
+
+# V2 Server Configuration with HAProxy
+./main.sh v2 haproxy server v2_config 100 199 203.0.113.100 10.80.0.1 10.80.0.2 10010 146
+
+# V2 Client Configuration (Advanced TUN + IP Manipulation)
+./main.sh v2 client v2_client 203.0.113.100 10.80.0.1 10.10.0.1 10311 146 10310
+
+# V2 Client Configuration with HAProxy
+./main.sh v2 haproxy client v2_client 203.0.113.100 10.80.0.1 10.10.0.1 10311 146 10310
+```
+
+### Using Legacy Script (curl direct execution)
 
 ```bash
 # Client Configuration (when all servers use the same port)
@@ -214,29 +253,30 @@ bash <(curl -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/create_
 bash <(curl -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/create_lb_config.sh) v2 haproxy client v2_client 203.0.113.100 10.80.0.1 10.10.0.1 10311 146 10310
 ```
 
-Or you can download and use the script locally:
-
-```bash
-# Clone the repository
-git clone https://github.com/EbadiDev/conf-gen.git
-cd conf-gen
-chmod +x create_lb_config.sh
-
-# Then use as normal
-./create_lb_config.sh <type> <config_name> [parameters...]
-```
-
 ## Configuration Types
 
 The script supports five main configuration types:
 
-1. **Client Configuration** - Load-balanced client setups
-2. **Server Configuration** - Server-side reverse proxy setups  
+1. **Server Configuration** - Load-balanced server setups
+2. **Client Configuration** - Client-side reverse proxy setups  
 3. **Simple Configuration** - Direct port-to-port forwarding
 4. **Half Configuration** - Reality/gRPC tunneling with advanced features
 5. **V2 Configuration** - Advanced TUN device with IP manipulation and packet capture
 
 ## Usage
+
+### New Modular Script
+
+```bash
+./main.sh <type> <config_name> [parameters...]
+
+# With HAProxy integration (for supported configurations):
+./main.sh haproxy <type> <protocol> <config_name> [parameters...]
+./main.sh v2 haproxy <type> <config_name> [parameters...]
+./main.sh half <website> <password> haproxy <protocol> <type> <config_name> [parameters...]
+```
+
+### Legacy Script
 
 ```bash
 ./create_lb_config.sh <type> <config_name> [parameters...]
@@ -247,50 +287,50 @@ The script supports five main configuration types:
 ./create_lb_config.sh half haproxy <website> <password> <protocol> <type> <config_name> [parameters...]
 ```
 
-### Client Configuration
+### Server Configuration
 
-For creating a client-side configuration with multiple balanced servers:
+For creating a server-side configuration with multiple balanced servers:
 
 ```bash
 # When servers have different ports
-./create_lb_config.sh client <config_name> <server1_address> <server1_port> [<server2_address> <server2_port> ...]
+./main.sh server <config_name> <server1_address> <server1_port> [<server2_address> <server2_port> ...]
 
 # When all servers use the same port
-./create_lb_config.sh client <config_name> -p <port> <server1_address> [<server2_address> ...]
+./main.sh server <config_name> -p <port> <server1_address> [<server2_address> ...]
 
 # With HAProxy integration (recommended for production)
-./create_lb_config.sh haproxy client tcp <config_name> -p <port> <server_address> [haproxy_port]
+./main.sh haproxy server tcp <config_name> -p <port> <server_address> [haproxy_port]
 ```
 
 Example:
 ```bash
 # Example with both IPv4 and IPv6 servers using the same port
-./create_lb_config.sh server triple_tunnel -p 20631 192.168.1.100 10.0.0.50 2001:db8::1234
+./main.sh server triple_tunnel -p 20631 192.168.1.100 10.0.0.50 2001:db8::1234
 
 # Example with HAProxy for real IP preservation
-./create_lb_config.sh haproxy server tcp myapp -p 8080 192.168.1.100 9080
+./main.sh haproxy server tcp myapp -p 8080 192.168.1.100 9080
 ```
 
 This will create a load-balanced configuration with multiple servers. With HAProxy, clients connect to the external port, HAProxy handles load balancing and forwards to the waterwall with real IP information.
 
-### Server Configuration
+### Client Configuration
 
-For creating a server-side configuration:
+For creating a client-side configuration:
 
 ```bash
-./create_lb_config.sh server <config_name> <start_port> <end_port> <kharej_ip> <kharej_port>
+./main.sh client <config_name> <start_port> <end_port> <kharej_ip> <kharej_port>
 
 # With HAProxy integration for client IP preservation
-./create_lb_config.sh haproxy server tcp <config_name> <start_port> <end_port> <kharej_ip> <kharej_port> [haproxy_port]
+./main.sh haproxy client tcp <config_name> <start_port> <end_port> <kharej_ip> <kharej_port> [haproxy_port]
 ```
 
 Example:
 ```bash
 # Example with IPv4
-./create_lb_config.sh server config1 14000 14999 192.168.1.100 13787
+./main.sh client config1 14000 14999 192.168.1.100 13787
 
 # Example with HAProxy (tunnel connects to HAProxy, which forwards to your service)
-./create_lb_config.sh haproxy server tcp config1 14000 14999 192.168.1.100 13787 15000
+./main.sh haproxy client tcp config1 14000 14999 192.168.1.100 13787 15000
 ```
 
 This will create a configuration with:
@@ -304,88 +344,98 @@ For creating simple port-to-port forwarding configurations:
 
 ```bash
 # TCP forwarding (explicit protocol)
-./create_lb_config.sh simple tcp server <config_name> <start_port> <end_port> <destination_ip> <destination_port>
+./main.sh simple tcp server <config_name> <start_port> <end_port> <destination_ip> <destination_port>
 
 # UDP forwarding (explicit protocol)
-./create_lb_config.sh simple udp server <config_name> <start_port> <end_port> <destination_ip> <destination_port>
+./main.sh simple udp server <config_name> <start_port> <end_port> <destination_ip> <destination_port>
 
 # TCP forwarding (default protocol)
-./create_lb_config.sh simple server <config_name> <start_port> <end_port> <destination_ip> <destination_port>
+./main.sh simple server <config_name> <start_port> <end_port> <destination_ip> <destination_port>
 ```
 
 Examples:
 ```bash
 # Forward TCP traffic from ports 300-399 to 10.0.0.10:10410
-./create_lb_config.sh simple tcp server tr 300 399 10.0.0.10 10410
+./main.sh simple tcp server tr 300 399 10.0.0.10 10410
 
 # Forward UDP traffic from ports 500-599 to 10.0.0.10:10510  
-./create_lb_config.sh simple udp server tr_udp 500 599 10.0.0.10 10510
+./main.sh simple udp server tr_udp 500 599 10.0.0.10 10510
 ```
 
 ### Half Configuration (Reality/gRPC)
 
 For creating advanced Reality/gRPC tunneling configurations:
 
-#### Server Side:
-```bash
-# With explicit protocol
-./create_lb_config.sh half <website> <password> [tcp|udp] server <config_name> <start_port> <end_port> <kharej_ip> <kharej_port>
-
-# With default TCP protocol
-./create_lb_config.sh half <website> <password> server <config_name> <start_port> <end_port> <kharej_ip> <kharej_port>
-
-# With HAProxy integration
-./create_lb_config.sh half haproxy <website> <password> [tcp|udp] server <config_name> <start_port> <end_port> <kharej_ip> <kharej_port> [haproxy_port]
-```
-
 #### Client Side:
 ```bash
 # With explicit protocol
-./create_lb_config.sh half <website> <password> [tcp|udp] client <config_name> -p <port> <iran_ip>
+./main.sh half <website> <password> [tcp|udp] client <config_name> <start_port> <end_port> <kharej_ip> <kharej_port>
 
 # With default TCP protocol
-./create_lb_config.sh half <website> <password> client <config_name> -p <port> <iran_ip>
+./main.sh half <website> <password> client <config_name> <start_port> <end_port> <kharej_ip> <kharej_port>
 
 # With HAProxy integration
-./create_lb_config.sh half haproxy <website> <password> [tcp|udp] client <config_name> -p <port> <iran_ip> [haproxy_port]
+./main.sh half <website> <password> haproxy [tcp|udp] client <config_name> <start_port> <end_port> <kharej_ip> <kharej_port> [haproxy_port]
+```
+
+#### Server Side:
+```bash
+# With explicit protocol
+./main.sh half <website> <password> [tcp|udp] server <config_name> -p <port> <client_ip>
+
+# With default TCP protocol
+./main.sh half <website> <password> server <config_name> -p <port> <client_ip>
+
+# With HAProxy integration (internal port defaults to external_port + 1000)
+./main.sh half <website> <password> haproxy [tcp|udp] server <config_name> -p <external_port> <client_ip> [internal_port]
 ```
 
 Examples:
 ```bash
-# Server side Reality/gRPC configuration
-./create_lb_config.sh half web-cdn.snapp.ir mypassword123 server reverse_reality_server 100 199 20.10.0.4 10010
+# Client side Reality/gRPC configuration
+./main.sh half web-cdn.snapp.ir mypassword123 client reverse_reality_client 100 199 198.51.100.4 10010
 
-# Client side Reality/gRPC configuration with HAProxy
-./create_lb_config.sh half haproxy web-cdn.snapp.ir mypassword123 tcp client reverse_reality_client -p 10010 1.1.1.1 11010
+# Server side Reality/gRPC configuration with HAProxy
+# External port: 10010, Internal port: 11010 (10010 + 1000)
+./main.sh half web-cdn.snapp.ir mypassword123 haproxy tcp server reverse_reality_server -p 10010 203.0.113.50
+
+# Server side with custom internal port
+# External port: 10010, Internal port: 12000 (custom)
+./main.sh half web-cdn.snapp.ir mypassword123 haproxy tcp server reverse_reality_server -p 10010 203.0.113.50 12000
 ```
+
+**Half Configuration Internal Ports:**
+- **Default**: `external_port + 1000` (e.g., 10010 → 11010)
+- **Custom**: Specify as the last parameter
+- **Traffic Flow**: External clients → HAProxy (external_port) → Waterwall (internal_port) → [Tunnel] → Destination
 
 ### V2 Configuration (Advanced TUN + IP Manipulation)
 
 For creating advanced V2 configurations with TUN devices, IP manipulation, and packet capture:
 
-#### V2 Server Side:
-```bash
-./create_lb_config.sh v2 server <config_name> <start_port> <end_port> <non_iran_ip> <iran_ip> <private_ip> <haproxy_port> <protocol>
-
-# With HAProxy integration
-./create_lb_config.sh v2 haproxy server <config_name> <start_port> <end_port> <non_iran_ip> <iran_ip> <private_ip> <haproxy_port> <protocol>
-```
-
 #### V2 Client Side:
 ```bash
-./create_lb_config.sh v2 client <config_name> <non_iran_ip> <iran_ip> <private_ip> <haproxy_port> <protocol> <app_port>
+./main.sh v2 client <config_name> <non_iran_ip> <iran_ip> <private_ip> <haproxy_port> <protocol> <app_port>
 
 # With HAProxy integration
-./create_lb_config.sh v2 haproxy client <config_name> <non_iran_ip> <iran_ip> <private_ip> <haproxy_port> <protocol> <app_port>
+./main.sh v2 haproxy client <config_name> <non_iran_ip> <iran_ip> <private_ip> <haproxy_port> <protocol> <app_port>
+```
+
+#### V2 Server Side:
+```bash
+./main.sh v2 server <config_name> <start_port> <end_port> <non_iran_ip> <iran_ip> <private_ip> <haproxy_port> <protocol>
+
+# With HAProxy integration
+./main.sh v2 haproxy server <config_name> <start_port> <end_port> <non_iran_ip> <iran_ip> <private_ip> <haproxy_port> <protocol>
 ```
 
 Examples:
 ```bash
 # V2 Server configuration with TUN device and IP manipulation
-./create_lb_config.sh v2 server v2_config 100 199 203.0.113.50 10.80.0.1 10.80.0.2 10311 146
+./main.sh v2 server v2_config 100 199 203.0.113.50 10.80.0.1 10.80.0.2 10311 146
 
 # V2 Client configuration with HAProxy and TUN device (HAProxy binds to private IP)
-./create_lb_config.sh v2 haproxy client v2_client 203.0.113.50 10.80.0.1 10.10.0.1 10311 146 10310
+./main.sh v2 haproxy client v2_client 203.0.113.50 10.80.0.1 10.10.0.1 10311 146 10310
 ```
 
 **V2 Configuration Features:**
@@ -395,22 +445,9 @@ Examples:
 - **Automatic IP Calculation**: Automatically calculates PRIVATE_IP+1 for internal routing
 - **Configurable Protocol Swapping**: Uses protoswap-tcp with your desired protocol number (e.g., 146)
 - **HAProxy Integration**: Optional real IP forwarding with automatic port management
-- **Private IP Binding**: V2 Client HAProxy binds to private IP instead of wildcard
-- **Simplified Parameters**: V2 Server - removed redundant endpoint_port, V2 Client - cleaner parameter structure
 - **No Interactive Prompts**: All parameters are provided via command line
 
-### V2 Configuration Details
-
-**V2 Server Side:**
-- Listens on port range (e.g., 450-499) for incoming connections
-- With HAProxy: External range → HAProxy → Waterwall (internal haproxy_port)
-- Without HAProxy: External range → Waterwall directly
-- `haproxy_port` serves as the internal waterwall listen port
-
-**V2 Client Side:**
-- HAProxy binds to private IP (e.g., `10.80.0.1:10311`) instead of `*:10311`
-- Traffic flow: Tunnel → HAProxy (private_ip:haproxy_port) → Application (127.0.0.1:app_port)
-- Uses accept-proxy for real IP preservation from tunnel
+**Note:** V2 Client configurations bind HAProxy to the private IP instead of wildcard (*) for better security and network isolation.
 
 ## Features
 
@@ -425,7 +462,7 @@ Examples:
   - IPv4: Uses "0.0.0.0" as listen address and /32 for whitelist
   - IPv6: Uses "::" as listen address and /128 for whitelist
 - **Load Balancing**: Creates load-balanced configurations for multiple servers
-- **Port Range Support**: Generates port range configurations for Iran-side setups
+- **Port Range Support**: Generates port range configurations for client-side setups
 - **Automatic Firewall Management**: Automatically opens required ports using:
   - UFW (Ubuntu/Debian)
   - firewalld (CentOS/RHEL/Fedora)  
@@ -433,6 +470,7 @@ Examples:
 - **Reality/gRPC Tunneling**: Advanced tunneling with website masquerading
 - **Core Integration**: Automatically adds configurations to core.json
 - **Proper Permissions**: Sets correct file permissions (644) for generated files
+- **Modular Architecture**: Clean separation of concerns with dedicated modules
 
 ## HAProxy Integration
 
@@ -448,23 +486,21 @@ The script now includes optional HAProxy integration for all configuration types
 
 ### HAProxy Traffic Flow
 
-#### Client Side (serving clients)
+#### Server Side (Iran/Kharej serving clients)
 ```
-Internet Clients → HAProxy (external port) → Waterwall (internal port) → [Tunnel] → Server Side
+Internet Clients → HAProxy (external port) → Waterwall (internal port) → [Tunnel] → Client Side
 ```
 
-#### Server Side (connecting to services)  
+#### Client Side (Iran/Kharej connecting to services)  
 ```
 [Tunnel] → Waterwall → HAProxy (tunnel port) → Your Application (service port)
 ```
-
-**Note:** V2 Client configurations bind HAProxy to the private IP instead of wildcard (*) for better security and network isolation.
 
 ### HAProxy Port Parameters
 
 - `haproxy_port` - Optional parameter for custom HAProxy internal port
 - **Default**: `external_port + 1000` for most configurations
-- **Default**: `start_port + 1000` for server configurations  
+- **Default**: `start_port + 1000` for client configurations  
 - **Purpose**: Allows fine-tuning of internal port allocation to avoid conflicts
 
 ### HAProxy Configuration Management
@@ -479,13 +515,13 @@ Internet Clients → HAProxy (external port) → Waterwall (internal port) → [
 
 ```bash
 # V2 Client with HAProxy - clients connect to port 10311 on private IP, forwards to app on 10310
-./create_lb_config.sh v2 haproxy client myapp 203.0.113.50 198.51.100.20 192.168.1.100 10311 142 10310
+./main.sh v2 haproxy client myapp 203.0.113.50 198.51.100.20 192.168.1.100 10311 142 10310
 
-# Legacy Server with HAProxy - tunnel forwards to HAProxy on 15000, HAProxy forwards to service on 14000  
-./create_lb_config.sh haproxy server tcp config1 14000 14999 192.168.1.100 13787 15000
+# Legacy Client with HAProxy - tunnel forwards to HAProxy on 15000, HAProxy forwards to service on 14000  
+./main.sh haproxy client tcp config1 14000 14999 192.168.1.100 13787 15000
 
-# Half Client with HAProxy - external clients → HAProxy (10010) → waterwall (11010)
-./create_lb_config.sh half haproxy web-cdn.snapp.ir mypass tcp client myapp -p 10010 192.168.1.100 11010
+# Half Server with HAProxy - external clients → HAProxy (10010) → waterwall (11010)
+./main.sh half web-cdn.snapp.ir mypass haproxy tcp server myapp -p 10010 192.168.1.100 11010
 ```
 
 ## Output
@@ -515,3 +551,25 @@ The script includes comprehensive validation for:
 - Required parameters for all configuration types
 - Valid configuration type validation
 - Firewall system detection and fallback
+
+## Migration Guide
+
+### From Legacy Script to Modular Script
+
+The new modular script maintains backward compatibility with the legacy script syntax. You can migrate by simply replacing `./create_lb_config.sh` with `./main.sh`:
+
+```bash
+# Legacy
+./create_lb_config.sh server myconfig -p 8080 192.168.1.100
+
+# New modular (same syntax)
+./main.sh server myconfig -p 8080 192.168.1.100
+```
+
+### Benefits of Modular Architecture
+
+- **Better Organization**: Each configuration type has its own module
+- **Easier Maintenance**: Changes to one type don't affect others
+- **Improved Testing**: Individual modules can be tested separately
+- **Enhanced Readability**: Smaller, focused files are easier to understand
+- **Extensibility**: New configuration types can be easily added

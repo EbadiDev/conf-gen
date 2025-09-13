@@ -42,80 +42,48 @@ download_modules() {
     local completed=0
     local failed=0
     
-    # Download all modules in parallel with progress tracking
-    local pids=()
-    
+    # Try sequential download first (more reliable)
+    echo -n "Progress: "
     for module in "${modules[@]}"; do
-        {
-            if curl -s -m 10 -f -o "$WATERWALL_DIR/$module" "$base_url/$module" 2>/dev/null; then
-                echo "DONE:$module" > "$WATERWALL_DIR/$module.status"
-            else
-                # Get the HTTP status for debugging
-                local status=$(curl -s -m 10 -w "%{http_code}" -o /dev/null "$base_url/$module" 2>/dev/null)
-                echo "FAIL:$module:$status" > "$WATERWALL_DIR/$module.status"
-            fi
-        } &
-        pids+=($!)
-    done
-    
-    # Progress monitoring
-    echo -n "Progress: [0/$total] "
-    local spinner=('|' '/' '-' '\')
-    local spin_idx=0
-    
-    while [ $completed -lt $total ]; do
-        completed=0
-        failed=0
+        echo -n "[$((completed + 1))/$total] $module... "
         
-        # Count completed downloads
-        for module in "${modules[@]}"; do
-            if [ -f "$WATERWALL_DIR/$module.status" ]; then
-                if grep -q "DONE:" "$WATERWALL_DIR/$module.status" 2>/dev/null; then
-                    ((completed++))
-                elif grep -q "FAIL:" "$WATERWALL_DIR/$module.status" 2>/dev/null; then
-                    ((completed++))
-                    ((failed++))
-                fi
-            fi
-        done
-        
-        # Update progress
-        printf "\rProgress: [%d/%d] %s " "$completed" "$total" "${spinner[$spin_idx]}"
-        spin_idx=$(( (spin_idx + 1) % 4 ))
-        
-        # Small delay
-        sleep 0.1
-    done
-    
-    # Wait for all background processes to complete
-    for pid in "${pids[@]}"; do
-        wait "$pid" 2>/dev/null
-    done
-    
-    echo # New line after progress
-    
-    # Show final results
-    for module in "${modules[@]}"; do
-        if [ -f "$WATERWALL_DIR/$module.status" ]; then
-            if grep -q "DONE:" "$WATERWALL_DIR/$module.status" 2>/dev/null; then
-                echo "✓ $module"
-            else
-                local status_info=$(cat "$WATERWALL_DIR/$module.status" 2>/dev/null)
-                local http_code=$(echo "$status_info" | cut -d: -f3)
-                echo "✗ $module (HTTP: $http_code)"
-                failed=1
-            fi
+        if curl -s -m 15 -f -L -o "$WATERWALL_DIR/$module" "$base_url/$module" 2>/dev/null; then
+            echo "✓"
+            ((completed++))
         else
-            echo "✗ $module (timeout)"
+            # Try once more with verbose error
+            local status=$(curl -s -m 15 -w "%{http_code}" -o /dev/null "$base_url/$module" 2>/dev/null)
+            echo "✗ (HTTP: $status)"
+            ((failed++))
+        fi
+    done
+    
+    echo
+    echo "Summary:"
+    for module in "${modules[@]}"; do
+        if [ -f "$WATERWALL_DIR/$module" ] && [ -s "$WATERWALL_DIR/$module" ]; then
+            echo "✓ $module"
+        else
+            echo "✗ $module"
             failed=1
         fi
     done
     
-    # Clean up status files
-    rm -f "$WATERWALL_DIR"/*.status
-    
     if [ $failed -eq 1 ]; then
-        return 1
+        echo "Some downloads failed. Retrying failed modules..."
+        # Retry failed ones
+        for module in "${modules[@]}"; do
+            if [ ! -f "$WATERWALL_DIR/$module" ] || [ ! -s "$WATERWALL_DIR/$module" ]; then
+                echo -n "Retry $module... "
+                if curl -s -m 20 -f -L -o "$WATERWALL_DIR/$module" "$base_url/$module" 2>/dev/null; then
+                    echo "✓"
+                    failed=0
+                else
+                    echo "✗"
+                    return 1
+                fi
+            fi
+        done
     fi
     
     AUTO_DOWNLOADED=true

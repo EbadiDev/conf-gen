@@ -1161,7 +1161,7 @@ if [ "$TYPE" = "v2" ]; then
             "settings": {
                 "nodelay": true,
                 "address": "${IP_PLUS1}",
-                "port": ${ENDPOINT_PORT}
+                "port": ${HAPROXY_PORT}
             }
         }
     ]

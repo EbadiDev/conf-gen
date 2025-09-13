@@ -47,13 +47,16 @@ download_modules() {
     for module in "${modules[@]}"; do
         echo -n "[$((completed + 1))/$total] $module... "
         
-        if curl -s -m 15 -f -L -o "$WATERWALL_DIR/$module" "$base_url/$module" 2>/dev/null; then
+        if curl -s -m 15 -f -L -o "$WATERWALL_DIR/$module" "$base_url/$module" 2>/dev/null && \
+           [ -f "$WATERWALL_DIR/$module" ] && [ -s "$WATERWALL_DIR/$module" ] && \
+           head -1 "$WATERWALL_DIR/$module" | grep -q "#!/bin/bash"; then
             echo "✓"
             ((completed++))
         else
             # Try once more with verbose error
             local status=$(curl -s -m 15 -w "%{http_code}" -o /dev/null "$base_url/$module" 2>/dev/null)
             echo "✗ (HTTP: $status)"
+            rm -f "$WATERWALL_DIR/$module" 2>/dev/null
             ((failed++))
         fi
     done
@@ -73,14 +76,28 @@ download_modules() {
         echo "Some downloads failed. Retrying failed modules..."
         # Retry failed ones
         for module in "${modules[@]}"; do
-            if [ ! -f "$WATERWALL_DIR/$module" ] || [ ! -s "$WATERWALL_DIR/$module" ]; then
+            if [ ! -f "$WATERWALL_DIR/$module" ] || [ ! -s "$WATERWALL_DIR/$module" ] || \
+               ! head -1 "$WATERWALL_DIR/$module" 2>/dev/null | grep -q "#!/bin/bash"; then
                 echo -n "Retry $module... "
-                if curl -s -m 20 -f -L -o "$WATERWALL_DIR/$module" "$base_url/$module" 2>/dev/null; then
+                if curl -s -m 20 -f -L -o "$WATERWALL_DIR/$module" "$base_url/$module" 2>/dev/null && \
+                   [ -f "$WATERWALL_DIR/$module" ] && [ -s "$WATERWALL_DIR/$module" ] && \
+                   head -1 "$WATERWALL_DIR/$module" 2>/dev/null | grep -q "#!/bin/bash"; then
                     echo "✓"
                     failed=0
                 else
                     echo "✗"
-                    return 1
+                    # Try alternative: download from specific commit
+                    local alt_url="https://raw.githubusercontent.com/EbadiDev/conf-gen/$(git ls-remote https://github.com/EbadiDev/conf-gen.git HEAD | cut -f1)/waterwall/$module"
+                    echo -n "Retry from commit... "
+                    if curl -s -m 20 -f -L -o "$WATERWALL_DIR/$module" "$alt_url" 2>/dev/null && \
+                       [ -f "$WATERWALL_DIR/$module" ] && [ -s "$WATERWALL_DIR/$module" ] && \
+                       head -1 "$WATERWALL_DIR/$module" 2>/dev/null | grep -q "#!/bin/bash"; then
+                        echo "✓"
+                        failed=0
+                    else
+                        echo "✗"
+                        return 1
+                    fi
                 fi
             fi
         done

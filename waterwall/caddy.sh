@@ -46,10 +46,6 @@ create_caddy_server_config_range() {
         header_up X-Real-IP {remote_host}
         header_up X-Forwarded-For {remote_host}
     }
-    log {
-        output file /var/log/caddy/${service_name}.log
-        format json
-    }
 }
 EOF
     
@@ -97,10 +93,6 @@ create_caddy_server_config() {
         header_up X-Forwarded-Proto {scheme}
         header_up X-Real-IP {remote_host}
         header_up X-Forwarded-For {remote_host}
-    }
-    log {
-        output file /var/log/caddy/${service_name}.log
-        format json
     }
 }
 EOF
@@ -153,10 +145,6 @@ ${bind_ip}:${tunnel_port} {
         # Accept proxy protocol from upstream
         trusted_proxies ${bind_ip}/32
     }
-    log {
-        output file /var/log/caddy/${service_name}.log
-        format json
-    }
 }
 EOF
     
@@ -206,10 +194,6 @@ create_caddy_client_config_range() {
         header_up X-Real-IP {remote_host}
         header_up X-Forwarded-For {remote_host}
     }
-    log {
-        output file /var/log/caddy/${service_name}.log
-        format json
-    }
 }
 EOF
     
@@ -222,10 +206,6 @@ create_caddy_base_config() {
 {
     # Global options
     admin off
-    log {
-        output file /var/log/caddy/access.log
-        format json
-    }
     
     # Performance optimizations
     servers {
@@ -234,11 +214,6 @@ create_caddy_base_config() {
         write_timeout 30s
         idle_timeout 120s
     }
-}
-
-# Default site (optional)
-localhost {
-    respond "Caddy is running"
 }
 EOF
 }
@@ -341,17 +316,23 @@ manage_caddy_service() {
         fi
     fi
     
-    # Create log directory
-    mkdir -p /var/log/caddy
-    chown caddy:caddy /var/log/caddy 2>/dev/null || true
-    
     # Create config directory if it doesn't exist
     mkdir -p /etc/caddy
     
+    # Remove default configuration if it exists
+    local caddy_config="/etc/caddy/Caddyfile"
+    if [ -f "$caddy_config" ]; then
+        # Remove default :80 site and comments
+        sed -i '/^:80 {/,/^}$/d' "$caddy_config"
+        sed -i '/^# The Caddyfile is an easy way/,/^# https:\/\/caddyserver.com\/docs\/caddyfile$/d' "$caddy_config"
+        # Remove empty lines at the beginning
+        sed -i '/./,$!d' "$caddy_config"
+    fi
+    
     # Validate Caddy configuration
-    if ! caddy validate --config /etc/caddy/Caddyfile >/dev/null 2>&1; then
+    if ! caddy validate --config "$caddy_config" >/dev/null 2>&1; then
         echo "Error: Caddy configuration is invalid"
-        caddy validate --config /etc/caddy/Caddyfile
+        caddy validate --config "$caddy_config"
         exit 1
     fi
     

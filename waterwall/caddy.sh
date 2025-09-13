@@ -216,15 +216,15 @@ EOF
 create_caddy_base_config() {
     cat << 'EOF'
 {
-    # Global options
     admin off
     
-    # Performance optimizations
     servers {
-        max_header_size 16KB
-        read_timeout 30s
-        write_timeout 30s
-        idle_timeout 120s
+        timeouts {
+            read_body   30s
+            read_header 30s
+            write       30s
+            idle        120s
+        }
     }
 }
 EOF

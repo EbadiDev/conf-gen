@@ -43,20 +43,57 @@ download_modules() {
     local completed=0
     local failed=0
     
-    # Try sequential download first (more reliable)
+    # Try multiple download methods for Iran network compatibility
     echo -n "Progress: "
     for module in "${modules[@]}"; do
         echo -n "[$((completed + 1))/$total] $module... "
         
-        if curl -s -m 15 -f -L -o "$WATERWALL_DIR/$module" "$base_url/$module" 2>/dev/null && \
+        # Method 1: curl with IPv4 only and specific user agent
+        if curl -4 -s -m 10 -f -L --user-agent "Mozilla/5.0" \
+           -H "Accept: text/plain" -o "$WATERWALL_DIR/$module" \
+           "$base_url/$module" 2>/dev/null && \
            [ -f "$WATERWALL_DIR/$module" ] && [ -s "$WATERWALL_DIR/$module" ] && \
-           head -1 "$WATERWALL_DIR/$module" | grep -q "#!/bin/bash"; then
+           head -1 "$WATERWALL_DIR/$module" 2>/dev/null | grep -q "#!/bin/bash"; then
+            echo "✓"
+            ((completed++))
+            continue
+        fi
+        
+        # Method 2: wget with IPv4 only
+        if command -v wget >/dev/null 2>&1; then
+            if wget -4 --quiet --timeout=10 --tries=2 \
+               --user-agent="Mozilla/5.0" -O "$WATERWALL_DIR/$module" \
+               "$base_url/$module" 2>/dev/null && \
+               [ -f "$WATERWALL_DIR/$module" ] && [ -s "$WATERWALL_DIR/$module" ] && \
+               head -1 "$WATERWALL_DIR/$module" 2>/dev/null | grep -q "#!/bin/bash"; then
+                echo "✓"
+                ((completed++))
+                continue
+            fi
+        fi
+        
+        # Method 3: Alternative domains/mirrors (using other CDNs)
+        local alt_urls=(
+            "https://cdn.jsdelivr.net/gh/EbadiDev/conf-gen@main/waterwall/$module"
+            "https://gitcdn.xyz/repo/EbadiDev/conf-gen/main/waterwall/$module"
+        )
+        
+        local success=false
+        for alt_url in "${alt_urls[@]}"; do
+            if curl -4 -s -m 8 -f -L --user-agent "Mozilla/5.0" \
+               -o "$WATERWALL_DIR/$module" "$alt_url" 2>/dev/null && \
+               [ -f "$WATERWALL_DIR/$module" ] && [ -s "$WATERWALL_DIR/$module" ] && \
+               head -1 "$WATERWALL_DIR/$module" 2>/dev/null | grep -q "#!/bin/bash"; then
+                success=true
+                break
+            fi
+        done
+        
+        if [ "$success" = true ]; then
             echo "✓"
             ((completed++))
         else
-            # Try once more with verbose error
-            local status=$(curl -s -m 15 -w "%{http_code}" -o /dev/null "$base_url/$module" 2>/dev/null)
-            echo "✗ (HTTP: $status)"
+            echo "✗"
             rm -f "$WATERWALL_DIR/$module" 2>/dev/null
             ((failed++))
         fi
@@ -74,31 +111,23 @@ download_modules() {
     done
     
     if [ $failed -eq 1 ]; then
-        echo "Some downloads failed. Retrying failed modules..."
-        # Retry failed ones
+        echo "Some downloads failed. Trying fallback methods..."
+        # Final retry with different approach
         for module in "${modules[@]}"; do
             if [ ! -f "$WATERWALL_DIR/$module" ] || [ ! -s "$WATERWALL_DIR/$module" ] || \
                ! head -1 "$WATERWALL_DIR/$module" 2>/dev/null | grep -q "#!/bin/bash"; then
-                echo -n "Retry $module... "
-                if curl -s -m 20 -f -L -o "$WATERWALL_DIR/$module" "$base_url/$module" 2>/dev/null && \
-                   [ -f "$WATERWALL_DIR/$module" ] && [ -s "$WATERWALL_DIR/$module" ] && \
-                   head -1 "$WATERWALL_DIR/$module" 2>/dev/null | grep -q "#!/bin/bash"; then
+                echo -n "Final retry $module... "
+                
+                # Try with minimal curl options for maximum compatibility
+                if curl -4 -s -m 15 --retry 2 --retry-delay 1 \
+                   -o "$WATERWALL_DIR/$module" \
+                   "$base_url/$module" 2>/dev/null && \
+                   [ -f "$WATERWALL_DIR/$module" ] && [ -s "$WATERWALL_DIR/$module" ]; then
                     echo "✓"
                     failed=0
                 else
                     echo "✗"
-                    # Try alternative: download from specific commit
-                    local alt_url="https://raw.githubusercontent.com/EbadiDev/conf-gen/$(git ls-remote https://github.com/EbadiDev/conf-gen.git HEAD | cut -f1)/waterwall/$module"
-                    echo -n "Retry from commit... "
-                    if curl -s -m 20 -f -L -o "$WATERWALL_DIR/$module" "$alt_url" 2>/dev/null && \
-                       [ -f "$WATERWALL_DIR/$module" ] && [ -s "$WATERWALL_DIR/$module" ] && \
-                       head -1 "$WATERWALL_DIR/$module" 2>/dev/null | grep -q "#!/bin/bash"; then
-                        echo "✓"
-                        failed=0
-                    else
-                        echo "✗"
-                        return 1
-                    fi
+                    return 1
                 fi
             fi
         done

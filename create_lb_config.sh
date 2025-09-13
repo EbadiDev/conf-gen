@@ -35,11 +35,11 @@ create_haproxy_server_config() {
     
     # Create backup of existing config
     if [ -f "$haproxy_config" ]; then
-        print_info "Existing HAProxy config backed up"
+        print_info "Creating backup of existing HAProxy config"
+        cp "$haproxy_config" "${haproxy_config}.backup.$(date +%s)"
     fi
     
-    # Always use optimized global and defaults sections
-    # Extract any existing service configurations, but replace global/defaults
+    # Start with clean global and defaults sections
     cat > "$temp_config" << 'EOF'
 #---------------------------------------------------------------------
 # Global settings - Stable and compatible
@@ -67,19 +67,38 @@ EOF
 
     # If config exists, extract existing service configurations (excluding current service)
     if [ -f "$haproxy_config" ]; then
+        # Extract all service sections except the one we're replacing
         awk -v service="$name" '
-        BEGIN { skip = 0 }
-        /^#---------------------------------------------------------------------/ && /service configuration/ {
+        BEGIN { 
+            printing = 0
+            in_target_service = 0
+        }
+        # Start of any service section
+        /^#.*service configuration/ {
             if ($0 ~ service) {
-                skip = 1
-                next
+                in_target_service = 1
+                printing = 0
+            } else {
+                in_target_service = 0
+                printing = 1
+                print ""
+                print $0
             }
+            next
         }
-        skip == 1 && /^#---------------------------------------------------------------------/ && !/service configuration/ {
-            skip = 0
+        # Skip global/defaults sections 
+        /^global/ || /^defaults/ || /^#.*Global settings/ || /^#.*Default settings/ {
+            printing = 0
+            next
         }
-        skip == 0 && !/^(global|defaults)/ && !/^#.*Global settings/ && !/^#.*Default settings/ {
-            if (!/^[[:space:]]*$/ || NR > 1) print
+        # Print if we are in a service section (but not the target service)
+        printing == 1 && in_target_service == 0 {
+            print $0
+        }
+        # Start printing after seeing a service header (unless its the target service)
+        /^frontend|^backend/ && in_target_service == 0 {
+            printing = 1
+            print $0
         }
         ' "$haproxy_config" >> "$temp_config"
     fi
@@ -93,14 +112,12 @@ EOF
 frontend ${name}_frontend
     bind *:${external_port}
     mode tcp
-    # Simple proxy protocol forwarding without stick tables
-    default_backend ${name}_tunnel
+    default_backend ${name}_backend
 
-backend ${name}_tunnel
+backend ${name}_backend
     mode tcp
     option tcp-check
-    # Just forward with proxy protocol to tunnel endpoint
-    server tunnel1 127.0.0.1:${internal_port} check send-proxy
+    server waterwall1 127.0.0.1:${internal_port} check send-proxy
 EOF
 
     # Move temp config to final location
@@ -125,11 +142,11 @@ create_haproxy_client_config() {
     
     # Create backup of existing config
     if [ -f "$haproxy_config" ]; then
-        print_info "Existing HAProxy config backed up"
+        print_info "Creating backup of existing HAProxy config"
+        cp "$haproxy_config" "${haproxy_config}.backup.$(date +%s)"
     fi
     
-    # Always use optimized global and defaults sections
-    # Extract any existing service configurations, but replace global/defaults
+    # Start with clean global and defaults sections
     cat > "$temp_config" << 'EOF'
 #---------------------------------------------------------------------
 # Global settings - Stable and compatible
@@ -157,19 +174,38 @@ EOF
 
     # If config exists, extract existing service configurations (excluding current service)
     if [ -f "$haproxy_config" ]; then
+        # Extract all service sections except the one we're replacing
         awk -v service="$name" '
-        BEGIN { skip = 0 }
-        /^#---------------------------------------------------------------------/ && /service configuration/ {
+        BEGIN { 
+            printing = 0
+            in_target_service = 0
+        }
+        # Start of any service section
+        /^#.*service configuration/ {
             if ($0 ~ service) {
-                skip = 1
-                next
+                in_target_service = 1
+                printing = 0
+            } else {
+                in_target_service = 0
+                printing = 1
+                print ""
+                print $0
             }
+            next
         }
-        skip == 1 && /^#---------------------------------------------------------------------/ && !/service configuration/ {
-            skip = 0
+        # Skip global/defaults sections 
+        /^global/ || /^defaults/ || /^#.*Global settings/ || /^#.*Default settings/ {
+            printing = 0
+            next
         }
-        skip == 0 && !/^(global|defaults)/ && !/^#.*Global settings/ && !/^#.*Default settings/ {
-            if (!/^[[:space:]]*$/ || NR > 1) print
+        # Print if we are in a service section (but not the target service)
+        printing == 1 && in_target_service == 0 {
+            print $0
+        }
+        # Start printing after seeing a service header (unless its the target service)
+        /^frontend|^backend/ && in_target_service == 0 {
+            printing = 1
+            print $0
         }
         ' "$haproxy_config" >> "$temp_config"
     fi
@@ -180,17 +216,14 @@ EOF
 #---------------------------------------------------------------------
 # ${name} service configuration
 #---------------------------------------------------------------------
-# Frontend receiving from tunnel - with real IP forwarding
 frontend ${name}_frontend
     bind *:${tunnel_port} accept-proxy
     mode tcp
     default_backend ${name}_backend
 
-# Backend to your actual service - with real IP forwarding
 backend ${name}_backend
     mode tcp
     option tcp-check
-    # Forward to your actual service with proxy protocol
     server app1 127.0.0.1:${service_port} check send-proxy
 EOF
 
@@ -982,21 +1015,22 @@ EOF
             add_to_core_json "$CONFIG_NAME" "v2"
             # Generate HAProxy configuration only if haproxy flag is used
             if [ "$USE_HAPROXY" = true ]; then
-                print_info "Setting up HAProxy configuration for V2 iran (client)..."
+                print_info "Setting up HAProxy configuration for V2 iran (server)..."
                 
-                # Use the configured haproxy port
-                TUNNEL_PORT="$HAPROXY_PORT"
+                # V2 Iran acts as server - external clients connect to START_PORT, forward to waterwall on HAPROXY_PORT
+                EXTERNAL_PORT="$START_PORT"
+                INTERNAL_PORT="$HAPROXY_PORT"
                 
-                # Create HAProxy client configuration
-                create_haproxy_client_config "$CONFIG_NAME" "$TUNNEL_PORT" "$ENDPOINT_PORT"
+                # Create HAProxy server configuration
+                create_haproxy_server_config "$CONFIG_NAME" "$EXTERNAL_PORT" "$INTERNAL_PORT"
                 
                 # Start HAProxy service
-                manage_haproxy_service "$TUNNEL_PORT" "start" "$TUNNEL_PORT"
+                manage_haproxy_service "$EXTERNAL_PORT" "start" "$INTERNAL_PORT"
                 
                 print_info "V2 Iran with HAProxy:"
-                print_info "  - Tunnel forwards to HAProxy: 127.0.0.1:$TUNNEL_PORT"
-                print_info "  - HAProxy forwards to your service: 127.0.0.1:$ENDPOINT_PORT"
-                print_info "  - Connect your service to: 127.0.0.1:$ENDPOINT_PORT"
+                print_info "  - External clients connect to: *:$EXTERNAL_PORT"
+                print_info "  - HAProxy forwards to waterwall: 127.0.0.1:$INTERNAL_PORT"
+                print_info "  - Update your waterwall config to listen on: 127.0.0.1:$INTERNAL_PORT"
             fi
         fi
         echo "V2 Iran configuration file ${CONFIG_NAME}.json has been created successfully!"

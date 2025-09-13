@@ -37,18 +37,47 @@ download_modules() {
     # Create waterwall directory
     mkdir -p "$WATERWALL_DIR"
     
-    # Download each module
+    # Download all modules in parallel with timeout and progress
+    local pids=()
+    local failed=0
+    
     for module in "${modules[@]}"; do
-        if curl -s -o "$WATERWALL_DIR/$module" "$base_url/$module"; then
-            echo "Downloaded: $module"
-        else
+        {
+            if curl -s -m 10 -f -o "$WATERWALL_DIR/$module" "$base_url/$module" 2>/dev/null; then
+                echo "✓ $module"
+            else
+                echo "✗ $module"
+                echo "FAILED" > "$WATERWALL_DIR/$module.failed"
+            fi
+        } &
+        pids+=($!)
+    done
+    
+    # Wait for all downloads to complete
+    for pid in "${pids[@]}"; do
+        wait "$pid"
+    done
+    
+    # Check for failures
+    for module in "${modules[@]}"; do
+        if [ -f "$WATERWALL_DIR/$module.failed" ]; then
             echo "Failed to download: $module"
-            return 1
+            failed=1
+        elif [ ! -f "$WATERWALL_DIR/$module" ]; then
+            echo "Missing: $module"
+            failed=1
         fi
     done
     
+    if [ $failed -eq 1 ]; then
+        return 1
+    fi
+    
+    # Clean up any failure markers
+    rm -f "$WATERWALL_DIR"/*.failed
+    
     AUTO_DOWNLOADED=true
-    echo "All modules downloaded successfully!"
+    echo "All modules ready!"
 }
 
 # Function to cleanup downloaded modules

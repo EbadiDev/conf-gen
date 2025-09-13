@@ -7,6 +7,60 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WATERWALL_DIR="$SCRIPT_DIR/waterwall"
 
+# Auto-download functionality for curl execution
+AUTO_DOWNLOADED=false
+
+# Function to download required modules
+download_modules() {
+    local base_url="https://raw.githubusercontent.com/EbadiDev/conf-gen/main/waterwall"
+    local modules=(
+        "common.sh"
+        "server_client_config.sh"
+        "simple_config.sh"
+        "half_config.sh"
+        "v2_config.sh"
+        "haproxy.sh"
+    )
+    
+    echo "Downloading required modules..."
+    
+    # Create waterwall directory
+    mkdir -p "$WATERWALL_DIR"
+    
+    # Download each module
+    for module in "${modules[@]}"; do
+        if curl -s -o "$WATERWALL_DIR/$module" "$base_url/$module"; then
+            echo "Downloaded: $module"
+        else
+            echo "Failed to download: $module"
+            return 1
+        fi
+    done
+    
+    AUTO_DOWNLOADED=true
+    echo "All modules downloaded successfully!"
+}
+
+# Function to cleanup downloaded modules
+cleanup_modules() {
+    if [ "$AUTO_DOWNLOADED" = true ]; then
+        echo "Cleaning up downloaded modules..."
+        rm -rf "$WATERWALL_DIR"
+        echo "Cleanup completed."
+    fi
+}
+
+# Trap to ensure cleanup on exit
+trap 'cleanup_modules; exit' EXIT INT TERM
+
+# Check if modules exist, if not download them
+if [ ! -d "$WATERWALL_DIR" ] || [ ! -f "$WATERWALL_DIR/common.sh" ]; then
+    if ! download_modules; then
+        echo "Error: Failed to download required modules"
+        exit 1
+    fi
+fi
+
 # Source common functions
 source "$WATERWALL_DIR/common.sh"
 

@@ -172,12 +172,18 @@ This script generates JSON configuration files for client and server-side setups
 
 ## Quick Install & Usage
 
+**Important Note:** 
+- **Modular Script (`main.sh`)**: Requires cloning the repository (cannot be run via curl)
+- **Legacy Script (`create_lb_config.sh`)**: Can be run directly via curl without cloning
+
 You can use either the new modular script or the legacy script:
 
 ### Using New Modular Script (Recommended)
 
+**Important:** The modular script requires the complete repository structure and cannot be run directly via curl. You must clone the repository first.
+
 ```bash
-# Clone the repository
+# Clone the repository (required for modular script)
 git clone https://github.com/EbadiDev/conf-gen.git
 cd conf-gen
 chmod +x main.sh
@@ -217,6 +223,8 @@ chmod +x main.sh
 ```
 
 ### Using Legacy Script (curl direct execution)
+
+**For direct execution without cloning:** Use the legacy monolithic script which contains all functionality in a single file.
 
 ```bash
 # Client Configuration (when all servers use the same port)

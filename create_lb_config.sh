@@ -131,6 +131,113 @@ EOF
     echo ""
 }
 
+# Function to create HAProxy configuration for server with port range support (for V2 Iran)
+create_haproxy_server_config_range() {
+    local name="$1"
+    local external_port_range="$2"  # e.g., "450-499"
+    local internal_port="$3"
+    
+    local haproxy_config="/etc/haproxy/haproxy.cfg"
+    local temp_config="/tmp/haproxy_temp.cfg"
+    
+    # Create backup of existing config
+    if [ -f "$haproxy_config" ]; then
+        print_info "Creating backup of existing HAProxy config"
+        cp "$haproxy_config" "${haproxy_config}.backup.$(date +%s)"
+    fi
+    
+    # Start with clean global and defaults sections
+    cat > "$temp_config" << 'EOF'
+#---------------------------------------------------------------------
+# Global settings - Stable and compatible
+#---------------------------------------------------------------------
+global
+    chroot /var/lib/haproxy
+    stats socket /run/haproxy/admin.sock mode 660 level admin
+    stats timeout 30s
+    user haproxy
+    group haproxy
+    daemon
+
+#---------------------------------------------------------------------
+# Default settings - Stable and compatible
+#---------------------------------------------------------------------
+defaults
+    mode tcp
+    option dontlognull
+    retries 3
+    timeout connect 5000ms
+    timeout client 50000ms
+    timeout server 50000ms
+
+EOF
+
+    # If config exists, extract existing service configurations (excluding current service)
+    if [ -f "$haproxy_config" ]; then
+        # Extract all service sections except the one we're replacing
+        awk -v service="$name" '
+        BEGIN { 
+            printing = 0
+            in_target_service = 0
+        }
+        # Start of any service section
+        /^#.*service configuration/ {
+            if ($0 ~ service) {
+                in_target_service = 1
+                printing = 0
+            } else {
+                in_target_service = 0
+                printing = 1
+                print ""
+                print $0
+            }
+            next
+        }
+        # Skip global/defaults sections 
+        /^global/ || /^defaults/ || /^#.*Global settings/ || /^#.*Default settings/ {
+            printing = 0
+            next
+        }
+        # Print if we are in a service section (but not the target service)
+        printing == 1 && in_target_service == 0 {
+            print $0
+        }
+        # Start printing after seeing a service header (unless its the target service)
+        /^frontend|^backend/ && in_target_service == 0 {
+            printing = 1
+            print $0
+        }
+        ' "$haproxy_config" >> "$temp_config"
+    fi
+    
+    # Add the new service configuration with port range
+    cat >> "$temp_config" << EOF
+
+#---------------------------------------------------------------------
+# ${name} service configuration
+#---------------------------------------------------------------------
+frontend ${name}_frontend
+    bind *:${external_port_range}
+    mode tcp
+    default_backend ${name}_backend
+
+backend ${name}_backend
+    mode tcp
+    option tcp-check
+    server waterwall1 127.0.0.1:${internal_port} check send-proxy
+EOF
+
+    # Move temp config to final location
+    mkdir -p /etc/haproxy
+    mv "$temp_config" "$haproxy_config"
+    
+    print_success "HAProxy configuration updated: $haproxy_config"
+    print_info "Service '${name}' added to HAProxy configuration"
+    print_info "External clients should connect to port range ${external_port_range}"
+    print_info "Traffic will be forwarded to internal port ${internal_port}"
+    echo ""
+}
+
 # Function to create HAProxy configuration for client (tunnel egress)
 create_haproxy_client_config() {
     local name="$1"
@@ -920,6 +1027,15 @@ if [ "$TYPE" = "v2" ]; then
         IFS='.' read -r ip1 ip2 ip3 ip4 <<< "$PRIVATE_IP"
         IP_PLUS1="$ip1.$ip2.$ip3.$((ip4+1))"
 
+        # Determine listener port based on HAProxy usage
+        if [ "$USE_HAPROXY" = true ]; then
+            # With HAProxy: waterwall listens on internal port, HAProxy handles external range
+            WATERWALL_LISTEN_PORT="$HAPROXY_PORT"
+        else
+            # Without HAProxy: waterwall listens on external port range
+            WATERWALL_LISTEN_PORT="[${START_PORT},${END_PORT}]"
+        fi
+
         cat << EOF > "${CONFIG_NAME}.json"
 {
     "name": "${CONFIG_NAME}",
@@ -994,7 +1110,7 @@ if [ "$TYPE" = "v2" ]; then
             "type": "TcpListener",
             "settings": {
                 "address": "0.0.0.0",
-                "port": [${START_PORT},${END_PORT}],
+                "port": ${WATERWALL_LISTEN_PORT},
                 "nodelay": true
             },
             "next": "output"
@@ -1017,20 +1133,20 @@ EOF
             if [ "$USE_HAPROXY" = true ]; then
                 print_info "Setting up HAProxy configuration for V2 iran (server)..."
                 
-                # V2 Iran acts as server - external clients connect to START_PORT, forward to waterwall on HAPROXY_PORT
-                EXTERNAL_PORT="$START_PORT"
+                # V2 Iran acts as server - external clients connect to port range, forward to waterwall on single internal port
+                EXTERNAL_PORT_RANGE="${START_PORT}-${END_PORT}"
                 INTERNAL_PORT="$HAPROXY_PORT"
                 
-                # Create HAProxy server configuration
-                create_haproxy_server_config "$CONFIG_NAME" "$EXTERNAL_PORT" "$INTERNAL_PORT"
+                # Create HAProxy server configuration with port range support
+                create_haproxy_server_config_range "$CONFIG_NAME" "$EXTERNAL_PORT_RANGE" "$INTERNAL_PORT"
                 
                 # Start HAProxy service
-                manage_haproxy_service "$EXTERNAL_PORT" "start" "$INTERNAL_PORT"
+                manage_haproxy_service "$START_PORT" "start" "$INTERNAL_PORT"
                 
                 print_info "V2 Iran with HAProxy:"
-                print_info "  - External clients connect to: *:$EXTERNAL_PORT"
+                print_info "  - External clients connect to: *:${EXTERNAL_PORT_RANGE}"
                 print_info "  - HAProxy forwards to waterwall: 127.0.0.1:$INTERNAL_PORT"
-                print_info "  - Update your waterwall config to listen on: 127.0.0.1:$INTERNAL_PORT"
+                print_info "  - Waterwall listens on: 127.0.0.1:$INTERNAL_PORT"
             fi
         fi
         echo "V2 Iran configuration file ${CONFIG_NAME}.json has been created successfully!"

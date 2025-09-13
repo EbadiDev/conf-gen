@@ -11,6 +11,19 @@ _gost_write_unit() {
 
     local unit_path="/etc/systemd/system/gost-${service_name}.service"
 
+    # Build ExecStart with quoted -L targets (systemd-safe grouping)
+    local exec_line="/usr/bin/env gost -D error"
+    local i=0
+    while [ $i -lt ${#exec_args[@]} ]; do
+        if [ "${exec_args[$i]}" = "-L" ] && [ $((i+1)) -lt ${#exec_args[@]} ]; then
+            exec_line+=" -L \"${exec_args[$((i+1))]}\""
+            i=$((i+2))
+        else
+            exec_line+=" ${exec_args[$i]}"
+            i=$((i+1))
+        fi
+    done
+
     # Ensure systemd directory exists
     mkdir -p /etc/systemd/system
 
@@ -24,7 +37,7 @@ Wants=network-online.target
 Type=simple
 # Only log errors (can be overridden by editing this unit)
 Environment=GOST_LOGGER_LEVEL=error
-ExecStart=/usr/bin/env gost -D error ${exec_args[*]}
+ExecStart=${exec_line}
 Restart=on-failure
 RestartSec=2s
 LimitNOFILE=65536
@@ -77,14 +90,9 @@ create_gost_server_config_range() {
     local backend_port="$5"
     local protocol="$6"   # tcp only, kept for API symmetry
 
-    # Emit one -L per port to ensure compatibility (many-to-one mappings may
-    # not be supported in all builds). Example per-port:
-    #   -L tcp://:450/127.0.0.1:10311?handler.proxyProtocol=1
-    local args=()
-    local p
-    for ((p=start_port; p<=end_port; p++)); do
-        args+=("-L" "tcp://:${p}/${backend_ip}:${backend_port}?handler.proxyProtocol=1")
-    done
+    # Use GOST's native port range support (many-to-one mapping)
+    # Example: -L tcp://:450-499/127.0.0.1:10311?handler.proxyProtocol=1
+    local args=("-L" "tcp://:${start_port}-${end_port}/${backend_ip}:${backend_port}?handler.proxyProtocol=1")
 
     remove_gost_service "$service_name"
     local unit_path

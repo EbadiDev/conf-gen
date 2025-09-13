@@ -131,7 +131,7 @@ EOF
     echo ""
 }
 
-# Function to create HAProxy configuration for server with port range support (for V2 Iran)
+# Function to create HAProxy configuration for server with port range support (for V2 Server)
 create_haproxy_server_config_range() {
     local name="$1"
     local external_port_range="$2"  # e.g., "450-499"
@@ -243,6 +243,7 @@ create_haproxy_client_config() {
     local name="$1"
     local tunnel_port="$2"
     local service_port="$3"
+    local bind_ip="${4:-*}"  # Optional bind IP, defaults to * for backward compatibility
     
     local haproxy_config="/etc/haproxy/haproxy.cfg"
     local temp_config="/tmp/haproxy_temp.cfg"
@@ -281,38 +282,51 @@ EOF
 
     # If config exists, extract existing service configurations (excluding current service)
     if [ -f "$haproxy_config" ]; then
-        # Extract all service sections except the one we're replacing
-        awk -v service="$name" '
+        # Extract existing services, excluding the current one being replaced
+        awk -v target_service="$name" '
         BEGIN { 
-            printing = 0
-            in_target_service = 0
+            in_service = 0
+            service_name = ""
+            skip_this_service = 0
+            buffer = ""
         }
-        # Start of any service section
-        /^#.*service configuration/ {
-            if ($0 ~ service) {
-                in_target_service = 1
-                printing = 0
-            } else {
-                in_target_service = 0
-                printing = 1
-                print ""
-                print $0
+        
+        # Detect service configuration header
+        /^# .* service configuration/ {
+            # If we have a buffered service, print it (unless it was the target)
+            if (in_service == 1 && skip_this_service == 0) {
+                print buffer
             }
+            
+            # Extract service name from the header
+            service_name = $2
+            if (service_name == target_service) {
+                skip_this_service = 1
+            } else {
+                skip_this_service = 0
+            }
+            
+            # Start new service buffer
+            in_service = 1
+            buffer = "\n" $0 "\n"
             next
         }
-        # Skip global/defaults sections 
+        
+        # Skip global/defaults sections
         /^global/ || /^defaults/ || /^#.*Global settings/ || /^#.*Default settings/ {
-            printing = 0
             next
         }
-        # Print if we are in a service section (but not the target service)
-        printing == 1 && in_target_service == 0 {
-            print $0
+        
+        # Accumulate service content
+        in_service == 1 {
+            buffer = buffer $0 "\n"
         }
-        # Start printing after seeing a service header (unless its the target service)
-        /^frontend|^backend/ && in_target_service == 0 {
-            printing = 1
-            print $0
+        
+        END {
+            # Print the last service if it exists and is not the target
+            if (in_service == 1 && skip_this_service == 0) {
+                print buffer
+            }
         }
         ' "$haproxy_config" >> "$temp_config"
     fi
@@ -324,7 +338,7 @@ EOF
 # ${name} service configuration
 #---------------------------------------------------------------------
 frontend ${name}_frontend
-    bind *:${tunnel_port} accept-proxy
+    bind ${bind_ip}:${tunnel_port} accept-proxy
     mode tcp
     default_backend ${name}_backend
 
@@ -391,18 +405,45 @@ add_to_core_json() {
     # Use different path for v2 configurations
     if [ "$config_type" = "v2" ]; then
         local core_json="/root/tunnel/core.json"
+        local core_dir="/root/tunnel"
     else
         local core_json="/root/core.json"
+        local core_dir="/root"
     fi
     
-    # Check if core.json exists
+    # Check if directory exists
+    if [ ! -d "$core_dir" ]; then
+        echo "Warning: Directory $core_dir not found, creating it..."
+        mkdir -p "$core_dir"
+    fi
+    
+    # Check if core.json exists, create basic one if needed
     if [ ! -f "$core_json" ]; then
-        if [ "$config_type" = "v2" ]; then
-            echo "Error: core.json not found in /root/tunnel/"
-        else
-            echo "Error: core.json not found in /root/"
-        fi
-        return 1
+        echo "Warning: core.json not found in $core_dir, creating basic template..."
+        cat > "$core_json" << 'EOF'
+{
+  "log": {
+    "core": {
+      "path": "/root/tunnel/core.log",
+      "level": "INFO"
+    },
+    "network": {
+      "path": "/root/tunnel/network.log",
+      "level": "DEBUG"
+    },
+    "dns": {
+      "path": "/root/tunnel/dns.log",
+      "level": "DEBUG"
+    }
+  },
+  "network_pool": {
+    "capacity": 256
+  },
+  "configs": [
+  ]
+}
+EOF
+        echo "Created basic core.json template"
     fi
     
     # Check if config already exists
@@ -518,21 +559,21 @@ open_firewall_ports() {
 
 if [ "$#" -lt 2 ]; then
     echo "Usage: $0 <type> <config_name> [parameters...]"
-    echo "For server config:"
-    echo "  With different ports: $0 server [tcp|udp] <config_name> <server1_address> <server1_port> [<server2_address> <server2_port> ...]"
-    echo "  With same port: $0 server [tcp|udp] <config_name> -p <port> <server1_address> [<server2_address> ...]"
-    echo "  With HAProxy: $0 haproxy server [tcp|udp] <config_name> -p <port> <server1_address> [<server2_address> ...] [haproxy_port]"
-    echo "For iran config: $0 iran [tcp|udp] <config_name> <start_port> <end_port> <kharej_ip> <kharej_port>"
-    echo "  With HAProxy: $0 haproxy iran [tcp|udp] <config_name> <start_port> <end_port> <kharej_ip> <kharej_port> [haproxy_port]"
-    echo "For simple iran config: $0 simple [tcp|udp] iran <config_name> <start_port> <end_port> <ip> <port>"
-    echo "For half iran config: $0 half <website> <password> [tcp|udp] iran <config_name> <start_port> <end_port> <kharej_ip> <kharej_port>"
-    echo "  With HAProxy: $0 half haproxy <website> <password> [tcp|udp] iran <config_name> <start_port> <end_port> <kharej_ip> <kharej_port> [haproxy_port]"
-    echo "For half server config: $0 half <website> <password> [tcp|udp] server <config_name> -p <port> <iran_ip>"
-    echo "  With HAProxy: $0 half haproxy <website> <password> [tcp|udp] server <config_name> -p <port> <iran_ip> [haproxy_port]"
-    echo "For v2 iran config: $0 v2 iran <config_name> <start_port> <end_port> <non_iran_ip> <iran_ip> <private_ip> <endpoint_port> <protocol>"
-    echo "  With HAProxy: $0 v2 haproxy iran <config_name> <start_port> <end_port> <non_iran_ip> <iran_ip> <private_ip> <endpoint_port> <protocol> [haproxy_port]"
-    echo "For v2 server config: $0 v2 server <config_name> <non_iran_ip> <iran_ip> <private_ip> <endpoint_port> <protocol>"
-    echo "  With HAProxy: $0 v2 haproxy server <config_name> <non_iran_ip> <iran_ip> <private_ip> <endpoint_port> <protocol> [haproxy_port]"
+    echo "For client config:"
+    echo "  With different ports: $0 client [tcp|udp] <config_name> <server1_address> <server1_port> [<server2_address> <server2_port> ...]"
+    echo "  With same port: $0 client [tcp|udp] <config_name> -p <port> <server1_address> [<server2_address> ...]"
+    echo "  With HAProxy: $0 haproxy client [tcp|udp] <config_name> -p <port> <server1_address> [<server2_address> ...] [haproxy_port]"
+    echo "For server config: $0 server [tcp|udp] <config_name> <start_port> <end_port> <kharej_ip> <kharej_port>"
+    echo "  With HAProxy: $0 haproxy server [tcp|udp] <config_name> <start_port> <end_port> <kharej_ip> <kharej_port> [haproxy_port]"
+    echo "For simple server config: $0 simple [tcp|udp] server <config_name> <start_port> <end_port> <ip> <port>"
+    echo "For half server config: $0 half <website> <password> [tcp|udp] server <config_name> <start_port> <end_port> <kharej_ip> <kharej_port>"
+    echo "  With HAProxy: $0 half haproxy <website> <password> [tcp|udp] server <config_name> <start_port> <end_port> <kharej_ip> <kharej_port> [haproxy_port]"
+    echo "For half client config: $0 half <website> <password> [tcp|udp] client <config_name> -p <port> <iran_ip>"
+    echo "  With HAProxy: $0 half haproxy <website> <password> [tcp|udp] client <config_name> -p <port> <iran_ip> [haproxy_port]"
+    echo "For v2 server config: $0 v2 server <config_name> <start_port> <end_port> <non_iran_ip> <iran_ip> <private_ip> <haproxy_port> <protocol>"
+    echo "  With HAProxy: $0 v2 haproxy server <config_name> <start_port> <end_port> <non_iran_ip> <iran_ip> <private_ip> <haproxy_port> <protocol>"
+    echo "For v2 client config: $0 v2 client <config_name> <non_iran_ip> <iran_ip> <private_ip> <haproxy_port> <protocol> <app_port>"
+    echo "  With HAProxy: $0 v2 haproxy client <config_name> <non_iran_ip> <iran_ip> <private_ip> <haproxy_port> <protocol> <app_port>"
     exit 1
 fi
 
@@ -542,21 +583,21 @@ TYPE="$1"
 USE_HAPROXY_LEGACY=false
 if [ "$TYPE" = "haproxy" ]; then
     USE_HAPROXY_LEGACY=true
-    TYPE="$2"  # Get the actual type (server, iran, etc.)
+    TYPE="$2"  # Get the actual type (client, server, etc.)
     shift 1    # Remove haproxy flag from arguments
 fi
 
-# Check if it's the simple iran configuration
+# Check if it's the simple server configuration
 if [ "$TYPE" = "simple" ]; then
-    # Check if second parameter is tcp, udp, or iran (for backward compatibility)
+    # Check if second parameter is tcp, udp, or server (for backward compatibility)
     if [ "$2" = "tcp" ] || [ "$2" = "udp" ]; then
         PROTOCOL="$2"
-        if [ "$3" != "iran" ]; then
-            echo "Error: Third parameter must be 'iran' for simple config"
+        if [ "$3" != "server" ]; then
+            echo "Error: Third parameter must be 'server' for simple config"
             exit 1
         fi
         if [ "$#" -lt 8 ]; then
-            echo "Error: Simple iran config needs protocol, config_name, start_port, end_port, ip, and port"
+            echo "Error: Simple server config needs protocol, config_name, start_port, end_port, ip, and port"
             exit 1
         fi
         CONFIG_NAME="$4"
@@ -564,11 +605,11 @@ if [ "$TYPE" = "simple" ]; then
         END_PORT="$6"
         IP="$7"
         PORT="$8"
-    elif [ "$2" = "iran" ]; then
+    elif [ "$2" = "server" ]; then
         # Backward compatibility - default to TCP
         PROTOCOL="tcp"
         if [ "$#" -lt 7 ]; then
-            echo "Error: Simple iran config needs config_name, start_port, end_port, ip, and port"
+            echo "Error: Simple server config needs config_name, start_port, end_port, ip, and port"
             exit 1
         fi
         CONFIG_NAME="$3"
@@ -577,7 +618,7 @@ if [ "$TYPE" = "simple" ]; then
         IP="$6"
         PORT="$7"
     else
-        echo "Error: Second parameter must be 'tcp', 'udp', or 'iran' for simple config"
+        echo "Error: Second parameter must be 'tcp', 'udp', or 'server' for simple config"
         exit 1
     fi
     
@@ -620,7 +661,7 @@ EOF
         add_to_core_json "$CONFIG_NAME" "simple"
     fi
 
-    echo "Simple ${PROTOCOL^^} Iran configuration file ${CONFIG_NAME}.json has been created successfully!"
+    echo "Simple ${PROTOCOL^^} Server configuration file ${CONFIG_NAME}.json has been created successfully!"
     chmod 644 "${CONFIG_NAME}.json"
     open_firewall_ports "$START_PORT" "$END_PORT" "$PROTOCOL" "$PORT"
     exit 0
@@ -648,13 +689,13 @@ if [ "$TYPE" = "half" ]; then
     # Check if fourth parameter is tcp, udp, or protocol is omitted
     if [ "$4" = "tcp" ] || [ "$4" = "udp" ]; then
         PROTOCOL="$4"
-        CONFIG_TYPE="$5"  # iran or server
-        if [ "$CONFIG_TYPE" = "iran" ]; then
+        CONFIG_TYPE="$5"  # server or client
+        if [ "$CONFIG_TYPE" = "server" ]; then
             if [ "$#" -lt 10 ]; then
                 if [ "$USE_HAPROXY_HALF" = true ]; then
-                    echo "Error: Half haproxy iran config needs website, password, protocol, config_name, start_port, end_port, kharej_ip, kharej_port, and optional haproxy_port"
+                    echo "Error: Half haproxy server config needs website, password, protocol, config_name, start_port, end_port, kharej_ip, kharej_port, and optional haproxy_port"
                 else
-                    echo "Error: Half iran config needs website, password, protocol, config_name, start_port, end_port, kharej_ip, and kharej_port"
+                    echo "Error: Half server config needs website, password, protocol, config_name, start_port, end_port, kharej_ip, and kharej_port"
                 fi
                 exit 1
             fi
@@ -663,35 +704,35 @@ if [ "$TYPE" = "half" ]; then
             END_PORT="$8"
             KHAREJ_IP="$9"
             KHAREJ_PORT="${10}"
-            HAPROXY_PORT="${11:-$((START_PORT + 1000))}"  # Optional haproxy port for half iran
-        elif [ "$CONFIG_TYPE" = "server" ]; then
+            HAPROXY_PORT="${11:-$((START_PORT + 1000))}"  # Optional haproxy port for half server
+        elif [ "$CONFIG_TYPE" = "client" ]; then
             if [ "$#" -lt 9 ]; then
                 if [ "$USE_HAPROXY_HALF" = true ]; then
-                    echo "Error: Half haproxy server config needs website, password, protocol, config_name, -p, port, iran_ip, and optional haproxy_port"
+                    echo "Error: Half haproxy client config needs website, password, protocol, config_name, -p, port, iran_ip, and optional haproxy_port"
                 else
-                    echo "Error: Half server config needs website, password, protocol, config_name, -p, port, and iran_ip"
+                    echo "Error: Half client config needs website, password, protocol, config_name, -p, port, and iran_ip"
                 fi
                 exit 1
             fi
             CONFIG_NAME="$6"
             if [ "$7" != "-p" ]; then
-                echo "Error: Half server config requires -p flag"
+                echo "Error: Half client config requires -p flag"
                 exit 1
             fi
             PORT="$8"
             IRAN_IP="$9"
-            HAPROXY_PORT="${10:-$((PORT + 1000))}"  # Optional haproxy port for half server
+            HAPROXY_PORT="${10:-$((PORT + 1000))}"  # Optional haproxy port for half client
         fi
     else
         # Backward compatibility - default to TCP
         PROTOCOL="tcp"
-        CONFIG_TYPE="$4"  # iran or server
-        if [ "$CONFIG_TYPE" = "iran" ]; then
+        CONFIG_TYPE="$4"  # server or client
+        if [ "$CONFIG_TYPE" = "server" ]; then
             if [ "$#" -lt 9 ]; then
                 if [ "$USE_HAPROXY_HALF" = true ]; then
-                    echo "Error: Half haproxy iran config needs website, password, config_name, start_port, end_port, kharej_ip, kharej_port, and optional haproxy_port"
+                    echo "Error: Half haproxy server config needs website, password, config_name, start_port, end_port, kharej_ip, kharej_port, and optional haproxy_port"
                 else
-                    echo "Error: Half iran config needs website, password, config_name, start_port, end_port, kharej_ip, and kharej_port"
+                    echo "Error: Half server config needs website, password, config_name, start_port, end_port, kharej_ip, and kharej_port"
                 fi
                 exit 1
             fi
@@ -700,24 +741,24 @@ if [ "$TYPE" = "half" ]; then
             END_PORT="$7"
             KHAREJ_IP="$8"
             KHAREJ_PORT="$9"
-            HAPROXY_PORT="${10:-$((START_PORT + 1000))}"  # Optional haproxy port for half iran
-        elif [ "$CONFIG_TYPE" = "server" ]; then
+            HAPROXY_PORT="${10:-$((START_PORT + 1000))}"  # Optional haproxy port for half server
+        elif [ "$CONFIG_TYPE" = "client" ]; then
             if [ "$#" -lt 8 ]; then
                 if [ "$USE_HAPROXY_HALF" = true ]; then
-                    echo "Error: Half haproxy server config needs website, password, config_name, -p, port, iran_ip, and optional haproxy_port"
+                    echo "Error: Half haproxy client config needs website, password, config_name, -p, port, iran_ip, and optional haproxy_port"
                 else
-                    echo "Error: Half server config needs website, password, config_name, -p, port, and iran_ip"
+                    echo "Error: Half client config needs website, password, config_name, -p, port, and iran_ip"
                 fi
                 exit 1
             fi
             CONFIG_NAME="$5"
             if [ "$6" != "-p" ]; then
-                echo "Error: Half server config requires -p flag"
+                echo "Error: Half client config requires -p flag"
                 exit 1
             fi
             PORT="$7"
             IRAN_IP="$8"
-            HAPROXY_PORT="${9:-$((PORT + 1000))}"  # Optional haproxy port for half server
+            HAPROXY_PORT="${9:-$((PORT + 1000))}"  # Optional haproxy port for half client
         fi
     fi
     
@@ -730,7 +771,7 @@ if [ "$TYPE" = "half" ]; then
         CONNECTOR_TYPE="TcpConnector"
     fi
     
-    if [ "$CONFIG_TYPE" = "iran" ]; then
+    if [ "$CONFIG_TYPE" = "server" ]; then
         # Determine if IPv6 for kharej IP
         if [[ "$KHAREJ_IP" == *":"* ]]; then
             LISTEN_ADDRESS="::"
@@ -859,11 +900,11 @@ EOF
             fi
         fi
         
-        echo "Half ${PROTOCOL^^} Iran configuration file ${CONFIG_NAME}.json has been created successfully!"
+        echo "Half ${PROTOCOL^^} Server configuration file ${CONFIG_NAME}.json has been created successfully!"
         chmod 644 "${CONFIG_NAME}.json"
         open_firewall_ports "$START_PORT" "$END_PORT" "$PROTOCOL" "$KHAREJ_PORT"
         
-    elif [ "$CONFIG_TYPE" = "server" ]; then
+    elif [ "$CONFIG_TYPE" = "client" ]; then
         # Create half server configuration
         cat << EOF > "${CONFIG_NAME}.json"
 {
@@ -979,7 +1020,7 @@ EOF
             fi
         fi
         
-        echo "Half ${PROTOCOL^^} Server configuration file ${CONFIG_NAME}.json has been created successfully!"
+        echo "Half ${PROTOCOL^^} Client configuration file ${CONFIG_NAME}.json has been created successfully!"
         chmod 644 "${CONFIG_NAME}.json"
         open_firewall_ports "$PORT" "$PORT" "$PROTOCOL" "$PORT"
         
@@ -997,19 +1038,19 @@ if [ "$TYPE" = "v2" ]; then
     USE_HAPROXY=false
     if [ "$2" = "haproxy" ]; then
         USE_HAPROXY=true
-        CONFIG_TYPE="$3"  # iran or server
+        CONFIG_TYPE="$3"  # server or client
         shift 1  # Remove haproxy flag
     else
-        CONFIG_TYPE="$2"  # iran or server
+        CONFIG_TYPE="$2"  # server or client
     fi
     
-    if [ "$CONFIG_TYPE" = "iran" ]; then
-        # v2 iran config_name start-port end-port non-iran-ip iran-ip private-ip endpoint-port protocol [haproxy_port]
-        if [ "$#" -lt 10 ]; then
+    if [ "$CONFIG_TYPE" = "server" ]; then
+        # v2 server config_name start-port end-port non-iran-ip iran-ip private-ip haproxy-port protocol
+        if [ "$#" -lt 9 ]; then
             if [ "$USE_HAPROXY" = true ]; then
-                echo "Usage: $0 v2 haproxy iran <config_name> <start_port> <end_port> <non_iran_ip> <iran_ip> <private_ip> <endpoint_port> <protocol> [haproxy_port]"
+                echo "Usage: $0 v2 haproxy server <config_name> <start_port> <end_port> <non_iran_ip> <iran_ip> <private_ip> <haproxy_port> <protocol>"
             else
-                echo "Usage: $0 v2 iran <config_name> <start_port> <end_port> <non_iran_ip> <iran_ip> <private_ip> <endpoint_port> <protocol>"
+                echo "Usage: $0 v2 server <config_name> <start_port> <end_port> <non_iran_ip> <iran_ip> <private_ip> <haproxy_port> <protocol>"
             fi
             exit 1
         fi
@@ -1019,9 +1060,8 @@ if [ "$TYPE" = "v2" ]; then
         NON_IRAN_IP="$6"
         IRAN_IP="$7"
         PRIVATE_IP="$8"
-        ENDPOINT_PORT="$9"
+        HAPROXY_PORT="$9"  # Now the haproxy port (was endpoint port)
         PROTOSWAP_TCP="${10}"
-        HAPROXY_PORT="${11:-$((ENDPOINT_PORT + 1000))}"  # Optional haproxy port, default to endpoint_port + 1000
 
         # Calculate PRIVATE_IP+1 for output and ipovsrc2
         IFS='.' read -r ip1 ip2 ip3 ip4 <<< "$PRIVATE_IP"
@@ -1131,7 +1171,7 @@ EOF
             add_to_core_json "$CONFIG_NAME" "v2"
             # Generate HAProxy configuration only if haproxy flag is used
             if [ "$USE_HAPROXY" = true ]; then
-                print_info "Setting up HAProxy configuration for V2 iran (server)..."
+                print_info "Setting up HAProxy configuration for V2 server (server)..."
                 
                 # V2 Iran acts as server - external clients connect to port range, forward to waterwall on single internal port
                 EXTERNAL_PORT_RANGE="${START_PORT}-${END_PORT}"
@@ -1140,26 +1180,31 @@ EOF
                 # Create HAProxy server configuration with port range support
                 create_haproxy_server_config_range "$CONFIG_NAME" "$EXTERNAL_PORT_RANGE" "$INTERNAL_PORT"
                 
-                # Start HAProxy service
+                # Start HAProxy service and open firewall for external range + internal ports
                 manage_haproxy_service "$START_PORT" "start" "$INTERNAL_PORT"
                 
-                print_info "V2 Iran with HAProxy:"
+                # Open additional ports for V2 Server with HAProxy
+                print_info "Opening additional firewall ports for V2 Server HAProxy setup..."
+                open_firewall_ports "$START_PORT" "$END_PORT" "tcp" "$INTERNAL_PORT"
+                open_firewall_ports "$ENDPOINT_PORT" "$ENDPOINT_PORT" "tcp" ""
+                
+                print_info "V2 Server with HAProxy:"
                 print_info "  - External clients connect to: *:${EXTERNAL_PORT_RANGE}"
                 print_info "  - HAProxy forwards to waterwall: 127.0.0.1:$INTERNAL_PORT"
                 print_info "  - Waterwall listens on: 127.0.0.1:$INTERNAL_PORT"
             fi
         fi
-        echo "V2 Iran configuration file ${CONFIG_NAME}.json has been created successfully!"
+        echo "V2 Server configuration file ${CONFIG_NAME}.json has been created successfully!"
         chmod 644 "${CONFIG_NAME}.json"
         open_firewall_ports "$START_PORT" "$END_PORT" "tcp" "$ENDPOINT_PORT"
         exit 0
-    elif [ "$CONFIG_TYPE" = "server" ]; then
-        # v2 server config_name non-iran-ip iran-ip private-ip endpoint-port protocol [haproxy_port]
-        if [ "$#" -lt 8 ]; then
+    elif [ "$CONFIG_TYPE" = "client" ]; then
+        # v2 client config_name non-iran-ip iran-ip private-ip haproxy-port protocol app-port
+        if [ "$#" -lt 9 ]; then
             if [ "$USE_HAPROXY" = true ]; then
-                echo "Usage: $0 v2 haproxy server <config_name> <non_iran_ip> <iran_ip> <private_ip> <endpoint_port> <protocol> [haproxy_port]"
+                echo "Usage: $0 v2 haproxy client <config_name> <non_iran_ip> <iran_ip> <private_ip> <haproxy_port> <protocol> <app_port>"
             else
-                echo "Usage: $0 v2 server <config_name> <non_iran_ip> <iran_ip> <private_ip> <endpoint_port> <protocol>"
+                echo "Usage: $0 v2 client <config_name> <non_iran_ip> <iran_ip> <private_ip> <haproxy_port> <protocol> <app_port>"
             fi
             exit 1
         fi
@@ -1167,9 +1212,10 @@ EOF
         NON_IRAN_IP="$4"
         IRAN_IP="$5"
         PRIVATE_IP="$6"
-        ENDPOINT_PORT="$7"
+        HAPROXY_PORT="$7"  # This becomes the haproxy bind port
         PROTOSWAP_TCP="$8"
-        HAPROXY_PORT="${9:-$((ENDPOINT_PORT + 1000))}"  # Optional haproxy port, default to endpoint_port + 1000
+        APP_PORT="$9"      # This is the application port (previously endpoint_port)
+        APP_PORT="$9"      # This is the application port (previously endpoint_port)
 
         # Check if HAProxy is installed only when haproxy flag is used
         if [ "$USE_HAPROXY" = true ]; then
@@ -1263,42 +1309,46 @@ EOF
             add_to_core_json "$CONFIG_NAME" "v2"
             # Generate HAProxy configuration only if haproxy flag is used
             if [ "$USE_HAPROXY" = true ]; then
-                print_info "Setting up HAProxy configuration for V2 server..."
+                print_info "Setting up HAProxy configuration for V2 client (tunnel egress)..."
                 
-                # Use the configured haproxy port
-                INTERNAL_PORT="$HAPROXY_PORT"
+                # V2 Client acts as client - receives from tunnel on HAPROXY_PORT, forwards to service on ENDPOINT_PORT  
+                TUNNEL_PORT="$HAPROXY_PORT"
+                SERVICE_PORT="$APP_PORT"
                 
-                # Create HAProxy server configuration
-                create_haproxy_server_config "$CONFIG_NAME" "$ENDPOINT_PORT" "$INTERNAL_PORT"
+                # Create HAProxy client configuration (accept-proxy from tunnel)
+                create_haproxy_client_config "$CONFIG_NAME" "$TUNNEL_PORT" "$SERVICE_PORT" "$PRIVATE_IP"
                 
                 # Start HAProxy service
-                manage_haproxy_service "$ENDPOINT_PORT" "start" "$INTERNAL_PORT"
+                manage_haproxy_service "$TUNNEL_PORT" "start" "$TUNNEL_PORT"
                 
-                print_info "V2 Server with HAProxy:"
-                print_info "  - External clients connect to: $PRIVATE_IP:$ENDPOINT_PORT"
-                print_info "  - HAProxy forwards to internal: 127.0.0.1:$INTERNAL_PORT"
-                print_info "  - Connect your waterwall tunnel to: 127.0.0.1:$INTERNAL_PORT"
+                # Open firewall port for HAProxy
+                open_firewall_ports "$TUNNEL_PORT" "$TUNNEL_PORT" "tcp" ""
+                
+                print_info "V2 Client with HAProxy:"
+                print_info "  - Tunnel forwards to HAProxy: 127.0.0.1:$TUNNEL_PORT"
+                print_info "  - HAProxy forwards to your service: 127.0.0.1:$SERVICE_PORT"
+                print_info "  - Connect your service to: 127.0.0.1:$SERVICE_PORT"
             fi
         fi
-        echo "V2 Server configuration file ${CONFIG_NAME}.json has been created successfully!"
+        echo "V2 Client configuration file ${CONFIG_NAME}.json has been created successfully!"
         if [ "$USE_HAPROXY" = false ]; then
             echo ""
             echo "Note: To use HAProxy with this config, run:"
-            echo "$0 v2 haproxy server $CONFIG_NAME $NON_IRAN_IP $IRAN_IP $PRIVATE_IP $ENDPOINT_PORT $PROTOSWAP_TCP"
+            echo "$0 v2 haproxy client $CONFIG_NAME $NON_IRAN_IP $IRAN_IP $PRIVATE_IP $HAPROXY_PORT $PROTOSWAP_TCP $APP_PORT"
         fi
         chmod 644 "${CONFIG_NAME}.json"
-        # V2 server doesn't need port range opening since it doesn't listen on external ports
+        # V2 client only opens firewall ports when HAProxy is enabled
         exit 0
     else
-        echo "Error: v2 config type must be either 'iran' or 'server'"
+        echo "Error: v2 config type must be either 'server' or 'client'"
         if [ "$USE_HAPROXY" = true ]; then
-            echo "For HAProxy configs, use: v2 haproxy server ..."
+            echo "For HAProxy configs, use: v2 haproxy client ..."
         fi
         exit 1
     fi
 fi
 
-if [ "$TYPE" = "server" ]; then
+if [ "$TYPE" = "client" ]; then
     # Check if second parameter is a protocol
     if [ "$2" = "tcp" ] || [ "$2" = "udp" ]; then
         PROTOCOL="$2"
@@ -1432,7 +1482,7 @@ EOF
 EOF
     done
 
-elif [ "$TYPE" = "iran" ]; then
+elif [ "$TYPE" = "server" ]; then
     # Check if second parameter is a protocol
     if [ "$2" = "tcp" ] || [ "$2" = "udp" ]; then
         PROTOCOL="$2"
@@ -1591,7 +1641,7 @@ if [ $? -eq 0 ]; then
     fi
     
     # Add HAProxy configuration for legacy iran configs  
-    if [ "$USE_HAPROXY_LEGACY" = true ] && [ "$TYPE" = "iran" ]; then
+    if [ "$USE_HAPROXY_LEGACY" = true ] && [ "$TYPE" = "server" ]; then
         # HAProxy configuration was already handled in the iran section above
         print_info "HAProxy configuration for iran completed above"
     fi

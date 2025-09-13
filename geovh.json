@@ -1,0 +1,89 @@
+{
+    "name": "geovh",
+    "nodes": [
+        {
+            "name": "my tun",
+            "type": "TunDevice",
+            "settings": {
+                "device-name": "geovh",
+                "device-ip": "10.110.0.1/24"
+            },
+            "next": "ipovsrc"
+        },
+        {
+            "name": "ipovsrc",
+            "type": "IpOverrider",
+            "settings": {
+                "direction": "up",
+                "mode": "source-ip",
+                "ipv4": "188.213.197.166"
+            },
+            "next": "ipovdest"
+        },
+        {
+            "name": "ipovdest",
+            "type": "IpOverrider",
+            "settings": {
+                "direction": "up",
+                "mode": "dest-ip",
+                "ipv4": "37.230.48.160"
+            },
+            "next": "manip"
+        },
+        {
+            "name": "manip",
+            "type": "IpManipulator",
+            "settings": {
+                "protoswap-tcp": 142
+            },
+            "next": "ipovsrc2"
+        },
+        {
+            "name": "ipovsrc2",
+            "type": "IpOverrider",
+            "settings": {
+                "direction": "down",
+                "mode": "source-ip",
+                "ipv4": "10.110.0.2"
+            },
+            "next": "ipovdest2"
+        },
+        {
+            "name": "ipovdest2",
+            "type": "IpOverrider",
+            "settings": {
+                "direction": "down",
+                "mode": "dest-ip",
+                "ipv4": "10.110.0.1"
+            },
+            "next": "rd"
+        },
+        {
+            "name": "rd",
+            "type": "RawSocket",
+            "settings": {
+                "capture-filter-mode": "source-ip",
+                "capture-ip": "37.230.48.160"
+            }
+        },
+        {
+            "name": "input",
+            "type": "TcpListener",
+            "settings": {
+                "address": "0.0.0.0",
+                "port": 10311,
+                "nodelay": true
+            },
+            "next": "output"
+        },
+        {
+            "name": "output",
+            "type": "TcpConnector",
+            "settings": {
+                "nodelay": true,
+                "address": "10.110.0.2",
+                "port": 
+            }
+        }
+    ]
+}

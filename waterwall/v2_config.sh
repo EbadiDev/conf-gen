@@ -7,6 +7,7 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/common.sh"
 source "$SCRIPT_DIR/haproxy.sh"
+source "$SCRIPT_DIR/caddy.sh"
 
 # V2 Server Configuration
 create_v2_server_config() {
@@ -19,18 +20,19 @@ create_v2_server_config() {
     local haproxy_port="$7"
     local protoswap_tcp="$8"
     local use_haproxy="$9"
+    local use_caddy="${10}"
 
     # Calculate PRIVATE_IP+1 for output and ipovsrc2
     IFS='.' read -r ip1 ip2 ip3 ip4 <<< "$private_ip"
     local ip_plus1="$ip1.$ip2.$ip3.$((ip4+1))"
 
-    # Determine listener port based on HAProxy usage
+    # Determine listener port based on HAProxy/Caddy usage
     local waterwall_listen_port
-    if [ "$use_haproxy" = true ]; then
-        # With HAProxy: waterwall listens on internal port, HAProxy handles external range
+    if [ "$use_haproxy" = true ] || [ "$use_caddy" = true ]; then
+        # With HAProxy/Caddy: waterwall listens on internal port, proxy handles external range
         waterwall_listen_port="$haproxy_port"
     else
-        # Without HAProxy: waterwall listens on external port range
+        # Without proxy: waterwall listens on external port range
         waterwall_listen_port="[${start_port},${end_port}]"
     fi
 
@@ -146,6 +148,22 @@ EOF
             print_info "- External clients connect to ports: $start_port-$end_port"
             print_info "- HAProxy forwards to waterwall on: $haproxy_port"
             print_info "- Waterwall connects to: ${ip_plus1}:${haproxy_port}"
+        elif [ "$use_caddy" = true ]; then
+            print_info "Setting up Caddy configuration for V2 server..."
+            
+            # V2 Server acts as server - external clients connect to port range, forward to waterwall on single internal port
+            create_caddy_server_config_range "$config_name" "$start_port" "$end_port" "127.0.0.1" "$haproxy_port" "tcp"
+            manage_caddy_service
+            
+            # Open additional ports for V2 Server with Caddy
+            print_info "Opening additional firewall ports for V2 Server Caddy setup..."
+            open_firewall_ports "$start_port" "$end_port"
+            open_firewall_ports "$haproxy_port" "$haproxy_port"
+            
+            print_info "V2 Server with Caddy:"
+            print_info "- External clients connect to ports: $start_port-$end_port"
+            print_info "- Caddy forwards to waterwall on: $haproxy_port"
+            print_info "- Waterwall connects to: ${ip_plus1}:${haproxy_port}"
         else
             open_firewall_ports "$start_port" "$end_port"
         fi
@@ -170,6 +188,7 @@ create_v2_client_config() {
     local protoswap_tcp="$6"
     local app_port="$7"
     local use_haproxy="$8"
+    local use_caddy="$9"
 
     # Calculate PRIVATE_IP+1 for input address
     IFS='.' read -r ip1 ip2 ip3 ip4 <<< "$private_ip"
@@ -283,6 +302,17 @@ EOF
             print_info "- Tunnel connects to waterwall on: ${ip_plus1}:${haproxy_port}"
             print_info "- HAProxy binds to: ${private_ip}:${haproxy_port}"
             print_info "- HAProxy forwards to app: 127.0.0.1:${app_port}"
+        elif [ "$use_caddy" = true ]; then
+            print_info "Setting up Caddy configuration for V2 client..."
+            
+            # V2 Client configuration: Caddy binds to private IP and forwards to application
+            create_caddy_client_config "$config_name" "$private_ip" "$haproxy_port" "127.0.0.1" "$app_port" "tcp"
+            manage_caddy_service
+            
+            print_info "V2 Client with Caddy:"
+            print_info "- Tunnel connects to waterwall on: ${ip_plus1}:${haproxy_port}"
+            print_info "- Caddy binds to: ${private_ip}:${haproxy_port}"
+            print_info "- Caddy forwards to app: 127.0.0.1:${app_port}"
         fi
         
         echo "V2 Client configuration file ${config_name}.json has been created successfully!"
@@ -291,6 +321,8 @@ EOF
         echo "Protocol swapping: TCP to $protoswap_tcp"
         if [ "$use_haproxy" = true ]; then
             echo "HAProxy binding: ${private_ip}:${haproxy_port}"
+        elif [ "$use_caddy" = true ]; then
+            echo "Caddy binding: ${private_ip}:${haproxy_port}"
         fi
     else
         echo "Error: Failed to create V2 client configuration file"
@@ -301,13 +333,18 @@ EOF
 # Main V2 handler function
 handle_v2_config() {
     local use_haproxy=false
+    local use_caddy=false
     local config_type
     
-    # Check if haproxy flag is present
+    # Check if haproxy or caddy flag is present
     if [ "$2" = "haproxy" ]; then
         use_haproxy=true
         config_type="$3"  # server or client
         shift 1  # Remove haproxy flag
+    elif [ "$2" = "caddy" ]; then
+        use_caddy=true
+        config_type="$3"  # server or client
+        shift 1  # Remove caddy flag
     else
         config_type="$2"  # server or client
     fi
@@ -323,7 +360,7 @@ handle_v2_config() {
             exit 1
         fi
         
-        create_v2_server_config "$3" "$4" "$5" "$6" "$7" "$8" "$9" "${10}" "$use_haproxy"
+        create_v2_server_config "$3" "$4" "$5" "$6" "$7" "$8" "$9" "${10}" "$use_haproxy" "$use_caddy"
         
     elif [ "$config_type" = "client" ]; then
         # v2 client config_name non-iran-ip iran-ip private-ip haproxy-port protocol app-port
@@ -336,7 +373,7 @@ handle_v2_config() {
             exit 1
         fi
         
-        create_v2_client_config "$3" "$4" "$5" "$6" "$7" "$8" "$9" "$use_haproxy"
+        create_v2_client_config "$3" "$4" "$5" "$6" "$7" "$8" "$9" "$use_haproxy" "$use_caddy"
         
     else
         echo "Error: v2 config type must be either 'server' or 'client'"

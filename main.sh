@@ -30,6 +30,7 @@ download_modules() {
         "half_config.sh"
         "v2_config.sh"
         "haproxy.sh"
+        "caddy.sh"
     )
     
     local total=${#modules[@]}
@@ -204,10 +205,30 @@ main() {
                     ;;
             esac
             ;;
+        "caddy")
+            # Caddy-enabled configurations
+            local sub_type="$2"
+            case "$sub_type" in
+                "server")
+                    source "$WATERWALL_DIR/server_client_config.sh"
+                    handle_server_config "$@"
+                    ;;
+                "client")
+                    source "$WATERWALL_DIR/server_client_config.sh"
+                    handle_client_config "$@"
+                    ;;
+                *)
+                    print_error "Invalid Caddy configuration type: $sub_type"
+                    print_info "Supported Caddy types: server, client"
+                    exit 1
+                    ;;
+            esac
+            ;;
         *)
             print_error "Unknown configuration type: $config_type"
             print_info "Supported types: server, client, simple, half, v2"
             print_info "For HAProxy integration: haproxy <type> <protocol> ..."
+            print_info "For Caddy integration: caddy <type> <protocol> ..."
             show_help
             exit 1
             ;;

@@ -180,11 +180,11 @@ create_v2_client_config() {
     "name": "${config_name}",
     "nodes": [
         {
-            "name": "my tun",
-            "type": "TunDevice",
+            "name": "rd",
+            "type": "RawSocket",
             "settings": {
-                "device-name": "${config_name}",
-                "device-ip": "${private_ip}/24"
+                "capture-filter-mode": "source-ip",
+                "capture-ip": "${iran_ip}"
             },
             "next": "ipovsrc"
         },
@@ -192,9 +192,9 @@ create_v2_client_config() {
             "name": "ipovsrc",
             "type": "IpOverrider",
             "settings": {
-                "direction": "up",
+                "direction": "down",
                 "mode": "source-ip",
-                "ipv4": "${iran_ip}"
+                "ipv4": "${non_iran_ip}"
             },
             "next": "ipovdest"
         },
@@ -202,9 +202,9 @@ create_v2_client_config() {
             "name": "ipovdest",
             "type": "IpOverrider",
             "settings": {
-                "direction": "up",
+                "direction": "down",
                 "mode": "dest-ip",
-                "ipv4": "${non_iran_ip}"
+                "ipv4": "${iran_ip}"
             },
             "next": "manip"
         },
@@ -220,7 +220,7 @@ create_v2_client_config() {
             "name": "ipovsrc2",
             "type": "IpOverrider",
             "settings": {
-                "direction": "down",
+                "direction": "up",
                 "mode": "source-ip",
                 "ipv4": "${ip_plus1}"
             },
@@ -230,19 +230,20 @@ create_v2_client_config() {
             "name": "ipovdest2",
             "type": "IpOverrider",
             "settings": {
-                "direction": "down",
+                "direction": "up",
                 "mode": "dest-ip",
                 "ipv4": "${private_ip}"
             },
-            "next": "rd"
+            "next": "my tun"
         },
         {
-            "name": "rd",
-            "type": "RawSocket",
+            "name": "my tun",
+            "type": "TunDevice",
             "settings": {
-                "capture-filter-mode": "source-ip",
-                "capture-ip": "${non_iran_ip}"
-            }
+                "device-name": "${config_name}",
+                "device-ip": "${private_ip}/24"
+            },
+            "next": "input"
         },
         {
             "name": "input",

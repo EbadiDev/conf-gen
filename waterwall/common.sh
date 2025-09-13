@@ -39,22 +39,62 @@ add_to_core_json() {
     fi
     
     # Add configuration to core.json
-    local config_path="$(pwd)/${config_name}.json"
+    local config_path="${config_name}.json"
     
     # Use jq if available, otherwise use sed
     if command -v jq >/dev/null 2>&1; then
         local temp_file=$(mktemp)
-        jq --arg name "$config_name" --arg path "$config_path" --arg type "$config_type" \
-           '.configs |= map(select(.name != $name)) + [{"name": $name, "path": $path, "type": $type}]' \
-           "$core_json_path" > "$temp_file"
-        mv "$temp_file" "$core_json_path"
+        # Check if configs array exists, if not create it
+        if ! jq -e '.configs' "$core_json_path" >/dev/null 2>&1; then
+            jq '. + {"configs": []}' "$core_json_path" > "$temp_file"
+            mv "$temp_file" "$core_json_path"
+        fi
+        
+        # Remove existing config with same name and add new one
+        jq --arg name "$config_path" \
+           '.configs = (.configs | map(select(. != $name)) + [$name])' \
+           "$core_json_path" > "$temp_file" && mv "$temp_file" "$core_json_path"
+        
+        if [ $? -eq 0 ]; then
+            print_info "Added $config_name to core.json ($core_json_path)"
+        else
+            print_warning "Failed to update core.json with jq, using fallback method"
+            # Fallback to manual addition
+            add_config_manual "$config_path" "$core_json_path"
+        fi
     else
-        # Fallback method using sed (basic implementation)
-        print_warning "jq not found, using basic core.json management"
-        # This is a simplified version - in production you might want to require jq
+        print_warning "jq not found, using manual core.json management"
+        add_config_manual "$config_path" "$core_json_path"
+    fi
+}
+
+# Manual config addition fallback
+add_config_manual() {
+    local config_path="$1"
+    local core_json_path="$2"
+    
+    # Check if the config already exists in the array
+    if grep -q "\"$config_path\"" "$core_json_path"; then
+        print_info "Configuration $config_path already exists in core.json"
+        return
     fi
     
-    print_info "Added $config_name to core.json ($core_json_path)"
+    # Add to configs array before the closing bracket
+    if grep -q '"configs"' "$core_json_path"; then
+        # Configs array exists, add to it
+        sed -i "/\"configs\":/,/\]/{
+            s/\]/        ,\"$config_path\"\
+    \]/
+        }" "$core_json_path"
+    else
+        # No configs array, add it
+        sed -i 's/}$/    ,\"configs\": [\
+        \"'$config_path'\"\
+    ]\
+}/' "$core_json_path"
+    fi
+    
+    print_info "Added $config_path to core.json manually"
 }
 
 # Firewall management

@@ -6,7 +6,7 @@ This repository contains configuration generators for various tunneling and load
 
 ### 1. Load Balancer Configuration Generator (`create_lb_config.sh`)
 
-This script generates JSON configuration files for server and Iran-side setups of a load balancer system with support for multiple configuration types including simple port forwarding and advanced Reality/gRPC tunneling.
+This script generates JSON configuration files for server and Iran-side setups of a load balancer system with support for multiple configuration types including simple port forwarding and advanced Reality/gRPC tunneling. Now includes optional HAProxy integration for real IP forwarding and load balancing.
 
 ### 2. Rathole Configuration Generator (`rathole.sh`)
 
@@ -164,8 +164,14 @@ You can directly run the script with parameters using curl:
 # Server Configuration (when all servers use the same port)
 bash <(curl -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/create_lb_config.sh) server triple_tunnel -p 20631 192.168.1.100 10.0.0.50 2001:db8::1234
 
+# Server Configuration with HAProxy
+bash <(curl -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/create_lb_config.sh) haproxy server tcp triple_tunnel -p 20631 192.168.1.100
+
 # Iran Configuration
 bash <(curl -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/create_lb_config.sh) iran config1 14000 14999 192.168.1.100 13787
+
+# Iran Configuration with HAProxy
+bash <(curl -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/create_lb_config.sh) haproxy iran tcp config1 14000 14999 192.168.1.100 13787
 
 # Simple TCP Port Forwarding
 bash <(curl -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/create_lb_config.sh) simple tcp iran tr 300 399 10.10.0.11 10410
@@ -173,11 +179,20 @@ bash <(curl -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/create_
 # Half Reality/gRPC Configuration (Iran side)
 bash <(curl -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/create_lb_config.sh) half web-cdn.snapp.ir mypassword iran ru 100 199 20.10.0.4 10010
 
+# Half Reality/gRPC Configuration with HAProxy
+bash <(curl -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/create_lb_config.sh) half haproxy web-cdn.snapp.ir mypassword tcp iran ru 100 199 20.10.0.4 10010
+
 # V2 Iran Configuration (Advanced TUN + IP Manipulation)
 bash <(curl -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/create_lb_config.sh) v2 iran v2_config 100 199 103.71.22.137 10.80.0.1 10.80.0.2 10010 146
 
+# V2 Iran Configuration with HAProxy
+bash <(curl -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/create_lb_config.sh) v2 haproxy iran v2_config 100 199 103.71.22.137 10.80.0.1 10.80.0.2 10010 146
+
 # V2 Server Configuration (Advanced TUN + IP Manipulation)
 bash <(curl -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/create_lb_config.sh) v2 server v2_server 103.71.22.137 10.80.0.1 10.10.0.1 10010 146
+
+# V2 Server Configuration with HAProxy
+bash <(curl -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/create_lb_config.sh) v2 haproxy server v2_server 103.71.22.137 10.80.0.1 10.10.0.1 10010 146
 ```
 
 Or you can download and use the script locally:
@@ -206,6 +221,11 @@ The script supports five main configuration types:
 
 ```bash
 ./create_lb_config.sh <type> <config_name> [parameters...]
+
+# With HAProxy integration (for supported configurations):
+./create_lb_config.sh haproxy <type> <protocol> <config_name> [parameters...]
+./create_lb_config.sh v2 haproxy <type> <config_name> [parameters...]
+./create_lb_config.sh half haproxy <website> <password> <protocol> <type> <config_name> [parameters...]
 ```
 
 ### Server Configuration
@@ -218,15 +238,21 @@ For creating a server-side configuration with multiple balanced servers:
 
 # When all servers use the same port
 ./create_lb_config.sh server <config_name> -p <port> <server1_address> [<server2_address> ...]
+
+# With HAProxy integration (recommended for production)
+./create_lb_config.sh haproxy server tcp <config_name> -p <port> <server_address> [haproxy_port]
 ```
 
 Example:
 ```bash
 # Example with both IPv4 and IPv6 servers using the same port
 ./create_lb_config.sh server triple_tunnel -p 20631 192.168.1.100 10.0.0.50 2001:db8::1234
+
+# Example with HAProxy for real IP preservation
+./create_lb_config.sh haproxy server tcp myapp -p 8080 192.168.1.100 9080
 ```
 
-This will create a load-balanced configuration with three servers.
+This will create a load-balanced configuration with multiple servers. With HAProxy, clients connect to the external port, HAProxy handles load balancing and forwards to the waterwall with real IP information.
 
 ### Iran Configuration
 
@@ -234,17 +260,24 @@ For creating an Iran-side configuration:
 
 ```bash
 ./create_lb_config.sh iran <config_name> <start_port> <end_port> <kharej_ip> <kharej_port>
+
+# With HAProxy integration for client IP preservation
+./create_lb_config.sh haproxy iran tcp <config_name> <start_port> <end_port> <kharej_ip> <kharej_port> [haproxy_port]
 ```
 
 Example:
 ```bash
 # Example with IPv4
 ./create_lb_config.sh iran config1 14000 14999 192.168.1.100 13787
+
+# Example with HAProxy (tunnel connects to HAProxy, which forwards to your service)
+./create_lb_config.sh haproxy iran tcp config1 14000 14999 192.168.1.100 13787 15000
 ```
 
 This will create a configuration with:
 - Port range for incoming connections: 14000-14999
 - Connection to kharej server at 192.168.1.100:13787
+- With HAProxy: traffic flows from tunnel → HAProxy (port 15000) → your service (port 14000)
 
 ### Simple Configuration
 
@@ -281,6 +314,9 @@ For creating advanced Reality/gRPC tunneling configurations:
 
 # With default TCP protocol
 ./create_lb_config.sh half <website> <password> iran <config_name> <start_port> <end_port> <kharej_ip> <kharej_port>
+
+# With HAProxy integration
+./create_lb_config.sh half haproxy <website> <password> [tcp|udp] iran <config_name> <start_port> <end_port> <kharej_ip> <kharej_port> [haproxy_port]
 ```
 
 #### Server Side:
@@ -290,6 +326,9 @@ For creating advanced Reality/gRPC tunneling configurations:
 
 # With default TCP protocol
 ./create_lb_config.sh half <website> <password> server <config_name> -p <port> <iran_ip>
+
+# With HAProxy integration
+./create_lb_config.sh half haproxy <website> <password> [tcp|udp] server <config_name> -p <port> <iran_ip> [haproxy_port]
 ```
 
 Examples:
@@ -297,8 +336,8 @@ Examples:
 # Iran side Reality/gRPC configuration
 ./create_lb_config.sh half web-cdn.snapp.ir mypassword123 iran reverse_reality_iran 100 199 20.10.0.4 10010
 
-# Server side Reality/gRPC configuration
-./create_lb_config.sh half web-cdn.snapp.ir mypassword123 server reverse_reality_server -p 10010 188.213.197.166
+# Server side Reality/gRPC configuration with HAProxy
+./create_lb_config.sh half haproxy web-cdn.snapp.ir mypassword123 tcp server reverse_reality_server -p 10010 1.1.1.1 11010
 ```
 
 ### V2 Configuration (Advanced TUN + IP Manipulation)
@@ -308,20 +347,26 @@ For creating advanced V2 configurations with TUN devices, IP manipulation, and p
 #### V2 Iran Side:
 ```bash
 ./create_lb_config.sh v2 iran <config_name> <start_port> <end_port> <non_iran_ip> <iran_ip> <private_ip> <endpoint_port> <protocol>
+
+# With HAProxy integration
+./create_lb_config.sh v2 haproxy iran <config_name> <start_port> <end_port> <non_iran_ip> <iran_ip> <private_ip> <endpoint_port> <protocol> [haproxy_port]
 ```
 
 #### V2 Server Side:
 ```bash
 ./create_lb_config.sh v2 server <config_name> <non_iran_ip> <iran_ip> <private_ip> <endpoint_port> <protocol>
+
+# With HAProxy integration
+./create_lb_config.sh v2 haproxy server <config_name> <non_iran_ip> <iran_ip> <private_ip> <endpoint_port> <protocol> [haproxy_port]
 ```
 
 Examples:
 ```bash
 # V2 Iran configuration with TUN device and IP manipulation
-./create_lb_config.sh v2 iran v2_config 100 199 103.71.22.137 10.80.0.1 10.80.0.2 10010 146
+./create_lb_config.sh v2 iran v2_config 100 199 1.1.1.2 10.80.0.1 10.80.0.2 10010 146
 
-# V2 Server configuration with TUN device and raw socket capture
-./create_lb_config.sh v2 server v2_server 103.71.22.137 10.80.0.1 10.10.0.1 10010 146
+# V2 Server configuration with HAProxy and TUN device
+./create_lb_config.sh v2 haproxy server v2_server 1.1.1.2 10.80.0.1 10.10.0.1 10010 146 11010
 ```
 
 **V2 Configuration Features:**
@@ -330,12 +375,18 @@ Examples:
 - **Raw Socket Capture**: Captures packets based on source IP filtering
 - **Automatic IP Calculation**: Automatically calculates PRIVATE_IP+1 for internal routing
 - **Configurable Protocol Swapping**: Uses protoswap-tcp with your desired protocol number (e.g., 146)
+- **HAProxy Integration**: Optional real IP forwarding with automatic port management
 - **No Interactive Prompts**: All parameters are provided via command line
 
 ## Features
 
 - **Multi-Protocol Support**: Supports both TCP and UDP protocols for simple and half configurations
 - **Advanced V2 Configuration**: TUN devices with IP manipulation, packet capture, and protocol swapping
+- **HAProxy Integration**: Optional real IP forwarding and load balancing with multi-service support
+  - Real client IP preservation using PROXY protocol
+  - Automatic service management and port allocation
+  - Multi-service HAProxy configurations
+  - Firewall integration for opened ports
 - **IPv4/IPv6 Support**: Automatically detects address type and configures appropriate settings
   - IPv4: Uses "0.0.0.0" as listen address and /32 for whitelist
   - IPv6: Uses "::" as listen address and /128 for whitelist
@@ -349,18 +400,73 @@ Examples:
 - **Core Integration**: Automatically adds configurations to core.json
 - **Proper Permissions**: Sets correct file permissions (644) for generated files
 
+## HAProxy Integration
+
+The script now includes optional HAProxy integration for all configuration types, providing real IP forwarding and load balancing capabilities.
+
+### HAProxy Benefits
+
+- **Real IP Preservation**: Client IPs are forwarded to your application using PROXY protocol
+- **Load Balancing**: Distribute traffic across multiple backend services
+- **SSL Termination**: Can handle SSL/TLS termination if needed
+- **Health Checks**: Monitor backend service health
+- **Performance**: Optimized for high-throughput scenarios
+
+### HAProxy Traffic Flow
+
+#### Server Side (Iran/Kharej serving clients)
+```
+Internet Clients → HAProxy (external port) → Waterwall (internal port) → [Tunnel] → Client Side
+```
+
+#### Client Side (Iran/Kharej connecting to services)  
+```
+[Tunnel] → Waterwall → HAProxy (tunnel port) → Your Application (service port)
+```
+
+### HAProxy Port Parameters
+
+- `haproxy_port` - Optional parameter for custom HAProxy internal port
+- **Default**: `external_port + 1000` for most configurations
+- **Default**: `start_port + 1000` for iran configurations  
+- **Purpose**: Allows fine-tuning of internal port allocation to avoid conflicts
+
+### HAProxy Configuration Management
+
+- Creates/updates `/etc/haproxy/haproxy.cfg`
+- Supports multiple services in one configuration
+- Preserves existing services when adding new ones
+- Automatic service start/reload
+- Firewall ports automatically opened
+
+### Example HAProxy Setups
+
+```bash
+# V2 Server with HAProxy - clients connect to port 8080, forwards to waterwall on 9080
+./create_lb_config.sh v2 haproxy server myapp 1.2.3.4 5.6.7.8 192.168.1.100 8080 142 9080
+
+# Legacy Iran with HAProxy - tunnel forwards to HAProxy on 15000, HAProxy forwards to service on 14000  
+./create_lb_config.sh haproxy iran tcp config1 14000 14999 192.168.1.100 13787 15000
+
+# Half Server with HAProxy - external clients → HAProxy (10010) → waterwall (11010)
+./create_lb_config.sh half haproxy web-cdn.snapp.ir mypass tcp server myapp -p 10010 192.168.1.100 11010
+```
+
 ## Output
 
 The script generates:
 - A JSON configuration file named `<config_name>.json` in the current directory
+- HAProxy configuration file `/etc/haproxy/haproxy.cfg` (if using haproxy option)
 - Automatic firewall rules for required ports
 - Integration with existing core.json configuration
+- Systemd service management for HAProxy (if applicable)
 
 ## Requirements
 
 - Bash shell
 - Write permissions in the current directory
 - Root/sudo access for firewall configuration (optional but recommended)
+- HAProxy installed (if using haproxy option)
 - Network connectivity for curl-based installation
 
 ## Error Handling

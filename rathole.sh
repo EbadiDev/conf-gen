@@ -29,11 +29,104 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+# -----------------------------------------------------------------------------
+# Module downloader (mirror of main.sh approach, minimal for GOST)
+# -----------------------------------------------------------------------------
+
+# Detect if running from pipe (curl) and use temp directory
+if [[ "${BASH_SOURCE[0]}" == "/dev/fd/"* ]] || [[ "${BASH_SOURCE[0]}" == *"/fd/"* ]]; then
+    # Running from pipe, use temp directory
+    R_SCRIPT_DIR="/tmp/rathole_$(date +%s)_$$"
+    mkdir -p "$R_SCRIPT_DIR"
+    R_WATERWALL_DIR="$R_SCRIPT_DIR/waterwall"
+    R_RUNNING_FROM_PIPE=true
+else
+    # Running from file, use normal directory
+    R_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    R_WATERWALL_DIR="$R_SCRIPT_DIR/waterwall"
+    R_RUNNING_FROM_PIPE=false
+fi
+
+R_AUTO_DOWNLOADED=false
+
+download_gost_module() {
+    local base_url="https://raw.githubusercontent.com/EbadiDev/conf-gen/main/waterwall"
+    local module="gost.sh"
+
+    mkdir -p "$R_WATERWALL_DIR"
+
+    # Try multiple download methods similar to main.sh
+    # Method 1: curl IPv4
+    if curl -4 -s -m 10 -f -L --user-agent "Mozilla/5.0" \
+       -H "Accept: text/plain" -o "$R_WATERWALL_DIR/$module" \
+       "$base_url/$module" 2>/dev/null && \
+       [ -f "$R_WATERWALL_DIR/$module" ] && [ -s "$R_WATERWALL_DIR/$module" ]; then
+        R_AUTO_DOWNLOADED=true
+        return 0
+    fi
+
+    # Method 2: wget IPv4
+    if command -v wget >/dev/null 2>&1; then
+        if wget -4 --quiet --timeout=10 --tries=2 \
+           --user-agent="Mozilla/5.0" -O "$R_WATERWALL_DIR/$module" \
+           "$base_url/$module" 2>/dev/null && \
+           [ -f "$R_WATERWALL_DIR/$module" ] && [ -s "$R_WATERWALL_DIR/$module" ]; then
+            R_AUTO_DOWNLOADED=true
+            return 0
+        fi
+    fi
+
+    # Method 3: CDN mirrors
+    local alt_urls=(
+        "https://cdn.jsdelivr.net/gh/EbadiDev/conf-gen@main/waterwall/$module"
+        "https://gitcdn.xyz/repo/EbadiDev/conf-gen/main/waterwall/$module"
+    )
+    for alt_url in "${alt_urls[@]}"; do
+        if curl -4 -s -m 8 -f -L --user-agent "Mozilla/5.0" \
+           -o "$R_WATERWALL_DIR/$module" "$alt_url" 2>/dev/null && \
+           [ -f "$R_WATERWALL_DIR/$module" ] && [ -s "$R_WATERWALL_DIR/$module" ]; then
+            R_AUTO_DOWNLOADED=true
+            return 0
+        fi
+    done
+
+    # Final minimal attempt
+    if curl -4 -s -m 15 --retry 2 --retry-delay 1 \
+       -o "$R_WATERWALL_DIR/$module" \
+       "$base_url/$module" 2>/dev/null && \
+       [ -f "$R_WATERWALL_DIR/$module" ] && [ -s "$R_WATERWALL_DIR/$module" ]; then
+        R_AUTO_DOWNLOADED=true
+        return 0
+    fi
+
+    return 1
+}
+
+cleanup_downloads() {
+    if [ "$R_AUTO_DOWNLOADED" = true ] && [ "$R_RUNNING_FROM_PIPE" = true ]; then
+        rm -rf "$R_SCRIPT_DIR" || true
+    fi
+}
+
+trap 'cleanup_downloads; exit' EXIT INT TERM
+
+# Ensure gost module available and source it
+if [ ! -f "$R_WATERWALL_DIR/gost.sh" ]; then
+    if ! download_gost_module; then
+        print_warning "Could not download GOST module; GOST proxy features will be unavailable."
+    fi
+fi
+
+if [ -f "$R_WATERWALL_DIR/gost.sh" ]; then
+    # shellcheck disable=SC1090
+    source "$R_WATERWALL_DIR/gost.sh"
+fi
+
 # Function to show usage
 show_usage() {
     echo "Usage:"
-    echo "  Server: $0 server <name> <port> <default_token> <client_port> <tcp|udp> <nodelay> [haproxy] [rathole_port]"
-    echo "  Client: $0 client <name> <domain/ip:port> <default_token> <client_port> <tcp|udp> <nodelay> [haproxy] [rathole_port]"
+    echo "  Server: $0 server <name> <port> <default_token> <client_port> <tcp|udp> <nodelay> [haproxy|gost] [rathole_port]"
+    echo "  Client: $0 client <name> <domain/ip:port> <default_token> <client_port> <tcp|udp> <nodelay> [haproxy|gost] [rathole_port]"
     echo ""
     echo "Examples:"
     echo "  Basic:"
@@ -44,9 +137,17 @@ show_usage() {
     echo "    $0 server myapp 2333 mysecrettoken 8080 tcp true haproxy"
     echo "    $0 client myapp example.com:2333 mysecrettoken 8080 tcp false haproxy"
     echo ""
+    echo "  With GOST (for real IP logging similar to HAProxy):"
+    echo "    $0 server myapp 2333 mysecrettoken 8080 tcp true gost"
+    echo "    $0 client myapp example.com:2333 mysecrettoken 8080 tcp false gost"
+    echo ""
     echo "  With HAProxy and custom rathole internal port:"
     echo "    $0 server myapp 2333 mysecrettoken 8080 tcp true haproxy 9080"
     echo "    $0 client myapp example.com:2333 mysecrettoken 8080 tcp false haproxy 9080"
+    echo ""
+    echo "  With GOST and custom rathole internal port:"
+    echo "    $0 server myapp 2333 mysecrettoken 8080 tcp true gost 9080"
+    echo "    $0 client myapp example.com:2333 mysecrettoken 8080 tcp false gost 9080"
     echo ""
     echo "Parameters:"
     echo "  name              - Configuration name"
@@ -57,12 +158,47 @@ show_usage() {
     echo "  tcp|udp           - Protocol type"
     echo "  nodelay           - Enable/disable TCP nodelay (true/false)"
     echo "  haproxy           - Optional: Generate HAProxy configuration for real IP logging"
+    echo "  gost              - Optional: Generate GOST configuration for real IP logging"
     echo "  rathole_port      - Optional: Custom rathole internal port (default: client_port + 1000)"
     echo ""
     echo "Note: The script will generate keys and ask for the remote public key interactively."
     echo "      With haproxy, additional HAProxy configuration files will be generated."
     echo "      HAProxy service will be automatically restarted and ports opened with ufw."
 }
+# -----------------------------------------------------------------------------
+# GOST proxy helpers (server/client) for Rathole
+# -----------------------------------------------------------------------------
+
+create_gost_server_proxy() {
+    local name="$1"           # config/service name
+    local external_port="$2"  # public port clients hit
+    local rathole_port="$3"   # internal rathole service port
+
+    if ! declare -F create_gost_server_config >/dev/null 2>&1; then
+        print_error "GOST module not available; cannot configure GOST server proxy."
+        return 1
+    fi
+
+    print_info "Configuring GOST as server proxy: :${external_port} -> 127.0.0.1:${rathole_port} (Proxy Protocol)"
+    create_gost_server_config "$name" "$external_port" "127.0.0.1" "$rathole_port" "tcp"
+    manage_gost_service "$name"
+}
+
+create_gost_client_proxy() {
+    local name="$1"          # config/service name
+    local rathole_port="$2"  # local port rathole expects
+    local service_port="$3"  # your actual app/service port
+
+    if ! declare -F create_gost_client_config >/dev/null 2>&1; then
+        print_error "GOST module not available; cannot configure GOST client proxy."
+        return 1
+    fi
+
+    print_info "Configuring GOST as client proxy: 127.0.0.1:${rathole_port} -> 127.0.0.1:${service_port} (Proxy Protocol)"
+    create_gost_client_config "$name" "127.0.0.1" "$rathole_port" "127.0.0.1" "$service_port" "tcp"
+    manage_gost_service "$name"
+}
+
 
 # Function to generate keys
 generate_keys() {
@@ -487,7 +623,7 @@ create_server_config() {
     local client_port="$4"
     local protocol="$5"
     local nodelay="$6"
-    local use_haproxy="${7:-}"
+    local use_proxy_opt="${7:-}"
     local custom_rathole_port="${8:-}"
     
     # Generate keys for server
@@ -542,7 +678,7 @@ create_server_config() {
     
     cat > "$config_file" << EOF
 [server]
-bind_addr = "0.0.0.0:${port}"
+bind_addr = "[::]:${port}"
 default_token = "${default_token}"
 heartbeat_interval = 35
 
@@ -558,6 +694,14 @@ type = "${protocol}"
 bind_addr = "0.0.0.0:${rathole_bind_port}"
 nodelay = ${nodelay}
 EOF
+
+    # Configure optional proxy in front of Rathole
+    if [[ "$use_proxy_opt" == "haproxy" ]]; then
+        create_haproxy_server_config "$name" "$port" "$rathole_bind_port"
+        manage_haproxy_service "$port" start "$rathole_bind_port"
+    elif [[ "$use_proxy_opt" == "gost" ]]; then
+        create_gost_server_proxy "$name" "$port" "$rathole_bind_port"
+    fi
 
     # Set secure permissions
     chmod 600 "$config_file"
@@ -598,7 +742,7 @@ create_client_config() {
     local client_port="$4"
     local protocol="$5"
     local nodelay="$6"
-    local use_haproxy="${7:-}"
+    local use_proxy_opt="${7:-}"
     local custom_rathole_port="${8:-}"
     
     # Generate keys for client
@@ -670,6 +814,14 @@ type = "${protocol}"
 local_addr = "127.0.0.1:${rathole_local_port}"
 nodelay = ${nodelay}
 EOF
+
+    # Configure optional local proxy sidecar for client
+    if [[ "$use_proxy_opt" == "haproxy" ]]; then
+        create_haproxy_client_config "$name" "$rathole_local_port" "$client_port"
+        manage_haproxy_service "$rathole_local_port" start "$rathole_local_port"
+    elif [[ "$use_proxy_opt" == "gost" ]]; then
+        create_gost_client_proxy "$name" "$rathole_local_port" "$client_port"
+    fi
 
     # Set secure permissions
     chmod 600 "$config_file"

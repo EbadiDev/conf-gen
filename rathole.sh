@@ -654,11 +654,11 @@ create_server_config() {
     local remote_public_key
     remote_public_key=$(get_remote_public_key)
     
-    # Determine rathole bind port based on HAProxy usage
+    # Determine rathole bind port based on proxy usage
     local rathole_bind_port
     local external_port
     
-    if [[ "$use_haproxy" == "haproxy" ]]; then
+    if [[ "$use_proxy_opt" == "haproxy" || "$use_proxy_opt" == "gost" ]]; then
         # Use custom port if provided, otherwise default to client_port + 1000
         if [[ -n "$custom_rathole_port" ]]; then
             rathole_bind_port="$custom_rathole_port"
@@ -666,8 +666,8 @@ create_server_config() {
             rathole_bind_port=$((client_port + 1000))
         fi
         external_port="$client_port"
-        print_info "HAProxy mode enabled:"
-        print_info "  - External port (HAProxy): $external_port"
+        print_info "Proxy mode enabled ($use_proxy_opt):"
+        print_info "  - External port: $external_port"
         print_info "  - Rathole internal port: $rathole_bind_port"
     else
         rathole_bind_port="$client_port"
@@ -721,7 +721,7 @@ EOF
     install_rathole_monitor
     
     # Create HAProxy configuration if requested (after rathole is running)
-    if [[ "$use_haproxy" == "haproxy" ]]; then
+    if [[ "$use_proxy_opt" == "haproxy" ]]; then
         create_haproxy_server_config "$name" "$external_port" "$rathole_bind_port"
         # Wait a moment for rathole to fully start
         print_info "Waiting for rathole service to start..."
@@ -773,21 +773,27 @@ create_client_config() {
     local remote_public_key
     remote_public_key=$(get_remote_public_key)
     
-    # Determine local address based on HAProxy usage
+    # Determine local address based on proxy usage
     local rathole_local_port
     local service_port="$client_port"
     
-    if [[ "$use_haproxy" == "haproxy" ]]; then
+    if [[ "$use_proxy_opt" == "haproxy" || "$use_proxy_opt" == "gost" ]]; then
         # Use custom port if provided, otherwise default to client_port + 1000
         if [[ -n "$custom_rathole_port" ]]; then
             rathole_local_port="$custom_rathole_port"
         else
             rathole_local_port=$((client_port + 1000))
         fi
-        print_info "HAProxy mode enabled:"
-        print_info "  - Rathole forwards to HAProxy on port: $rathole_local_port"
-        print_info "  - Your service should remain on port: $service_port"
-        print_info "  - HAProxy will forward traffic between them"
+        print_info "Proxy mode enabled ($use_proxy_opt):"
+        if [[ "$use_proxy_opt" == "haproxy" ]]; then
+            print_info "  - Rathole forwards to HAProxy on port: $rathole_local_port"
+            print_info "  - Your service should remain on port: $service_port"
+            print_info "  - HAProxy will forward traffic between them"
+        else
+            print_info "  - Rathole forwards to GOST on port: $rathole_local_port"
+            print_info "  - Your service should remain on port: $service_port"
+            print_info "  - GOST will forward traffic between them"
+        fi
     else
         rathole_local_port="$client_port"
     fi
@@ -841,7 +847,7 @@ EOF
     install_rathole_monitor
     
     # Create HAProxy configuration if requested (after rathole is running)
-    if [[ "$use_haproxy" == "haproxy" ]]; then
+    if [[ "$use_proxy_opt" == "haproxy" ]]; then
         create_haproxy_client_config "$name" "$rathole_local_port" "$service_port"
         # Wait a moment for rathole to fully start
         print_info "Waiting for rathole service to start..."
@@ -1067,6 +1073,28 @@ validate_port() {
     fi
 }
 
+# IPv6-safe remote address normalizer: ensures "host:port" becomes "[ipv6]:port" when needed
+normalize_remote_addr() {
+    local addr="$1"
+    # If already bracketed or looks like hostname/IPv4:port with single colon, return as-is
+    if [[ "$addr" == *"["* || "$addr" == *"]"* ]]; then
+        echo "$addr"; return 0
+    fi
+    # If there is exactly one colon, likely host:port (IPv4 or hostname)
+    if [[ $(grep -o ":" <<< "$addr" | wc -l) -eq 1 ]]; then
+        echo "$addr"; return 0
+    fi
+    # Split on last colon into host and port
+    local host part_port
+    host="${addr%:*}"
+    part_port="${addr##*:}"
+    if [[ -z "$host" || -z "$part_port" || ! "$part_port" =~ ^[0-9]+$ ]]; then
+        # Fallback: return original
+        echo "$addr"; return 0
+    fi
+    echo "[${host}]:${part_port}"
+}
+
 # Main script logic
 main() {
     if [ $# -lt 2 ]; then
@@ -1091,7 +1119,7 @@ main() {
             local client_port="$4"
             local protocol="$5"
             local nodelay="$6"
-            local use_haproxy="${7:-}"
+            local use_proxy_opt="${7:-}"
             local custom_rathole_port="${8:-}"
             
             # Validate inputs
@@ -1100,8 +1128,8 @@ main() {
             validate_protocol "$protocol"
             validate_nodelay "$nodelay"
             
-            if [[ -n "$use_haproxy" && "$use_haproxy" != "haproxy" ]]; then
-                print_error "Invalid HAProxy parameter: $use_haproxy. Use 'haproxy' or omit"
+            if [[ -n "$use_proxy_opt" && "$use_proxy_opt" != "haproxy" && "$use_proxy_opt" != "gost" ]]; then
+                print_error "Invalid proxy parameter: $use_proxy_opt. Use 'haproxy', 'gost', or omit"
                 exit 1
             fi
             
@@ -1109,7 +1137,7 @@ main() {
                 validate_port "$custom_rathole_port"
             fi
             
-            create_server_config "$name" "$port" "$default_token" "$client_port" "$protocol" "$nodelay" "$use_haproxy" "$custom_rathole_port"
+            create_server_config "$name" "$port" "$default_token" "$client_port" "$protocol" "$nodelay" "$use_proxy_opt" "$custom_rathole_port"
             ;;
             
         "client")
@@ -1125,7 +1153,7 @@ main() {
             local client_port="$4"
             local protocol="$5"
             local nodelay="$6"
-            local use_haproxy="${7:-}"
+            local use_proxy_opt="${7:-}"
             local custom_rathole_port="${8:-}"
             
             # Validate inputs
@@ -1133,8 +1161,8 @@ main() {
             validate_protocol "$protocol"
             validate_nodelay "$nodelay"
             
-            if [[ -n "$use_haproxy" && "$use_haproxy" != "haproxy" ]]; then
-                print_error "Invalid HAProxy parameter: $use_haproxy. Use 'haproxy' or omit"
+            if [[ -n "$use_proxy_opt" && "$use_proxy_opt" != "haproxy" && "$use_proxy_opt" != "gost" ]]; then
+                print_error "Invalid proxy parameter: $use_proxy_opt. Use 'haproxy', 'gost', or omit"
                 exit 1
             fi
             
@@ -1142,7 +1170,9 @@ main() {
                 validate_port "$custom_rathole_port"
             fi
             
-            create_client_config "$name" "$remote_addr" "$default_token" "$client_port" "$protocol" "$nodelay" "$use_haproxy" "$custom_rathole_port"
+            # Normalize IPv6 form for remote_addr if needed
+            remote_addr=$(normalize_remote_addr "$remote_addr")
+            create_client_config "$name" "$remote_addr" "$default_token" "$client_port" "$protocol" "$nodelay" "$use_proxy_opt" "$custom_rathole_port"
             ;;
             
         *)

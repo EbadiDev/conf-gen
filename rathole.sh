@@ -852,7 +852,7 @@ remote_public_key = "${remote_public_key}"
 
 [client.services."${service_key}"]
 type = "${protocol}"
-local_addr = "127.0.0.1:${rathole_local_port}"
+local_addr = ":${rathole_local_port}"
 nodelay = ${nodelay}
 EOF
 

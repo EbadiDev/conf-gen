@@ -7,6 +7,7 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/common.sh"
 source "$SCRIPT_DIR/haproxy.sh"
+source "$SCRIPT_DIR/gost.sh"
 
 # Half Configuration
 create_half_config() {
@@ -16,7 +17,8 @@ create_half_config() {
     local type="$4"
     local config_name="$5"
     local use_haproxy="$6"
-    shift 6
+    local use_gost="$7"
+    shift 7
     local remaining_args=("$@")
 
     # Determine protocol type
@@ -49,9 +51,9 @@ create_half_config() {
             haproxy_port=$((port + 1000))
         fi
         
-        # Determine listener port based on HAProxy usage
+    # Determine listener port based on proxy usage
         local waterwall_listen_port
-        if [ "$use_haproxy" = true ]; then
+    if [ "$use_haproxy" = true ] || [ "$use_gost" = true ]; then
             waterwall_listen_port="$haproxy_port"
         else
             waterwall_listen_port="$port"
@@ -90,7 +92,7 @@ EOF
         if [ $? -eq 0 ]; then
             add_to_core_json "$config_name" "half"
             
-            # Generate HAProxy configuration only if haproxy flag is used
+            # Generate proxy configuration if requested
             if [ "$use_haproxy" = true ]; then
                 print_info "Setting up HAProxy configuration for Half server..."
                 
@@ -102,6 +104,16 @@ EOF
                 print_info "- External clients connect to port: $port"
                 print_info "- HAProxy forwards to waterwall on: $haproxy_port"
                 
+                open_firewall_ports "$port" "$port"
+            elif [ "$use_gost" = true ]; then
+                print_info "Setting up GOST configuration for Half server..."
+                create_gost_server_config "$config_name" "$port" "127.0.0.1" "$haproxy_port" "$protocol"
+                manage_gost_service "$config_name"
+
+                print_info "Half Server with GOST:"
+                print_info "- External clients connect to port: $port"
+                print_info "- GOST forwards to waterwall on: $haproxy_port (Proxy Protocol)"
+
                 open_firewall_ports "$port" "$port"
             else
                 open_firewall_ports "$port" "$port"
@@ -166,7 +178,7 @@ EOF
         if [ $? -eq 0 ]; then
             add_to_core_json "$config_name" "half"
             
-            # Generate HAProxy configuration only if haproxy flag is used
+            # Generate proxy configuration if requested
             if [ "$use_haproxy" = true ]; then
                 print_info "Setting up HAProxy configuration for Half client..."
                 
@@ -177,6 +189,16 @@ EOF
                 print_info "Half Client with HAProxy:"
                 print_info "- Tunnel connects to HAProxy on: $haproxy_port"
                 print_info "- HAProxy forwards to: ${destination_ip}:${destination_port}"
+            elif [ "$use_gost" = true ]; then
+                print_info "Setting up GOST configuration for Half client..."
+
+                # Half client: tunnel connects to GOST listener, which forwards to application sending Proxy Protocol
+                create_gost_client_config "$config_name" "127.0.0.1" "$haproxy_port" "$destination_ip" "$destination_port" "$protocol"
+                manage_gost_service "$config_name"
+
+                print_info "Half Client with GOST:"
+                print_info "- Tunnel connects to GOST on: $haproxy_port (accept Proxy Protocol)"
+                print_info "- GOST forwards to: ${destination_ip}:${destination_port} (send Proxy Protocol)"
             else
                 open_firewall_ports "$start_port" "$end_port"
             fi
@@ -202,11 +224,15 @@ handle_half_config() {
     local type
     local config_name
     local use_haproxy=false
+    local use_gost=false
     local param_offset=4
     
-    # Check if haproxy flag is present after password
+    # Check if proxy flag is present after password
     if [ "$4" = "haproxy" ]; then
         use_haproxy=true
+        param_offset=5
+    elif [ "$4" = "gost" ]; then
+        use_gost=true
         param_offset=5
     fi
     
@@ -229,5 +255,5 @@ handle_half_config() {
     # Get remaining arguments
     shift $((param_offset + 1))
     
-    create_half_config "$website" "$password" "$protocol" "$type" "$config_name" "$use_haproxy" "$@"
+    create_half_config "$website" "$password" "$protocol" "$type" "$config_name" "$use_haproxy" "$use_gost" "$@"
 }

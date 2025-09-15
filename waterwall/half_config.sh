@@ -34,26 +34,94 @@ create_half_config() {
     fi
 
     if [ "$type" = "server" ]; then
-        # server config: -p port server_ip [haproxy_port]
+        # GOST server supports port range: <start_port> <end_port> <server_ip> <internal_waterwall_port>
+        # Legacy/HAProxy server uses: -p <port> <server_ip> [internal_port]
         local port_flag="${remaining_args[0]}"
         local port="${remaining_args[1]}"
-        local server_ip="${remaining_args[2]}"
-        local haproxy_port="${remaining_args[3]}"
-        
-        if [ "$port_flag" != "-p" ] || [ -z "$port" ] || [ -z "$server_ip" ]; then
+        local server_ip
+        local haproxy_port
+
+        if [ "$use_gost" = true ] && [ "$port_flag" != "-p" ]; then
+            # GOST range mode
+            local start_port="${remaining_args[0]}"
+            local end_port="${remaining_args[1]}"
+            server_ip="${remaining_args[2]}"
+            haproxy_port="${remaining_args[3]}"   # internal waterwall port
+
+            if [ -z "$start_port" ] || [ -z "$end_port" ] || [ -z "$server_ip" ] || [ -z "$haproxy_port" ]; then
+                echo "Error: Invalid GOST server parameters"
+                echo "Usage: half <website> <password> gost [tcp|udp] server <config_name> <start_port> <end_port> <server_ip> <internal_waterwall_port>"
+                exit 1
+            fi
+
+            # Waterwall listens on internal port; GOST handles external range
+            local waterwall_listen_port="$haproxy_port"
+            port="$start_port"  # for logging
+
+            cat << EOF > "${config_name}.json"
+{
+    "name": "${config_name}",
+    "nodes": [
+        {
+            "name": "input",
+            "type": "${LISTENER_TYPE}",
+            "settings": {
+                "address": "0.0.0.0",
+                "port": ${waterwall_listen_port},
+                "nodelay": true
+            },
+            "next": "output"
+        },
+        {
+            "name": "output",
+            "type": "RealityGrpcClient",
+            "settings": {
+                "multi-stream": true,
+                "password": "${password}",
+                "server-name": "${website}",
+                "address": "${server_ip}",
+                "port": 443,
+                "nodelay": true
+            }
+        }
+    ]
+}
+EOF
+
+            if [ $? -eq 0 ]; then
+                add_to_core_json "$config_name" "half"
+                print_info "Setting up GOST configuration for Half server (range)..."
+                create_gost_server_config_range "$config_name" "$start_port" "$end_port" "127.0.0.1" "$haproxy_port" "$protocol"
+                manage_gost_service "$config_name"
+                open_firewall_ports "$start_port" "$end_port"
+                echo "Half server configuration file ${config_name}.json has been created successfully!"
+                echo "Reality/gRPC server connecting to: ${website} via ${server_ip}:443"
+                echo "GOST: :${start_port}-${end_port} -> 127.0.0.1:${haproxy_port}"
+            else
+                echo "Error: Failed to create half server configuration file"
+                exit 1
+            fi
+
+            # Done with GOST server
+            return
+        fi
+
+        # Legacy or HAProxy flow
+        local server_ip_in="${remaining_args[2]}"
+        local haproxy_port_in="${remaining_args[3]}"
+        if [ "$port_flag" != "-p" ] || [ -z "$port" ] || [ -z "$server_ip_in" ]; then
             echo "Error: Invalid server configuration parameters"
-            echo "Usage: half <website> <password> [tcp|udp] server <config_name> -p <port> <server_ip> [haproxy_port]"
+            echo "Usage: half <website> <password> [tcp|udp] server <config_name> -p <port> <server_ip> [internal_port]"
             exit 1
         fi
-        
-        # Set default haproxy_port if not provided
+        server_ip="$server_ip_in"; haproxy_port="$haproxy_port_in"
         if [ -z "$haproxy_port" ]; then
             haproxy_port=$((port + 1000))
         fi
-        
-    # Determine listener port based on proxy usage
+
+        # Determine listener port based on proxy usage
         local waterwall_listen_port
-    if [ "$use_haproxy" = true ] || [ "$use_gost" = true ]; then
+        if [ "$use_haproxy" = true ] || [ "$use_gost" = true ]; then
             waterwall_listen_port="$haproxy_port"
         else
             waterwall_listen_port="$port"
@@ -127,12 +195,76 @@ EOF
         fi
 
     elif [ "$type" = "client" ]; then
-        # client config: start_port end_port destination_ip destination_port [haproxy_port]
+        # GOST client specialized syntax: -p <destination_port> <destination_ip> <gost_port>
+        # Legacy/HAProxy: <start_port> <end_port> <destination_ip> <destination_port> [internal_port]
         local start_port="${remaining_args[0]}"
         local end_port="${remaining_args[1]}"
-        local destination_ip="${remaining_args[2]}"
-        local destination_port="${remaining_args[3]}"
-        local haproxy_port="${remaining_args[4]}"
+        local destination_ip
+        local destination_port
+        local haproxy_port
+
+        if [ "$use_gost" = true ] && [ "$start_port" = "-p" ]; then
+            destination_port="${remaining_args[1]}"
+            destination_ip="${remaining_args[2]}"
+            haproxy_port="${remaining_args[3]}"   # GOST listener port
+            if [ -z "$destination_port" ] || [ -z "$destination_ip" ] || [ -z "$haproxy_port" ]; then
+                echo "Error: Invalid GOST client parameters"
+                echo "Usage: half <website> <password> gost [tcp|udp] client <config_name> -p <destination_port> <destination_ip> <gost_port>"
+                exit 1
+            fi
+
+            # Waterwall connects to local GOST
+            cat << EOF > "${config_name}.json"
+{
+    "name": "${config_name}",
+    "nodes": [
+        {
+            "name": "input",
+            "type": "RealityGrpcServer",
+            "settings": {
+                "multi-stream": true,
+                "password": "${password}",
+                "server-name": "${website}",
+                "address": "0.0.0.0",
+                "port": 443,
+                "nodelay": true
+            },
+            "next": "output"
+        },
+        {
+            "name": "output",
+            "type": "${CONNECTOR_TYPE}",
+            "settings": {
+                "nodelay": true,
+                "address": "127.0.0.1",
+                "port": ${haproxy_port}
+            }
+        }
+    ]
+}
+EOF
+
+            if [ $? -eq 0 ]; then
+                add_to_core_json "$config_name" "half"
+                print_info "Setting up GOST configuration for Half client..."
+                # GOST listens on :gost_port and forwards to 127.0.0.1:destination_port with Proxy Protocol
+                create_gost_client_config "$config_name" "" "$haproxy_port" "127.0.0.1" "$destination_port" "$protocol"
+                manage_gost_service "$config_name"
+                echo "Half client configuration file ${config_name}.json has been created successfully!"
+                echo "Reality/gRPC client serving: ${website}"
+                echo "GOST: :${haproxy_port} -> 127.0.0.1:${destination_port}"
+            else
+                echo "Error: Failed to create half client configuration file"
+                exit 1
+            fi
+
+            return
+        fi
+
+        # Legacy/HAProxy mode
+        destination_ip="${remaining_args[2]}"
+        destination_port="${remaining_args[3]}"
+        haproxy_port="${remaining_args[4]}"
         
         if [ -z "$start_port" ] || [ -z "$end_port" ] || [ -z "$destination_ip" ] || [ -z "$destination_port" ]; then
             echo "Error: Invalid client configuration parameters"
@@ -191,14 +323,9 @@ EOF
                 print_info "- HAProxy forwards to: ${destination_ip}:${destination_port}"
             elif [ "$use_gost" = true ]; then
                 print_info "Setting up GOST configuration for Half client..."
-
-                # Half client: tunnel connects to GOST listener, which forwards to application sending Proxy Protocol
                 create_gost_client_config "$config_name" "127.0.0.1" "$haproxy_port" "$destination_ip" "$destination_port" "$protocol"
                 manage_gost_service "$config_name"
-
-                print_info "Half Client with GOST:"
-                print_info "- Tunnel connects to GOST on: $haproxy_port (accept Proxy Protocol)"
-                print_info "- GOST forwards to: ${destination_ip}:${destination_port} (send Proxy Protocol)"
+                print_info "Half Client with GOST: 127.0.0.1:${haproxy_port} -> ${destination_ip}:${destination_port}"
             else
                 open_firewall_ports "$start_port" "$end_port"
             fi

@@ -136,8 +136,14 @@ create_gost_client_config() {
     local app_port="$5"
     local protocol="$6"   # tcp only, kept for API symmetry
 
+    # Prepare upstream host:port (bracket IPv6)
+    local upstream_host="$app_ip"
+    if [[ "$upstream_host" == *:* && "$upstream_host" != [* ]]; then
+        upstream_host="[$upstream_host]"
+    fi
+
     # Accept Proxy Protocol if present, and send it upstream to the app
-    local args=("-L" "tcp://${bind_ip}:${tunnel_port}/${app_ip}:${app_port}?proxyProtocol=1&handler.proxyProtocol=1")
+    local args=("-L" "tcp://${bind_ip}:${tunnel_port}/${upstream_host}:${app_port}?proxyProtocol=1&handler.proxyProtocol=1")
 
     remove_gost_service "$service_name"
     local unit_path

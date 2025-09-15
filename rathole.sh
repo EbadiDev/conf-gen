@@ -171,7 +171,7 @@ show_usage() {
 
 create_gost_server_proxy() {
     local name="$1"           # config/service name
-    local external_port="$2"  # public port clients hit
+    local external_port="$2"  # public port or port-range clients hit
     local rathole_port="$3"   # internal rathole service port
 
     if ! declare -F create_gost_server_config >/dev/null 2>&1; then
@@ -180,7 +180,13 @@ create_gost_server_proxy() {
     fi
 
     print_info "Configuring GOST as server proxy: :${external_port} -> 127.0.0.1:${rathole_port} (Proxy Protocol)"
-    create_gost_server_config "$name" "$external_port" "127.0.0.1" "$rathole_port" "tcp"
+    if [[ "$external_port" =~ ^[0-9]+-[0-9]+$ ]]; then
+        local start_port="${external_port%-*}"
+        local end_port="${external_port#*-}"
+        create_gost_server_config_range "$name" "$start_port" "$end_port" "127.0.0.1" "$rathole_port" "tcp"
+    else
+        create_gost_server_config "$name" "$external_port" "127.0.0.1" "$rathole_port" "tcp"
+    fi
     manage_gost_service "$name"
 }
 
@@ -659,12 +665,20 @@ create_server_config() {
     local external_port
     
     if [[ "$use_proxy_opt" == "haproxy" || "$use_proxy_opt" == "gost" ]]; then
-        # Use custom port if provided, otherwise default to client_port + 1000
+        # Determine rathole internal port
         if [[ -n "$custom_rathole_port" ]]; then
             rathole_bind_port="$custom_rathole_port"
         else
+            # If client_port is a range (GOST mode), require explicit internal port
+            if [[ "$use_proxy_opt" == "gost" && "$client_port" =~ ^[0-9]+-[0-9]+$ ]]; then
+                print_error "When using GOST with a port range, you must provide an internal rathole port as the final argument."
+                print_info "Example: ... gost 10611"
+                exit 1
+            fi
             rathole_bind_port=$((client_port + 1000))
         fi
+
+        # External port (or range) that proxy listens on is the client_port argument
         external_port="$client_port"
         print_info "Proxy mode enabled ($use_proxy_opt):"
         print_info "  - External port: $external_port"
@@ -697,10 +711,10 @@ EOF
 
     # Configure optional proxy in front of Rathole
     if [[ "$use_proxy_opt" == "haproxy" ]]; then
-        create_haproxy_server_config "$name" "$port" "$rathole_bind_port"
-        manage_haproxy_service "$port" start "$rathole_bind_port"
+        create_haproxy_server_config "$name" "$external_port" "$rathole_bind_port"
+        manage_haproxy_service "$external_port" start "$rathole_bind_port"
     elif [[ "$use_proxy_opt" == "gost" ]]; then
-        create_gost_server_proxy "$name" "$port" "$rathole_bind_port"
+        create_gost_server_proxy "$name" "$external_port" "$rathole_bind_port"
     fi
 
     # Set secure permissions
@@ -1124,7 +1138,12 @@ main() {
             
             # Validate inputs
             validate_port "$port"
-            validate_port "$client_port"
+            # Allow port range for GOST mode on server; otherwise require a single port
+            if [[ "$7" == "gost" && "$client_port" =~ ^[0-9]+-[0-9]+$ ]]; then
+                : # skip numeric validation; will require custom internal port
+            else
+                validate_port "$client_port"
+            fi
             validate_protocol "$protocol"
             validate_nodelay "$nodelay"
             

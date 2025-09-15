@@ -125,8 +125,8 @@ fi
 # Function to show usage
 show_usage() {
     echo "Usage:"
-    echo "  Server: $0 server <name> <port> <default_token> <client_port> <tcp|udp> <nodelay> [haproxy|gost] [rathole_port]"
-    echo "  Client: $0 client <name> <domain/ip:port> <default_token> <client_port> <tcp|udp> <nodelay> [haproxy|gost] [rathole_port]"
+    echo "  Server: $0 server <name> <port> <default_token> <client_port> <tcp|udp> <nodelay> [haproxy|gost] [rathole_port] [service_name]"
+    echo "  Client: $0 client <name> <domain/ip:port> <default_token> <client_port> <tcp|udp> <nodelay> [haproxy|gost] [rathole_port] [service_name]"
     echo ""
     echo "Examples:"
     echo "  Basic:"
@@ -149,6 +149,10 @@ show_usage() {
     echo "    $0 server myapp 2333 mysecrettoken 8080 tcp true gost 9080"
     echo "    $0 client myapp example.com:2333 mysecrettoken 8080 tcp false gost 9080"
     echo ""
+    echo "  Explicitly set a shared service name (recommended when ports differ or using ranges):"
+    echo "    $0 server myapp 27012 token 700-799 tcp true gost 10611 myservice"
+    echo "    $0 client myapp [2a07:...]:27012 token 10610 tcp true gost 10611 myservice"
+    echo ""
     echo "Parameters:"
     echo "  name              - Configuration name"
     echo "  port              - Server bind port (server only)"
@@ -160,6 +164,7 @@ show_usage() {
     echo "  haproxy           - Optional: Generate HAProxy configuration for real IP logging"
     echo "  gost              - Optional: Generate GOST configuration for real IP logging"
     echo "  rathole_port      - Optional: Custom rathole internal port (default: client_port + 1000)"
+    echo "  service_name      - Optional: Service map key used in both configs. Use this to match names when ports differ (e.g., ranges). Defaults to client_port"
     echo ""
     echo "Note: The script will generate keys and ask for the remote public key interactively."
     echo "      With haproxy, additional HAProxy configuration files will be generated."
@@ -631,6 +636,7 @@ create_server_config() {
     local nodelay="$6"
     local use_proxy_opt="${7:-}"
     local custom_rathole_port="${8:-}"
+    local service_name_key="${9:-}"
     
     # Generate keys for server
     local keys_output
@@ -689,6 +695,13 @@ create_server_config() {
     
     # Create server configuration file
     local config_file="${name}_server.toml"
+    # Determine the service key: use explicit name if provided, else use client_port
+    local service_key
+    if [[ -n "$service_name_key" ]]; then
+        service_key="$service_name_key"
+    else
+        service_key="$client_port"
+    fi
     
     cat > "$config_file" << EOF
 [server]
@@ -703,7 +716,7 @@ pattern = "Noise_KK_25519_ChaChaPoly_BLAKE2s"
 local_private_key = "${local_private_key}"
 remote_public_key = "${remote_public_key}"
 
-[server.services."${client_port}"]
+[server.services."${service_key}"]
 type = "${protocol}"
 bind_addr = "0.0.0.0:${rathole_bind_port}"
 nodelay = ${nodelay}
@@ -758,6 +771,7 @@ create_client_config() {
     local nodelay="$6"
     local use_proxy_opt="${7:-}"
     local custom_rathole_port="${8:-}"
+    local service_name_key="${9:-}"
     
     # Generate keys for client
     local keys_output
@@ -814,6 +828,13 @@ create_client_config() {
     
     # Create client configuration file
     local config_file="${name}_client.toml"
+    # Determine the service key: use explicit name if provided, else use client_port
+    local service_key
+    if [[ -n "$service_name_key" ]]; then
+        service_key="$service_name_key"
+    else
+        service_key="$client_port"
+    fi
     
     cat > "$config_file" << EOF
 [client]
@@ -829,7 +850,7 @@ pattern = "Noise_KK_25519_ChaChaPoly_BLAKE2s"
 local_private_key = "${local_private_key}"
 remote_public_key = "${remote_public_key}"
 
-[client.services."${client_port}"]
+[client.services."${service_key}"]
 type = "${protocol}"
 local_addr = "127.0.0.1:${rathole_local_port}"
 nodelay = ${nodelay}
@@ -1121,8 +1142,8 @@ main() {
     
     case "$type" in
         "server")
-            if [ $# -lt 6 ] || [ $# -gt 8 ]; then
-                print_error "Server configuration requires 6 parameters, with optional 7th for HAProxy and 8th for custom rathole port"
+            if [ $# -lt 6 ] || [ $# -gt 9 ]; then
+                print_error "Server configuration requires 6 parameters, with optional 7th for HAProxy, 8th for custom rathole port, and 9th for service name"
                 show_usage
                 exit 1
             fi
@@ -1135,6 +1156,7 @@ main() {
             local nodelay="$6"
             local use_proxy_opt="${7:-}"
             local custom_rathole_port="${8:-}"
+            local service_name_key="${9:-}"
             
             # Validate inputs
             validate_port "$port"
@@ -1156,12 +1178,12 @@ main() {
                 validate_port "$custom_rathole_port"
             fi
             
-            create_server_config "$name" "$port" "$default_token" "$client_port" "$protocol" "$nodelay" "$use_proxy_opt" "$custom_rathole_port"
+            create_server_config "$name" "$port" "$default_token" "$client_port" "$protocol" "$nodelay" "$use_proxy_opt" "$custom_rathole_port" "$service_name_key"
             ;;
             
         "client")
-            if [ $# -lt 6 ] || [ $# -gt 8 ]; then
-                print_error "Client configuration requires 6 parameters, with optional 7th for HAProxy and 8th for custom rathole port"
+            if [ $# -lt 6 ] || [ $# -gt 9 ]; then
+                print_error "Client configuration requires 6 parameters, with optional 7th for HAProxy, 8th for custom rathole port, and 9th for service name"
                 show_usage
                 exit 1
             fi
@@ -1174,6 +1196,7 @@ main() {
             local nodelay="$6"
             local use_proxy_opt="${7:-}"
             local custom_rathole_port="${8:-}"
+            local service_name_key="${9:-}"
             
             # Validate inputs
             validate_port "$client_port"
@@ -1191,7 +1214,7 @@ main() {
             
             # Normalize IPv6 form for remote_addr if needed
             remote_addr=$(normalize_remote_addr "$remote_addr")
-            create_client_config "$name" "$remote_addr" "$default_token" "$client_port" "$protocol" "$nodelay" "$use_proxy_opt" "$custom_rathole_port"
+            create_client_config "$name" "$remote_addr" "$default_token" "$client_port" "$protocol" "$nodelay" "$use_proxy_opt" "$custom_rathole_port" "$service_name_key"
             ;;
             
         *)

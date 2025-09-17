@@ -410,93 +410,91 @@ EOF
                 exit 1
             fi
 
-            # Waterwall connects to local GOST - Advanced Reality server chain
+            # Waterwall Reality client chain connecting to Iran server
             cat << EOF > "${config_name}.json"
 {
     "name": "${config_name}",
     "nodes": [
         {
-            "name": "users_inbound",
-            "type": "${LISTENER_TYPE}",
+            "name": "outbound_to_core",
+            "type": "${CONNECTOR_TYPE}",
             "settings": {
-                "address": "0.0.0.0",
-                "port": 443,
-                "nodelay": true
-            },
-            "next": "header"
+                "nodelay": true,
+                "address": "127.0.0.1",
+                "port": ${haproxy_port}
+            }
         },
         {
             "name": "header",
-            "type": "HeaderClient",
+            "type": "HeaderServer",
             "settings": {
-                "data": "src_context->port"
+                "override": "dest_context->port"
             },
-            "next": "bridge2"
-        },
-        {
-            "name": "bridge2",
-            "type": "Bridge",
-            "settings": {
-                "pair": "bridge1"
-            }
+            "next": "outbound_to_core"
         },
         {
             "name": "bridge1",
             "type": "Bridge",
             "settings": {
                 "pair": "bridge2"
-            }
+            },
+            "next": "header"
         },
         {
-            "name": "reverse_server",
-            "type": "ReverseServer",
-            "settings": {},
-            "next": "bridge1"
-        },
-        {
-            "name": "pbserver",
-            "type": "ProtoBufServer",
-            "settings": {},
-            "next": "reverse_server"
-        },
-        {
-            "name": "h2server",
-            "type": "Http2Server",
-            "settings": {},
-            "next": "pbserver"
-        },
-        {
-            "name": "halfs",
-            "type": "HalfDuplexServer",
-            "settings": {},
-            "next": "h2server"
-        },
-        {
-            "name": "reality_server",
-            "type": "RealityServer",
+            "name": "bridge2",
+            "type": "Bridge",
             "settings": {
-                "destination": "reality_dest",
+                "pair": "bridge1"
+            },
+            "next": "reverse_client"
+        },
+        {
+            "name": "reverse_client",
+            "type": "ReverseClient",
+            "settings": {
+                "minimum-unused": 16
+            },
+            "next": "pbclient"
+        },
+        {
+            "name": "pbclient",
+            "type": "ProtoBufClient",
+            "settings": {},
+            "next": "h2client"
+        },
+        {
+            "name": "h2client",
+            "type": "Http2Client",
+            "settings": {
+                "host": "${website}",
+                "port": 443,
+                "path": "/",
+                "content-type": "application/grpc",
+                "concurrency": 64
+            },
+            "next": "halfc"
+        },
+        {
+            "name": "halfc",
+            "type": "HalfDuplexClient",
+            "next": "reality_client"
+        },
+        {
+            "name": "reality_client",
+            "type": "RealityClient",
+            "settings": {
+                "sni": "${website}",
                 "password": "${password}"
             },
-            "next": "halfs"
+            "next": "outbound_to_iran"
         },
         {
-            "name": "kharej_inbound",
-            "type": "${LISTENER_TYPE}",
-            "settings": {
-                "address": "0.0.0.0",
-                "port": 443,
-                "nodelay": true
-            },
-            "next": "reality_server"
-        },
-        {
-            "name": "reality_dest",
+            "name": "outbound_to_iran",
             "type": "${CONNECTOR_TYPE}",
             "settings": {
                 "nodelay": true,
-                "address": "127.0.0.1",
-                "port": ${haproxy_port}
+                "address": "${destination_ip}",
+                "port": ${destination_port}
             }
         }
     ]

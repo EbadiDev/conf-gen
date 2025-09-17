@@ -166,13 +166,18 @@ create_gost_client_config() {
         base_query="${base_query}&${extra}"
     fi
     # Bind to specific IP if provided; empty means default (all interfaces)
-    local bind_host
+    local bind_host bind_spec
     if [ -n "$bind_ip" ]; then
-        bind_host="${bind_ip}"
+        bind_host="$bind_ip"
+        # Bracket IPv6 bind IPs if not already bracketed
+        if [[ "$bind_host" == *:* && "$bind_host" != [* ]]; then
+            bind_host="[$bind_host]"
+        fi
+        bind_spec="${bind_host}:${tunnel_port}"
     else
-        bind_host=":"
+        bind_spec=":${tunnel_port}"
     fi
-    local args=("-L" "ss://aes-128-cfb:${ss_password}@${bind_host}${tunnel_port}/${upstream_host}:${app_port}?${base_query}")
+    local args=("-L" "ss://aes-128-cfb:${ss_password}@${bind_spec}/${upstream_host}:${app_port}?${base_query}")
 
     remove_gost_service "$service_name"
     local unit_path

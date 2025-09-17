@@ -410,26 +410,88 @@ EOF
                 exit 1
             fi
 
-            # Waterwall connects to local GOST
+            # Waterwall connects to local GOST - Advanced Reality server chain
             cat << EOF > "${config_name}.json"
 {
     "name": "${config_name}",
     "nodes": [
         {
-            "name": "input",
-            "type": "RealityGrpcServer",
+            "name": "users_inbound",
+            "type": "${LISTENER_TYPE}",
             "settings": {
-                "multi-stream": true,
-                "password": "${password}",
-                "server-name": "${website}",
                 "address": "0.0.0.0",
                 "port": 443,
                 "nodelay": true
             },
-            "next": "output"
+            "next": "header"
         },
         {
-            "name": "output",
+            "name": "header",
+            "type": "HeaderClient",
+            "settings": {
+                "data": "src_context->port"
+            },
+            "next": "bridge2"
+        },
+        {
+            "name": "bridge2",
+            "type": "Bridge",
+            "settings": {
+                "pair": "bridge1"
+            }
+        },
+        {
+            "name": "bridge1",
+            "type": "Bridge",
+            "settings": {
+                "pair": "bridge2"
+            }
+        },
+        {
+            "name": "reverse_server",
+            "type": "ReverseServer",
+            "settings": {},
+            "next": "bridge1"
+        },
+        {
+            "name": "pbserver",
+            "type": "ProtoBufServer",
+            "settings": {},
+            "next": "reverse_server"
+        },
+        {
+            "name": "h2server",
+            "type": "Http2Server",
+            "settings": {},
+            "next": "pbserver"
+        },
+        {
+            "name": "halfs",
+            "type": "HalfDuplexServer",
+            "settings": {},
+            "next": "h2server"
+        },
+        {
+            "name": "reality_server",
+            "type": "RealityServer",
+            "settings": {
+                "destination": "reality_dest",
+                "password": "${password}"
+            },
+            "next": "halfs"
+        },
+        {
+            "name": "kharej_inbound",
+            "type": "${LISTENER_TYPE}",
+            "settings": {
+                "address": "0.0.0.0",
+                "port": 443,
+                "nodelay": true
+            },
+            "next": "reality_server"
+        },
+        {
+            "name": "reality_dest",
             "type": "${CONNECTOR_TYPE}",
             "settings": {
                 "nodelay": true,

@@ -345,42 +345,50 @@ EOF
 
 # Main half handler function
 handle_half_config() {
+    # Positional overview: $1=half, $2=website, $3=password, then optional [haproxy|gost] [tcp|udp] <type> <config_name> ...
     local website="$2"
     local password="$3"
     local protocol="tcp"  # Default protocol
-    local type
-    local config_name
     local use_haproxy=false
     local use_gost=false
-    local param_offset=4
-    
-    # Check if proxy flag is present after password
-    if [ "$4" = "haproxy" ]; then
+
+    # Build args array from $4 onward for robust indexing
+    shift 3
+    local args=("$@")
+    local idx=0
+
+    # Optional proxy helper
+    if [ "${args[0]}" = "haproxy" ]; then
         use_haproxy=true
-        param_offset=5
-    elif [ "$4" = "gost" ]; then
+        idx=$((idx + 1))
+    elif [ "${args[0]}" = "gost" ]; then
         use_gost=true
-        param_offset=5
+        idx=$((idx + 1))
     fi
-    
-    # Check if protocol is explicitly specified
-    if [ "${!param_offset}" = "tcp" ] || [ "${!param_offset}" = "udp" ]; then
-        protocol="${!param_offset}"
-        param_offset=$((param_offset + 1))
+
+    # Optional protocol
+    if [ "${args[$idx]}" = "tcp" ] || [ "${args[$idx]}" = "udp" ]; then
+        protocol="${args[$idx]}"
+        idx=$((idx + 1))
     fi
-    
-    type="${!param_offset}"
-    config_name="${!$((param_offset + 1))}"
-    
+
+    # Required: type and config_name
+    local type="${args[$idx]}"; idx=$((idx + 1))
+    local config_name="${args[$idx]}"; idx=$((idx + 1))
+
     # Validate required parameters
     if [ -z "$website" ] || [ -z "$password" ] || [ -z "$type" ] || [ -z "$config_name" ]; then
-        echo "Usage: $0 half <website> <password> [haproxy] [tcp|udp] <type> <config_name> [additional_params...]"
-        echo "Example: $0 half web-cdn.snapp.ir mypass haproxy tcp server myconfig -p 8080 192.168.1.100"
+        echo "Usage: $0 half <website> <password> [haproxy|gost] [tcp|udp] <server|client> <config_name> [additional_params...]"
+        echo "Examples:"
+        echo "  $0 half web-cdn.snapp.ir mypass haproxy tcp server myconfig -p 8080 192.168.1.100 [internal_port]"
+        echo "  $0 half web-cdn.snapp.ir mypass gost tcp server myconfig <start_port> <end_port> <server_ip> <internal_port>"
+        echo "  $0 half web-cdn.snapp.ir mypass client myconfig <start_port> <end_port> <dest_ip> <dest_port> [internal_port]"
+        echo "  $0 half web-cdn.snapp.ir mypass gost client myconfig -p <dest_port> <dest_ip> <gost_port>"
         exit 1
     fi
-    
-    # Get remaining arguments
-    shift $((param_offset + 1))
-    
-    create_half_config "$website" "$password" "$protocol" "$type" "$config_name" "$use_haproxy" "$use_gost" "$@"
+
+    # Remaining parameters for the specific mode
+    local remaining=("${args[@]:$idx}")
+
+    create_half_config "$website" "$password" "$protocol" "$type" "$config_name" "$use_haproxy" "$use_gost" "${remaining[@]}"
 }

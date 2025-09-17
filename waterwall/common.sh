@@ -222,9 +222,11 @@ Proxy Integration:
     Add 'haproxy', 'caddy', or 'gost' flags with supported types:
     - HAProxy:   $0 haproxy <type> <protocol> <config_name> [parameters...]
     - Caddy:     $0 caddy <type> <protocol> <config_name> [parameters...]
-    - GOST (TCP, Proxy Protocol): use with 'v2' flow:
-            $0 v2 gost server <config_name> <start_port> <end_port> <non_iran_ip> <iran_ip> <private_ip> <gost_port> <protocol>
-            $0 v2 gost client <config_name> <non_iran_ip> <iran_ip> <private_ip> <gost_port> <protocol> <app_port>
+    - GOST (SS aes-128-cfb + Proxy Protocol). Optional password after 'gost' (default apple123ApPle or env GOST_SS_PASSWORD):
+            $0 v2 gost [<ss_password>] server <config_name> <start_port> <end_port> <non_iran_ip> <iran_ip> <private_ip> <haproxy_port> <protocol>
+            $0 v2 gost [<ss_password>] client <config_name> <non_iran_ip> <iran_ip> <private_ip> <haproxy_port> <protocol> <app_port>
+            $0 half <website> <password> gost [<ss_password>] [tcp|udp] <server|client> <config_name> [...]
+            $0 simple gost [<ss_password>] [tcp|udp] <type> <config_name> <start_port> <end_port> <dest_ip> <dest_port> [internal_port]
 
 Examples:
   $0 server myconfig -p 8080 192.168.1.100

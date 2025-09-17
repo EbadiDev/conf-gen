@@ -18,8 +18,16 @@ create_half_config() {
     local config_name="$5"
     local use_haproxy="$6"
     local use_gost="$7"
-    shift 7
+    local gost_password="$8"
+    shift 8
     local remaining_args=("$@")
+    # Resolve SS password from CLI, env, or default
+    local ss_password
+    if [ -n "$gost_password" ]; then
+        ss_password="$gost_password"
+    else
+        ss_password="${GOST_SS_PASSWORD:-apple123ApPle}"
+    fi
 
     # Determine protocol type
     if [ "$protocol" = "tcp" ]; then
@@ -41,7 +49,7 @@ create_half_config() {
         local server_ip
         local haproxy_port
 
-        # GOST single-port server mode: -p <gost_port> <server_ip> [waterwall_port]
+    # GOST single-port server mode: -p <gost_port> <server_ip> [waterwall_port]
         if [ "$use_gost" = true ] && [ "$port_flag" = "-p" ]; then
             local gost_port="${remaining_args[1]}"
             server_ip="${remaining_args[2]}"
@@ -49,7 +57,7 @@ create_half_config() {
 
             if [ -z "$gost_port" ] || [ -z "$server_ip" ]; then
                 echo "Error: Invalid GOST server (-p) parameters"
-                echo "Usage: half <website> <password> gost [tcp|udp] server <config_name> -p <gost_port> <server_ip> [waterwall_port]"
+                echo "Usage: half <website> <password> gost [<ss_password>] [tcp|udp] server <config_name> -p <gost_port> <server_ip> [waterwall_port]"
                 exit 1
             fi
 
@@ -158,7 +166,7 @@ EOF
                 add_to_core_json "$config_name" "half"
                 print_info "Setting up GOST configuration for Half server (-p single-port)..."
                 # GOST listens on :gost_port and forwards to 127.0.0.1:haproxy_port
-                create_gost_server_config "$config_name" "$gost_port" "127.0.0.1" "$haproxy_port" "$protocol"
+                create_gost_server_config "$config_name" "$gost_port" "127.0.0.1" "$haproxy_port" "$protocol" "$ss_password"
                 manage_gost_service "$config_name"
                 open_firewall_ports "$gost_port" "$gost_port"
                 echo "Half server configuration file ${config_name}.json has been created successfully!"
@@ -181,7 +189,7 @@ EOF
 
             if [ -z "$start_port" ] || [ -z "$end_port" ] || [ -z "$server_ip" ] || [ -z "$haproxy_port" ]; then
                 echo "Error: Invalid GOST server parameters"
-                echo "Usage: half <website> <password> gost [tcp|udp] server <config_name> <start_port> <end_port> <server_ip> <internal_waterwall_port>"
+                echo "Usage: half <website> <password> gost [<ss_password>] [tcp|udp] server <config_name> <start_port> <end_port> <server_ip> <internal_waterwall_port>"
                 exit 1
             fi
 
@@ -288,7 +296,7 @@ EOF
             if [ $? -eq 0 ]; then
                 add_to_core_json "$config_name" "half"
                 print_info "Setting up GOST configuration for Half server (range)..."
-                create_gost_server_config_range "$config_name" "$start_port" "$end_port" "127.0.0.1" "$haproxy_port" "$protocol"
+                create_gost_server_config_range "$config_name" "$start_port" "$end_port" "127.0.0.1" "$haproxy_port" "$protocol" "$ss_password"
                 manage_gost_service "$config_name"
                 open_firewall_ports "$start_port" "$end_port"
                 echo "Half server configuration file ${config_name}.json has been created successfully!"
@@ -400,13 +408,13 @@ EOF
         local destination_port
         local haproxy_port
 
-        if [ "$use_gost" = true ] && [ "$start_port" = "-p" ]; then
+    if [ "$use_gost" = true ] && [ "$start_port" = "-p" ]; then
             destination_port="${remaining_args[1]}"
             destination_ip="${remaining_args[2]}"
             haproxy_port="${remaining_args[3]}"   # GOST listener port / Iran server port
             if [ -z "$destination_port" ] || [ -z "$destination_ip" ] || [ -z "$haproxy_port" ]; then
                 echo "Error: Invalid GOST client parameters"
-                echo "Usage: half <website> <password> gost [tcp|udp] client <config_name> -p <destination_port> <destination_ip> <gost_port>"
+                echo "Usage: half <website> <password> gost [<ss_password>] [tcp|udp] client <config_name> -p <destination_port> <destination_ip> <gost_port>"
                 exit 1
             fi
 
@@ -505,7 +513,7 @@ EOF
                 add_to_core_json "$config_name" "half"
                 print_info "Setting up GOST configuration for Half client..."
                 # GOST listens on :gost_port and forwards to 127.0.0.1:destination_port with Proxy Protocol
-                create_gost_client_config "$config_name" "" "$haproxy_port" "127.0.0.1" "$destination_port" "$protocol"
+                create_gost_client_config "$config_name" "" "$haproxy_port" "127.0.0.1" "$destination_port" "$protocol" "$ss_password"
                 manage_gost_service "$config_name"
                 echo "Half client configuration file ${config_name}.json has been created successfully!"
                 echo "Reality/gRPC client serving: ${website}"
@@ -602,12 +610,13 @@ EOF
 
 # Main half handler function
 handle_half_config() {
-    # Positional overview: $1=half, $2=website, $3=password, then optional [haproxy|gost] [tcp|udp] <type> <config_name> ...
+    # Positional overview: $1=half, $2=website, $3=password, then optional [haproxy|gost [<ss_password>]] [tcp|udp] <type> <config_name> ...
     local website="$2"
     local password="$3"
     local protocol="tcp"  # Default protocol
     local use_haproxy=false
     local use_gost=false
+    local gost_password=""
 
     # Build args array from $4 onward for robust indexing
     shift 3
@@ -621,6 +630,11 @@ handle_half_config() {
     elif [ "${args[0]}" = "gost" ]; then
         use_gost=true
         idx=$((idx + 1))
+        # Optional SS password right after 'gost'
+        if [ -n "${args[$idx]}" ] && [ "${args[$idx]}" != "tcp" ] && [ "${args[$idx]}" != "udp" ] && [ "${args[$idx]}" != "server" ] && [ "${args[$idx]}" != "client" ]; then
+            gost_password="${args[$idx]}"
+            idx=$((idx + 1))
+        fi
     fi
 
     # Optional protocol
@@ -647,5 +661,5 @@ handle_half_config() {
     # Remaining parameters for the specific mode
     local remaining=("${args[@]:$idx}")
 
-    create_half_config "$website" "$password" "$protocol" "$type" "$config_name" "$use_haproxy" "$use_gost" "${remaining[@]}"
+    create_half_config "$website" "$password" "$protocol" "$type" "$config_name" "$use_haproxy" "$use_gost" "$gost_password" "${remaining[@]}"
 }

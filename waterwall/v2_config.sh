@@ -23,6 +23,7 @@ create_v2_server_config() {
     local use_haproxy="$9"
     local use_caddy="${10}"
     local use_gost="${11}"
+    local ss_password="${12:-${GOST_SS_PASSWORD:-apple123ApPle}}"
 
     # Calculate PRIVATE_IP+1 for output and ipovsrc2
     IFS='.' read -r ip1 ip2 ip3 ip4 <<< "$private_ip"
@@ -168,7 +169,7 @@ EOF
             print_info "- Waterwall connects to: ${ip_plus1}:${haproxy_port}"
         elif [ "$use_gost" = true ]; then
             print_info "Setting up GOST configuration for V2 server..."
-            create_gost_server_config_range "$config_name" "$start_port" "$end_port" "127.0.0.1" "$haproxy_port" "tcp"
+            create_gost_server_config_range "$config_name" "$start_port" "$end_port" "127.0.0.1" "$haproxy_port" "tcp" "$ss_password"
             manage_gost_service "$config_name"
 
             # Open additional ports for V2 Server with GOST
@@ -206,6 +207,7 @@ create_v2_client_config() {
     local use_haproxy="$8"
     local use_caddy="$9"
     local use_gost="${10}"
+    local ss_password="${11:-${GOST_SS_PASSWORD:-apple123ApPle}}"
 
     # Calculate PRIVATE_IP+1 for input address
     IFS='.' read -r ip1 ip2 ip3 ip4 <<< "$private_ip"
@@ -312,7 +314,7 @@ EOF
             print_info "- Caddy forwards to app: 127.0.0.1:${app_port}"
         elif [ "$use_gost" = true ]; then
             print_info "Setting up GOST configuration for V2 client..."
-            create_gost_client_config "$config_name" "$private_ip" "$haproxy_port" "127.0.0.1" "$app_port" "tcp"
+            create_gost_client_config "$config_name" "$private_ip" "$haproxy_port" "127.0.0.1" "$app_port" "tcp" "$ss_password"
             manage_gost_service "$config_name"
 
             print_info "V2 Client with GOST:"
@@ -345,6 +347,7 @@ handle_v2_config() {
     local use_haproxy=false
     local use_caddy=false
     local use_gost=false
+    local gost_password=""
     local config_type
     
     # Check if haproxy or caddy flag is present
@@ -358,45 +361,52 @@ handle_v2_config() {
         shift 1  # Remove caddy flag
     elif [ "$2" = "gost" ]; then
         use_gost=true
-        config_type="$3"  # server or client
-        shift 1  # Remove gost flag
+        # Optional password after 'gost'
+        if [ -n "$3" ] && [ "$3" != "server" ] && [ "$3" != "client" ]; then
+            gost_password="$3"
+            config_type="$4"
+            shift 2
+        else
+            config_type="$3"
+            shift 1
+        fi
     else
         config_type="$2"  # server or client
     fi
     
     if [ "$config_type" = "server" ]; then
         # v2 server config_name start-port end-port non-iran-ip iran-ip private-ip haproxy-port protocol
-        if [ "$#" -lt 9 ]; then
+    if [ "$#" -lt 9 ]; then
             if [ "$use_haproxy" = true ]; then
                 echo "Usage: $0 v2 haproxy server <config_name> <start_port> <end_port> <non_iran_ip> <iran_ip> <private_ip> <haproxy_port> <protocol>"
             elif [ "$use_caddy" = true ]; then
                 echo "Usage: $0 v2 caddy server <config_name> <start_port> <end_port> <non_iran_ip> <iran_ip> <private_ip> <haproxy_port> <protocol>"
             elif [ "$use_gost" = true ]; then
-                echo "Usage: $0 v2 gost server <config_name> <start_port> <end_port> <non_iran_ip> <iran_ip> <private_ip> <haproxy_port> <protocol>"
+        echo "Usage: $0 v2 gost [<ss_password>] server <config_name> <start_port> <end_port> <non_iran_ip> <iran_ip> <private_ip> <haproxy_port> <protocol>"
             else
                 echo "Usage: $0 v2 server <config_name> <start_port> <end_port> <non_iran_ip> <iran_ip> <private_ip> <haproxy_port> <protocol>"
             fi
             exit 1
         fi
-        
-        create_v2_server_config "$3" "$4" "$5" "$6" "$7" "$8" "$9" "${10}" "$use_haproxy" "$use_caddy" "$use_gost"
+    # Pass gost_password as last param (only used when use_gost=true)
+    create_v2_server_config "$3" "$4" "$5" "$6" "$7" "$8" "$9" "${10}" "$use_haproxy" "$use_caddy" "$use_gost" "$gost_password"
         
     elif [ "$config_type" = "client" ]; then
         # v2 client config_name non-iran-ip iran-ip private-ip haproxy-port protocol app-port
-        if [ "$#" -lt 8 ]; then
+    if [ "$#" -lt 8 ]; then
             if [ "$use_haproxy" = true ]; then
                 echo "Usage: $0 v2 haproxy client <config_name> <non_iran_ip> <iran_ip> <private_ip> <haproxy_port> <protocol> <app_port>"
             elif [ "$use_caddy" = true ]; then
                 echo "Usage: $0 v2 caddy client <config_name> <non_iran_ip> <iran_ip> <private_ip> <haproxy_port> <protocol> <app_port>"
             elif [ "$use_gost" = true ]; then
-                echo "Usage: $0 v2 gost client <config_name> <non_iran_ip> <iran_ip> <private_ip> <haproxy_port> <protocol> <app_port>"
+        echo "Usage: $0 v2 gost [<ss_password>] client <config_name> <non_iran_ip> <iran_ip> <private_ip> <haproxy_port> <protocol> <app_port>"
             else
                 echo "Usage: $0 v2 client <config_name> <non_iran_ip> <iran_ip> <private_ip> <haproxy_port> <protocol> <app_port>"
             fi
             exit 1
         fi
-        
-        create_v2_client_config "$3" "$4" "$5" "$6" "$7" "$8" "$9" "$use_haproxy" "$use_caddy" "$use_gost"
+    # Pass gost_password as last param (only used when use_gost=true)
+    create_v2_client_config "$3" "$4" "$5" "$6" "$7" "$8" "$9" "$use_haproxy" "$use_caddy" "$use_gost" "$gost_password"
         
     else
         echo "Error: v2 config type must be either 'server' or 'client'"

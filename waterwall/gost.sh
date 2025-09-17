@@ -92,6 +92,7 @@ remove_gost_service() {
 
 # GOST Server Configuration (external clients connect to a port range)
 # Binds :start-end and forwards to backend_ip:backend_port, sending Proxy Protocol header
+# You can append extra listener/handler tuning via env GOST_EXTRA_QUERY (e.g., "tfo=1&nodelay=1").
 create_gost_server_config_range() {
     local service_name="$1"
     local start_port="$2"
@@ -99,10 +100,18 @@ create_gost_server_config_range() {
     local backend_ip="$4"
     local backend_port="$5"
     local protocol="$6"   # tcp only, kept for API symmetry
+    local ss_password="${7:-apple123ApPle}"
 
     # Use GOST's native port range support (many-to-one mapping)
-    # Example: -L tcp://:450-499/127.0.0.1:10311?handler.proxyProtocol=1
-    local args=("-L" "tcp://:${start_port}-${end_port}/${backend_ip}:${backend_port}?handler.proxyProtocol=1")
+    # Example: -L tcp://:450-499/127.0.0.1:10311?handler.proxyProtocol=2
+    local base_query="handler.proxyProtocol=2&tfo=1&nodelay=true&keepAlive=true"
+    if [ -n "${GOST_EXTRA_QUERY:-}" ]; then
+        # Trim a leading & if present
+        local extra="${GOST_EXTRA_QUERY#&}"
+        base_query="${base_query}&${extra}"
+    fi
+    # Use Shadowsocks listener with minimal cipher and provided password
+    local args=("-L" "ss://aes-128-cfb:${ss_password}@:${start_port}-${end_port}/${backend_ip}:${backend_port}?${base_query}")
 
     remove_gost_service "$service_name"
     local unit_path
@@ -117,8 +126,14 @@ create_gost_server_config() {
     local backend_ip="$3"
     local backend_port="$4"
     local protocol="$5"   # tcp only, kept for API symmetry
+    local ss_password="${6:-apple123ApPle}"
 
-    local args=("-L" "tcp://:${external_port}/${backend_ip}:${backend_port}?handler.proxyProtocol=1")
+    local base_query="handler.proxyProtocol=2&tfo=1&nodelay=true&keepAlive=true"
+    if [ -n "${GOST_EXTRA_QUERY:-}" ]; then
+        local extra="${GOST_EXTRA_QUERY#&}"
+        base_query="${base_query}&${extra}"
+    fi
+    local args=("-L" "ss://aes-128-cfb:${ss_password}@:${external_port}/${backend_ip}:${backend_port}?${base_query}")
 
     remove_gost_service "$service_name"
     local unit_path
@@ -128,6 +143,7 @@ create_gost_server_config() {
 
 # GOST Client Configuration (binds to private_ip:tunnel_port and forwards to app_ip:app_port)
 # Enables receiving Proxy Protocol on listener and sends Proxy Protocol upstream to the app
+# Extra query parts can be appended via GOST_EXTRA_QUERY (applied to the listener URL).
 create_gost_client_config() {
     local service_name="$1"
     local bind_ip="$2"
@@ -135,6 +151,7 @@ create_gost_client_config() {
     local app_ip="$4"
     local app_port="$5"
     local protocol="$6"   # tcp only, kept for API symmetry
+    local ss_password="${7:-apple123ApPle}"
 
     # Prepare upstream host:port (bracket IPv6)
     local upstream_host="$app_ip"
@@ -143,7 +160,19 @@ create_gost_client_config() {
     fi
 
     # Accept Proxy Protocol if present, and send it upstream to the app
-    local args=("-L" "tcp://${bind_ip}:${tunnel_port}/${upstream_host}:${app_port}?proxyProtocol=1&handler.proxyProtocol=1")
+    local base_query="proxyProtocol=2&handler.proxyProtocol=2&tfo=1&nodelay=true&keepAlive=true"
+    if [ -n "${GOST_EXTRA_QUERY:-}" ]; then
+        local extra="${GOST_EXTRA_QUERY#&}"
+        base_query="${base_query}&${extra}"
+    fi
+    # Bind to specific IP if provided; empty means default (all interfaces)
+    local bind_host
+    if [ -n "$bind_ip" ]; then
+        bind_host="${bind_ip}"
+    else
+        bind_host=":"
+    fi
+    local args=("-L" "ss://aes-128-cfb:${ss_password}@${bind_host}${tunnel_port}/${upstream_host}:${app_port}?${base_query}")
 
     remove_gost_service "$service_name"
     local unit_path

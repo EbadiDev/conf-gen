@@ -403,7 +403,7 @@ EOF
         if [ "$use_gost" = true ] && [ "$start_port" = "-p" ]; then
             destination_port="${remaining_args[1]}"
             destination_ip="${remaining_args[2]}"
-            haproxy_port="${remaining_args[3]}"   # GOST listener port
+            haproxy_port="${remaining_args[3]}"   # GOST listener port / Iran server port
             if [ -z "$destination_port" ] || [ -z "$destination_ip" ] || [ -z "$haproxy_port" ]; then
                 echo "Error: Invalid GOST client parameters"
                 echo "Usage: half <website> <password> gost [tcp|udp] client <config_name> -p <destination_port> <destination_ip> <gost_port>"
@@ -421,7 +421,7 @@ EOF
             "settings": {
                 "nodelay": true,
                 "address": "127.0.0.1",
-                "port": ${haproxy_port}
+                "port": ${destination_port}
             }
         },
         {
@@ -494,7 +494,7 @@ EOF
             "settings": {
                 "nodelay": true,
                 "address": "${destination_ip}",
-                "port": ${destination_port}
+                "port": ${haproxy_port}
             }
         }
     ]

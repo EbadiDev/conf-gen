@@ -189,30 +189,96 @@ EOF
             local waterwall_listen_port="$haproxy_port"
             port="$start_port"  # for logging
 
+            # Advanced Reality server chain (same as single-port mode)
             cat << EOF > "${config_name}.json"
 {
     "name": "${config_name}",
     "nodes": [
         {
-            "name": "input",
+            "name": "users_inbound",
             "type": "${LISTENER_TYPE}",
             "settings": {
                 "address": "0.0.0.0",
                 "port": ${waterwall_listen_port},
                 "nodelay": true
             },
-            "next": "output"
+            "next": "header"
         },
         {
-            "name": "output",
-            "type": "RealityGrpcClient",
+            "name": "header",
+            "type": "HeaderClient",
             "settings": {
-                "multi-stream": true,
-                "password": "${password}",
-                "server-name": "${website}",
-                "address": "${server_ip}",
-                "port": 443,
-                "nodelay": true
+                "data": "src_context->port"
+            },
+            "next": "bridge2"
+        },
+        {
+            "name": "bridge2",
+            "type": "Bridge",
+            "settings": {
+                "pair": "bridge1"
+            }
+        },
+        {
+            "name": "bridge1",
+            "type": "Bridge",
+            "settings": {
+                "pair": "bridge2"
+            }
+        },
+        {
+            "name": "reverse_server",
+            "type": "ReverseServer",
+            "settings": {},
+            "next": "bridge1"
+        },
+        {
+            "name": "pbserver",
+            "type": "ProtoBufServer",
+            "settings": {},
+            "next": "reverse_server"
+        },
+        {
+            "name": "h2server",
+            "type": "Http2Server",
+            "settings": {},
+            "next": "pbserver"
+        },
+        {
+            "name": "halfs",
+            "type": "HalfDuplexServer",
+            "settings": {},
+            "next": "h2server"
+        },
+        {
+            "name": "reality_server",
+            "type": "RealityServer",
+            "settings": {
+                "destination": "reality_dest",
+                "password": "${password}"
+            },
+            "next": "halfs"
+        },
+        {
+            "name": "kharej_inbound",
+            "type": "${LISTENER_TYPE}",
+            "settings": {
+                "address": "0.0.0.0",
+                "port": ${waterwall_listen_port},
+                "nodelay": true,
+                "whitelist": [
+                    "${server_ip}/32"
+                ]
+            },
+            "next": "reality_server"
+        },
+        {
+            "name": "reality_dest",
+            "type": "${CONNECTOR_TYPE}",
+            "settings": {
+                "nodelay": true,
+                "address": "${website}",
+                "port": 443
             }
         }
     ]
@@ -226,7 +292,7 @@ EOF
                 manage_gost_service "$config_name"
                 open_firewall_ports "$start_port" "$end_port"
                 echo "Half server configuration file ${config_name}.json has been created successfully!"
-                echo "Reality/gRPC server connecting to: ${website} via ${server_ip}:443"
+                echo "Reality server stack listening on internal: ${haproxy_port}"
                 echo "GOST: :${start_port}-${end_port} -> 127.0.0.1:${haproxy_port}"
             else
                 echo "Error: Failed to create half server configuration file"

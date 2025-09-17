@@ -125,8 +125,8 @@ fi
 # Function to show usage
 show_usage() {
     echo "Usage:"
-    echo "  Server: $0 server <name> <port> <default_token> <client_port> <tcp|udp> <nodelay> [haproxy|gost] [rathole_port] [service_name]"
-    echo "  Client: $0 client <name> <domain/ip:port> <default_token> <client_port> <tcp|udp> <nodelay> [haproxy|gost] [rathole_port] [service_name]"
+    echo "  Server: $0 server <name> <port> <default_token> <client_port> <tcp|udp> <nodelay> [haproxy|gost [<ss_password>]] [rathole_port] [service_name]"
+    echo "  Client: $0 client <name> <domain/ip:port> <default_token> <client_port> <tcp|udp> <nodelay> [haproxy|gost [<ss_password>]] [rathole_port] [service_name]"
     echo ""
     echo "Examples:"
     echo "  Basic:"
@@ -140,6 +140,8 @@ show_usage() {
     echo "  With GOST (for real IP logging similar to HAProxy):"
     echo "    $0 server myapp 2333 mysecrettoken 8080 tcp true gost"
     echo "    $0 client myapp example.com:2333 mysecrettoken 8080 tcp false gost"
+    echo "    $0 server myapp 2333 mysecrettoken 8080 tcp true gost mySSpass"
+    echo "    $0 client myapp example.com:2333 mysecrettoken 8080 tcp false gost mySSpass"
     echo ""
     echo "  With HAProxy and custom rathole internal port:"
     echo "    $0 server myapp 2333 mysecrettoken 8080 tcp true haproxy 9080"
@@ -148,6 +150,8 @@ show_usage() {
     echo "  With GOST and custom rathole internal port:"
     echo "    $0 server myapp 2333 mysecrettoken 8080 tcp true gost 9080"
     echo "    $0 client myapp example.com:2333 mysecrettoken 8080 tcp false gost 9080"
+    echo "    $0 server myapp 2333 mysecrettoken 8080 tcp true gost mySSpass 9080"
+    echo "    $0 client myapp example.com:2333 mysecrettoken 8080 tcp false gost mySSpass 9080"
     echo ""
     echo "  Explicitly set a shared service name (recommended when ports differ or using ranges):"
     echo "    $0 server myapp 27012 token 700-799 tcp true gost 10611 myservice"
@@ -162,7 +166,7 @@ show_usage() {
     echo "  tcp|udp           - Protocol type"
     echo "  nodelay           - Enable/disable TCP nodelay (true/false)"
     echo "  haproxy           - Optional: Generate HAProxy configuration for real IP logging"
-    echo "  gost              - Optional: Generate GOST configuration for real IP logging"
+    echo "  gost [<ss_password>] - Optional: Generate GOST configuration for real IP logging; optional Shadowsocks password overrides default (env GOST_SS_PASSWORD or 'apple123ApPle')"
     echo "  rathole_port      - Optional: Custom rathole internal port (default: client_port + 1000)"
     echo "  service_name      - Optional: Service map key used in both configs. Use this to match names when ports differ (e.g., ranges). Defaults to client_port"
     echo ""
@@ -178,6 +182,7 @@ create_gost_server_proxy() {
     local name="$1"           # config/service name
     local external_port="$2"  # public port or port-range clients hit
     local rathole_port="$3"   # internal rathole service port
+    local ss_password="${4:-${GOST_SS_PASSWORD:-apple123ApPle}}"
 
     if ! declare -F create_gost_server_config >/dev/null 2>&1; then
         print_error "GOST module not available; cannot configure GOST server proxy."
@@ -188,9 +193,9 @@ create_gost_server_proxy() {
     if [[ "$external_port" =~ ^[0-9]+-[0-9]+$ ]]; then
         local start_port="${external_port%-*}"
         local end_port="${external_port#*-}"
-        create_gost_server_config_range "$name" "$start_port" "$end_port" "127.0.0.1" "$rathole_port" "tcp"
+        create_gost_server_config_range "$name" "$start_port" "$end_port" "127.0.0.1" "$rathole_port" "tcp" "$ss_password"
     else
-        create_gost_server_config "$name" "$external_port" "127.0.0.1" "$rathole_port" "tcp"
+        create_gost_server_config "$name" "$external_port" "127.0.0.1" "$rathole_port" "tcp" "$ss_password"
     fi
     manage_gost_service "$name"
 }
@@ -199,6 +204,7 @@ create_gost_client_proxy() {
     local name="$1"          # config/service name
     local rathole_port="$2"  # local port rathole expects
     local service_port="$3"  # your actual app/service port
+    local ss_password="${4:-${GOST_SS_PASSWORD:-apple123ApPle}}"
 
     if ! declare -F create_gost_client_config >/dev/null 2>&1; then
         print_error "GOST module not available; cannot configure GOST client proxy."
@@ -206,7 +212,7 @@ create_gost_client_proxy() {
     fi
 
     print_info "Configuring GOST as client proxy: 127.0.0.1:${rathole_port} -> 127.0.0.1:${service_port} (Proxy Protocol)"
-    create_gost_client_config "$name" "127.0.0.1" "$rathole_port" "127.0.0.1" "$service_port" "tcp"
+    create_gost_client_config "$name" "127.0.0.1" "$rathole_port" "127.0.0.1" "$service_port" "tcp" "$ss_password"
     manage_gost_service "$name"
 }
 
@@ -637,6 +643,7 @@ create_server_config() {
     local use_proxy_opt="${7:-}"
     local custom_rathole_port="${8:-}"
     local service_name_key="${9:-}"
+    local ss_password="${10:-${GOST_SS_PASSWORD:-apple123ApPle}}"
     
     # Generate keys for server
     local keys_output
@@ -727,7 +734,7 @@ EOF
         create_haproxy_server_config "$name" "$external_port" "$rathole_bind_port"
         manage_haproxy_service "$external_port" start "$rathole_bind_port"
     elif [[ "$use_proxy_opt" == "gost" ]]; then
-        create_gost_server_proxy "$name" "$external_port" "$rathole_bind_port"
+        create_gost_server_proxy "$name" "$external_port" "$rathole_bind_port" "$ss_password"
     fi
 
     # Set secure permissions
@@ -772,6 +779,7 @@ create_client_config() {
     local use_proxy_opt="${7:-}"
     local custom_rathole_port="${8:-}"
     local service_name_key="${9:-}"
+    local ss_password="${10:-${GOST_SS_PASSWORD:-apple123ApPle}}"
     
     # Generate keys for client
     local keys_output
@@ -861,7 +869,7 @@ EOF
         create_haproxy_client_config "$name" "$rathole_local_port" "$client_port"
         manage_haproxy_service "$rathole_local_port" start "$rathole_local_port"
     elif [[ "$use_proxy_opt" == "gost" ]]; then
-        create_gost_client_proxy "$name" "$rathole_local_port" "$client_port"
+        create_gost_client_proxy "$name" "$rathole_local_port" "$client_port" "$ss_password"
     fi
 
     # Set secure permissions
@@ -1142,8 +1150,8 @@ main() {
     
     case "$type" in
         "server")
-            if [ $# -lt 6 ] || [ $# -gt 9 ]; then
-                print_error "Server configuration requires 6 parameters, with optional 7th for HAProxy, 8th for custom rathole port, and 9th for service name"
+            if [ $# -lt 6 ] || [ $# -gt 10 ]; then
+                print_error "Server: requires 6 base params; optional: proxy (haproxy|gost [ss_pass]), rathole_port, service_name"
                 show_usage
                 exit 1
             fi
@@ -1154,14 +1162,25 @@ main() {
             local client_port="$4"
             local protocol="$5"
             local nodelay="$6"
-            local use_proxy_opt="${7:-}"
-            local custom_rathole_port="${8:-}"
-            local service_name_key="${9:-}"
+            shift 6
+            # Optional: proxy + maybe ss_password + rathole_port + service_name
+            local use_proxy_opt="${1:-}"
+            local ss_password=""
+            local custom_rathole_port=""
+            local service_name_key=""
+            if [[ "$use_proxy_opt" == "haproxy" || "$use_proxy_opt" == "gost" ]]; then
+                shift 1
+                if [[ "$use_proxy_opt" == "gost" && -n "${1:-}" && ! "${1:-}" =~ ^[0-9]+$ ]]; then
+                    ss_password="$1"; shift 1
+                fi
+                custom_rathole_port="${1:-}"; if [ -n "$custom_rathole_port" ]; then shift 1; fi
+                service_name_key="${1:-}"; if [ -n "$service_name_key" ]; then shift 1; fi
+            fi
             
             # Validate inputs
             validate_port "$port"
             # Allow port range for GOST mode on server; otherwise require a single port
-            if [[ "$7" == "gost" && "$client_port" =~ ^[0-9]+-[0-9]+$ ]]; then
+            if [[ "$use_proxy_opt" == "gost" && "$client_port" =~ ^[0-9]+-[0-9]+$ ]]; then
                 : # skip numeric validation; will require custom internal port
             else
                 validate_port "$client_port"
@@ -1178,12 +1197,12 @@ main() {
                 validate_port "$custom_rathole_port"
             fi
             
-            create_server_config "$name" "$port" "$default_token" "$client_port" "$protocol" "$nodelay" "$use_proxy_opt" "$custom_rathole_port" "$service_name_key"
+            create_server_config "$name" "$port" "$default_token" "$client_port" "$protocol" "$nodelay" "$use_proxy_opt" "$custom_rathole_port" "$service_name_key" "$ss_password"
             ;;
             
         "client")
-            if [ $# -lt 6 ] || [ $# -gt 9 ]; then
-                print_error "Client configuration requires 6 parameters, with optional 7th for HAProxy, 8th for custom rathole port, and 9th for service name"
+            if [ $# -lt 6 ] || [ $# -gt 10 ]; then
+                print_error "Client: requires 6 base params; optional: proxy (haproxy|gost [ss_pass]), rathole_port, service_name"
                 show_usage
                 exit 1
             fi
@@ -1194,9 +1213,19 @@ main() {
             local client_port="$4"
             local protocol="$5"
             local nodelay="$6"
-            local use_proxy_opt="${7:-}"
-            local custom_rathole_port="${8:-}"
-            local service_name_key="${9:-}"
+            shift 6
+            local use_proxy_opt="${1:-}"
+            local ss_password=""
+            local custom_rathole_port=""
+            local service_name_key=""
+            if [[ "$use_proxy_opt" == "haproxy" || "$use_proxy_opt" == "gost" ]]; then
+                shift 1
+                if [[ "$use_proxy_opt" == "gost" && -n "${1:-}" && ! "${1:-}" =~ ^[0-9]+$ ]]; then
+                    ss_password="$1"; shift 1
+                fi
+                custom_rathole_port="${1:-}"; if [ -n "$custom_rathole_port" ]; then shift 1; fi
+                service_name_key="${1:-}"; if [ -n "$service_name_key" ]; then shift 1; fi
+            fi
             
             # Validate inputs
             validate_port "$client_port"
@@ -1214,7 +1243,7 @@ main() {
             
             # Normalize IPv6 form for remote_addr if needed
             remote_addr=$(normalize_remote_addr "$remote_addr")
-            create_client_config "$name" "$remote_addr" "$default_token" "$client_port" "$protocol" "$nodelay" "$use_proxy_opt" "$custom_rathole_port" "$service_name_key"
+            create_client_config "$name" "$remote_addr" "$default_token" "$client_port" "$protocol" "$nodelay" "$use_proxy_opt" "$custom_rathole_port" "$service_name_key" "$ss_password"
             ;;
             
         *)

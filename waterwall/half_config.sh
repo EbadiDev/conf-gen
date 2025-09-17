@@ -41,6 +41,137 @@ create_half_config() {
         local server_ip
         local haproxy_port
 
+        # GOST single-port server mode: -p <gost_port> <server_ip> [waterwall_port]
+        if [ "$use_gost" = true ] && [ "$port_flag" = "-p" ]; then
+            local gost_port="${remaining_args[1]}"
+            server_ip="${remaining_args[2]}"
+            haproxy_port="${remaining_args[3]}"   # optional Waterwall internal port
+
+            if [ -z "$gost_port" ] || [ -z "$server_ip" ]; then
+                echo "Error: Invalid GOST server (-p) parameters"
+                echo "Usage: half <website> <password> gost [tcp|udp] server <config_name> -p <gost_port> <server_ip> [waterwall_port]"
+                exit 1
+            fi
+
+            # Default internal Waterwall port to gost_port+1 if not provided
+            if [ -z "$haproxy_port" ]; then
+                haproxy_port=$((gost_port + 1))
+            fi
+
+            # Advanced Reality server chain
+            cat << EOF > "${config_name}.json"
+{
+    "name": "${config_name}",
+    "nodes": [
+        {
+            "name": "users_inbound",
+            "type": "${LISTENER_TYPE}",
+            "settings": {
+                "address": "0.0.0.0",
+                "port": ${haproxy_port},
+                "nodelay": true
+            },
+            "next": "header"
+        },
+        {
+            "name": "header",
+            "type": "HeaderClient",
+            "settings": {
+                "data": "src_context->port"
+            },
+            "next": "bridge2"
+        },
+        {
+            "name": "bridge2",
+            "type": "Bridge",
+            "settings": {
+                "pair": "bridge1"
+            }
+        },
+        {
+            "name": "bridge1",
+            "type": "Bridge",
+            "settings": {
+                "pair": "bridge2"
+            }
+        },
+        {
+            "name": "reverse_server",
+            "type": "ReverseServer",
+            "settings": {},
+            "next": "bridge1"
+        },
+        {
+            "name": "pbserver",
+            "type": "ProtoBufServer",
+            "settings": {},
+            "next": "reverse_server"
+        },
+        {
+            "name": "h2server",
+            "type": "Http2Server",
+            "settings": {},
+            "next": "pbserver"
+        },
+        {
+            "name": "halfs",
+            "type": "HalfDuplexServer",
+            "settings": {},
+            "next": "h2server"
+        },
+        {
+            "name": "reality_server",
+            "type": "RealityServer",
+            "settings": {
+                "destination": "reality_dest",
+                "password": "${password}"
+            },
+            "next": "halfs"
+        },
+        {
+            "name": "kharej_inbound",
+            "type": "${LISTENER_TYPE}",
+            "settings": {
+                "address": "0.0.0.0",
+                "port": ${haproxy_port},
+                "nodelay": true,
+                "whitelist": [
+                    "${server_ip}/32"
+                ]
+            },
+            "next": "reality_server"
+        },
+        {
+            "name": "reality_dest",
+            "type": "${CONNECTOR_TYPE}",
+            "settings": {
+                "nodelay": true,
+                "address": "${website}",
+                "port": 443
+            }
+        }
+    ]
+}
+EOF
+
+            if [ $? -eq 0 ]; then
+                add_to_core_json "$config_name" "half"
+                print_info "Setting up GOST configuration for Half server (-p single-port)..."
+                # GOST listens on :gost_port and forwards to 127.0.0.1:haproxy_port
+                create_gost_server_config "$config_name" "$gost_port" "127.0.0.1" "$haproxy_port" "$protocol"
+                manage_gost_service "$config_name"
+                open_firewall_ports "$gost_port" "$gost_port"
+                echo "Half server configuration file ${config_name}.json has been created successfully!"
+                echo "Reality server stack listening on internal: ${haproxy_port}"
+                echo "GOST: :${gost_port} -> 127.0.0.1:${haproxy_port}"
+            else
+                echo "Error: Failed to create half server configuration file"
+                exit 1
+            fi
+
+            return
+        fi
+
         if [ "$use_gost" = true ] && [ "$port_flag" != "-p" ]; then
             # GOST range mode
             local start_port="${remaining_args[0]}"

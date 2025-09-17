@@ -5,11 +5,17 @@
 
 # Detect if running from pipe (curl) and use temp directory
 if [[ "${BASH_SOURCE[0]}" == "/dev/fd/"* ]] || [[ "${BASH_SOURCE[0]}" == *"/fd/"* ]]; then
-    # Running from pipe, use temp directory
-    SCRIPT_DIR="/tmp/waterwall_$(date +%s)_$$"
-    mkdir -p "$SCRIPT_DIR"
-    WATERWALL_DIR="$SCRIPT_DIR/waterwall"
-    RUNNING_FROM_PIPE=true
+    # Running from pipe; allow opting into local modules
+    if [ -n "$WATERWALL_USE_LOCAL" ]; then
+        SCRIPT_DIR="$PWD"
+        WATERWALL_DIR="$SCRIPT_DIR/waterwall"
+        RUNNING_FROM_PIPE=false
+    else
+        SCRIPT_DIR="/tmp/waterwall_$(date +%s)_$$"
+        mkdir -p "$SCRIPT_DIR"
+        WATERWALL_DIR="$SCRIPT_DIR/waterwall"
+        RUNNING_FROM_PIPE=true
+    fi
 else
     # Running from file, use normal directory
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -22,7 +28,7 @@ AUTO_DOWNLOADED=false
 
 # Function to download required modules
 download_modules() {
-    local base_url="https://raw.githubusercontent.com/EbadiDev/conf-gen/main/waterwall"
+    local base_url="${WATERWALL_BASE_URL:-https://raw.githubusercontent.com/EbadiDev/conf-gen/main/waterwall}"
     local modules=(
         "common.sh"
         "server_client_config.sh"
@@ -35,7 +41,7 @@ download_modules() {
     )
     
     local total=${#modules[@]}
-    echo "Downloading $total modules..."
+    echo "Downloading $total modules from: $base_url ..."
     
     # Create waterwall directory
     mkdir -p "$WATERWALL_DIR"

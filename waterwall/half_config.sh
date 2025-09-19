@@ -173,13 +173,18 @@ EOF
             if [ $? -eq 0 ]; then
                 add_to_core_json "$config_name" "half"
                 print_info "Setting up GOST configuration for Half server (-p single-port)..."
-                # GOST listens on :gost_port and forwards to 127.0.0.1:haproxy_port
-                create_gost_server_config "$config_name" "$gost_port" "127.0.0.1" "$haproxy_port" "$protocol" "$ss_password"
+                # GOST listens on :gost_port and forwards to loopback:haproxy_port
+                create_gost_server_config "$config_name" "$gost_port" "$server_ip" "$haproxy_port" "$protocol" "$ss_password"
                 manage_gost_service "$config_name"
                 open_firewall_ports "$gost_port" "$gost_port"
                 echo "Half server configuration file ${config_name}.json has been created successfully!"
                 echo "Reality server stack listening on internal: ${haproxy_port}"
-                echo "GOST: :${gost_port} -> 127.0.0.1:${haproxy_port}"
+                # Determine display address for logging
+                local display_address="127.0.0.1"
+                if [[ "$server_ip" =~ .*:.* ]]; then
+                    display_address="[::1]"
+                fi
+                echo "GOST: :${gost_port} -> ${display_address}:${haproxy_port}"
             else
                 echo "Error: Failed to create half server configuration file"
                 exit 1
@@ -312,12 +317,17 @@ EOF
             if [ $? -eq 0 ]; then
                 add_to_core_json "$config_name" "half"
                 print_info "Setting up GOST configuration for Half server (range)..."
-                create_gost_server_config_range "$config_name" "$start_port" "$end_port" "127.0.0.1" "$haproxy_port" "$protocol" "$ss_password"
+                create_gost_server_config_range "$config_name" "$start_port" "$end_port" "$server_ip" "$haproxy_port" "$protocol" "$ss_password"
                 manage_gost_service "$config_name"
                 open_firewall_ports "$start_port" "$end_port"
                 echo "Half server configuration file ${config_name}.json has been created successfully!"
                 echo "Reality server stack listening on internal: ${haproxy_port}"
-                echo "GOST: :${start_port}-${end_port} -> 127.0.0.1:${haproxy_port}"
+                # Determine display address for logging
+                local display_address="127.0.0.1"
+                if [[ "$server_ip" =~ .*:.* ]]; then
+                    display_address="[::1]"
+                fi
+                echo "GOST: :${start_port}-${end_port} -> ${display_address}:${haproxy_port}"
             else
                 echo "Error: Failed to create half server configuration file"
                 exit 1
@@ -404,7 +414,7 @@ EOF
                 open_firewall_ports "$port" "$port"
             elif [ "$use_gost" = true ]; then
                 print_info "Setting up GOST configuration for Half server..."
-                create_gost_server_config "$config_name" "$port" "127.0.0.1" "$haproxy_port" "$protocol"
+                create_gost_server_config "$config_name" "$port" "$server_ip" "$haproxy_port" "$protocol"
                 manage_gost_service "$config_name"
 
                 print_info "Half Server with GOST:"
@@ -542,12 +552,13 @@ EOF
             if [ $? -eq 0 ]; then
                 add_to_core_json "$config_name" "half"
                 print_info "Setting up GOST configuration for Half client..."
-                # GOST listens on :gost_port and forwards to 127.0.0.1:destination_port with Proxy Protocol
-                create_gost_client_config "$config_name" "" "$haproxy_port" "127.0.0.1" "$destination_port" "$protocol" "$ss_password"
+                # GOST listens on :gost_port and forwards to loopback:destination_port with Proxy Protocol
+                # Use loopback_address which was already determined based on destination_ip
+                create_gost_client_config "$config_name" "" "$haproxy_port" "$loopback_address" "$destination_port" "$protocol" "$ss_password"
                 manage_gost_service "$config_name"
                 echo "Half client configuration file ${config_name}.json has been created successfully!"
                 echo "Reality/gRPC client serving: ${website}"
-                echo "GOST: :${haproxy_port} -> 127.0.0.1:${destination_port}"
+                echo "GOST: :${haproxy_port} -> ${loopback_address}:${destination_port}"
             else
                 echo "Error: Failed to create half client configuration file"
                 exit 1
@@ -624,9 +635,14 @@ EOF
                 print_info "- HAProxy forwards to: ${destination_ip}:${destination_port}"
             elif [ "$use_gost" = true ]; then
                 print_info "Setting up GOST configuration for Half client..."
-                create_gost_client_config "$config_name" "127.0.0.1" "$haproxy_port" "$destination_ip" "$destination_port" "$protocol"
+                # Determine loopback address based on destination_ip
+                local gost_loopback="127.0.0.1"
+                if [[ "$destination_ip" =~ .*:.* ]]; then
+                    gost_loopback="::1"
+                fi
+                create_gost_client_config "$config_name" "$gost_loopback" "$haproxy_port" "$destination_ip" "$destination_port" "$protocol"
                 manage_gost_service "$config_name"
-                print_info "Half Client with GOST: 127.0.0.1:${haproxy_port} -> ${destination_ip}:${destination_port}"
+                print_info "Half Client with GOST: ${gost_loopback}:${haproxy_port} -> ${destination_ip}:${destination_port}"
             else
                 open_firewall_ports "$start_port" "$end_port"
             fi

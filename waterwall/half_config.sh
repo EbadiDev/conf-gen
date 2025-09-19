@@ -66,6 +66,14 @@ create_half_config() {
                 haproxy_port=$((gost_port + 1))
             fi
 
+            # Determine address type and whitelist suffix based on server_ip
+            local listen_address="0.0.0.0"
+            local whitelist_suffix="/32"
+            if [[ "$server_ip" =~ .*:.* ]]; then
+                listen_address="::"
+                whitelist_suffix="/64"
+            fi
+
             # Advanced Reality server chain
             cat << EOF > "${config_name}.json"
 {
@@ -75,7 +83,7 @@ create_half_config() {
             "name": "users_inbound",
             "type": "${LISTENER_TYPE}",
             "settings": {
-                "address": "0.0.0.0",
+                "address": "${listen_address}",
                 "port": ${haproxy_port},
                 "nodelay": true
             },
@@ -140,11 +148,11 @@ create_half_config() {
             "name": "kharej_inbound",
             "type": "${LISTENER_TYPE}",
             "settings": {
-                "address": "0.0.0.0",
+                "address": "${listen_address}",
                 "port": ${haproxy_port},
                 "nodelay": true,
                 "whitelist": [
-                    "${server_ip}/32"
+                    "${server_ip}${whitelist_suffix}"
                 ]
             },
             "next": "reality_server"
@@ -197,6 +205,14 @@ EOF
             local waterwall_listen_port="$haproxy_port"
             port="$start_port"  # for logging
 
+            # Determine address type and whitelist suffix based on server_ip
+            local listen_address="0.0.0.0"
+            local whitelist_suffix="/32"
+            if [[ "$server_ip" =~ .*:.* ]]; then
+                listen_address="::"
+                whitelist_suffix="/64"
+            fi
+
             # Advanced Reality server chain (same as single-port mode)
             cat << EOF > "${config_name}.json"
 {
@@ -206,7 +222,7 @@ EOF
             "name": "users_inbound",
             "type": "${LISTENER_TYPE}",
             "settings": {
-                "address": "0.0.0.0",
+                "address": "${listen_address}",
                 "port": ${waterwall_listen_port},
                 "nodelay": true
             },
@@ -271,11 +287,11 @@ EOF
             "name": "kharej_inbound",
             "type": "${LISTENER_TYPE}",
             "settings": {
-                "address": "0.0.0.0",
+                "address": "${listen_address}",
                 "port": ${waterwall_listen_port},
                 "nodelay": true,
                 "whitelist": [
-                    "${server_ip}/32"
+                    "${server_ip}${whitelist_suffix}"
                 ]
             },
             "next": "reality_server"
@@ -332,6 +348,14 @@ EOF
             waterwall_listen_port="$port"
         fi
 
+        # Determine address type and whitelist suffix based on server_ip
+        local listen_address="0.0.0.0"
+        local whitelist_suffix="/32"
+        if [[ "$server_ip" =~ .*:.* ]]; then
+            listen_address="::"
+            whitelist_suffix="/64"
+        fi
+
         cat << EOF > "${config_name}.json"
 {
     "name": "${config_name}",
@@ -340,7 +364,7 @@ EOF
             "name": "input",
             "type": "${LISTENER_TYPE}",
             "settings": {
-                "address": "0.0.0.0",
+                "address": "${listen_address}",
                 "port": ${waterwall_listen_port},
                 "nodelay": true
             },
@@ -418,6 +442,12 @@ EOF
                 exit 1
             fi
 
+            # Determine loopback address based on destination_ip
+            local loopback_address="127.0.0.1"
+            if [[ "$destination_ip" =~ .*:.* ]]; then
+                loopback_address="::1"
+            fi
+
             # Waterwall Reality client chain connecting to Iran server
             cat << EOF > "${config_name}.json"
 {
@@ -428,7 +458,7 @@ EOF
             "type": "${CONNECTOR_TYPE}",
             "settings": {
                 "nodelay": true,
-                "address": "127.0.0.1",
+                "address": "${loopback_address}",
                 "port": ${destination_port}
             }
         },
@@ -542,6 +572,12 @@ EOF
             haproxy_port=$((start_port + 1000))
         fi
 
+        # Determine address type based on destination_ip
+        local listen_address="0.0.0.0"
+        if [[ "$destination_ip" =~ .*:.* ]]; then
+            listen_address="::"
+        fi
+
         cat << EOF > "${config_name}.json"
 {
     "name": "${config_name}",
@@ -553,7 +589,7 @@ EOF
                 "multi-stream": true,
                 "password": "${password}",
                 "server-name": "${website}",
-                "address": "0.0.0.0",
+                "address": "${listen_address}",
                 "port": 443,
                 "nodelay": true
             },

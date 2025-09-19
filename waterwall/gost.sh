@@ -110,8 +110,15 @@ create_gost_server_config_range() {
         local extra="${GOST_EXTRA_QUERY#&}"
         base_query="${base_query}&${extra}"
     fi
+    
+    # Determine the correct loopback address based on backend_ip
+    local loopback_ip="127.0.0.1"
+    if [[ "$backend_ip" == *:* ]]; then
+        loopback_ip="[::1]"
+    fi
+    
     # Use Shadowsocks listener with minimal cipher and provided password
-    local args=("-L" "ss://aes-128-cfb:${ss_password}@:${start_port}-${end_port}/${backend_ip}:${backend_port}?${base_query}")
+    local args=("-L" "ss://aes-128-cfb:${ss_password}@:${start_port}-${end_port}/${loopback_ip}:${backend_port}?${base_query}")
 
     remove_gost_service "$service_name"
     local unit_path
@@ -133,7 +140,14 @@ create_gost_server_config() {
         local extra="${GOST_EXTRA_QUERY#&}"
         base_query="${base_query}&${extra}"
     fi
-    local args=("-L" "ss://aes-128-cfb:${ss_password}@:${external_port}/${backend_ip}:${backend_port}?${base_query}")
+    
+    # Determine the correct loopback address based on backend_ip
+    local loopback_ip="127.0.0.1"
+    if [[ "$backend_ip" == *:* ]]; then
+        loopback_ip="[::1]"
+    fi
+    
+    local args=("-L" "ss://aes-128-cfb:${ss_password}@:${external_port}/${loopback_ip}:${backend_port}?${base_query}")
 
     remove_gost_service "$service_name"
     local unit_path

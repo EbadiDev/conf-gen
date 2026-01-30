@@ -51,8 +51,9 @@ add_to_core_json() {
         fi
         
         # Remove existing config with same name and add new one
+        # Add new config and ensure uniqueness
         jq --arg name "$config_path" \
-           '.configs = (.configs | map(select(. != $name)) + [$name])' \
+           '.configs += [$name] | .configs |= unique' \
            "$core_json_path" > "$temp_file" && mv "$temp_file" "$core_json_path"
         
         if [ $? -eq 0 ]; then

@@ -45,16 +45,10 @@ add_to_core_json() {
         echo '{"configs": []}' > "$core_file"
     fi
     
-    # Check if config already exists in core.json
-    if grep -q "\"$config_name\"" "$core_file" 2>/dev/null; then
-        # Remove old reference
-        local tmp_file=$(mktemp)
-        jq --arg name "$config_name" '.configs = [.configs[] | select(. != ($name + ".json"))]' "$core_file" > "$tmp_file" 2>/dev/null && mv "$tmp_file" "$core_file"
-    fi
-    
-    # Add new config reference
+    # Add new config and ensure uniqueness
     local tmp_file=$(mktemp)
-    jq --arg cfg "${config_name}.json" '.configs += [$cfg]' "$core_file" > "$tmp_file" 2>/dev/null && mv "$tmp_file" "$core_file"
+    # Add if not exists, then unique
+    jq --arg cfg "${config_name}.json" '.configs += [$cfg] | .configs |= unique' "$core_file" > "$tmp_file" 2>/dev/null && mv "$tmp_file" "$core_file"
 }
 
 # Create V3 Server Waterwall Config (Iran-side)
@@ -604,7 +598,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/nodepass ${nodepass_url}
+ExecStart=/usr/local/bin/nodepass "${nodepass_url}"
 Restart=always
 RestartSec=3
 
@@ -697,7 +691,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/nodepass ${nodepass_url}
+ExecStart=/usr/local/bin/nodepass "${nodepass_url}"
 Restart=always
 RestartSec=3
 

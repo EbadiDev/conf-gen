@@ -11,10 +11,11 @@ source "$SCRIPT_DIR/caddy.sh"
 source "$SCRIPT_DIR/gost.sh"
 
 # V2 Server Configuration
+# Supports both single port (e.g., 443) and port range (e.g., 1000 1100)
 create_v2_server_config() {
     local config_name="$1"
     local start_port="$2"
-    local end_port="$3"
+    local end_port="$3"      # Can be empty for single port mode
     local non_iran_ip="$4"
     local iran_ip="$5"
     local private_ip="$6"
@@ -24,6 +25,13 @@ create_v2_server_config() {
     local use_caddy="${10}"
     local use_gost="${11}"
     local ss_password="${12:-${GOST_SS_PASSWORD:-apple123ApPle}}"
+
+    # Determine if single port or port range mode
+    local is_single_port=false
+    if [ -z "$end_port" ] || [ "$start_port" = "$end_port" ]; then
+        is_single_port=true
+        end_port="$start_port"  # Normalize for any code that needs both
+    fi
 
     # Calculate PRIVATE_IP+1 for output and ipovsrc2
     IFS='.' read -r ip1 ip2 ip3 ip4 <<< "$private_ip"
@@ -35,8 +43,12 @@ create_v2_server_config() {
         # With HAProxy/Caddy: waterwall listens on internal port, proxy handles external range
         waterwall_listen_port="$haproxy_port"
     else
-        # Without proxy: waterwall listens on external port range
-        waterwall_listen_port="[${start_port},${end_port}]"
+        # Without proxy: waterwall listens on external port(s)
+        if [ "$is_single_port" = true ]; then
+            waterwall_listen_port="${start_port}"
+        else
+            waterwall_listen_port="[${start_port},${end_port}]"
+        fi
     fi
 
     cat << EOF > "${config_name}.json"
@@ -148,7 +160,11 @@ EOF
             open_firewall_ports "$haproxy_port" "$haproxy_port"
             
             print_info "V2 Server with HAProxy:"
-            print_info "- External clients connect to ports: $start_port-$end_port"
+            if [ "$is_single_port" = true ]; then
+                print_info "- External clients connect to port: $start_port"
+            else
+                print_info "- External clients connect to ports: $start_port-$end_port"
+            fi
             print_info "- HAProxy forwards to waterwall on: $haproxy_port"
             print_info "- Waterwall connects to: ${ip_plus1}:${haproxy_port}"
     elif [ "$use_caddy" = true ]; then
@@ -164,12 +180,22 @@ EOF
             open_firewall_ports "$haproxy_port" "$haproxy_port"
             
             print_info "V2 Server with Caddy:"
-            print_info "- External clients connect to ports: $start_port-$end_port"
+            if [ "$is_single_port" = true ]; then
+                print_info "- External clients connect to port: $start_port"
+            else
+                print_info "- External clients connect to ports: $start_port-$end_port"
+            fi
             print_info "- Caddy forwards to waterwall on: $haproxy_port"
             print_info "- Waterwall connects to: ${ip_plus1}:${haproxy_port}"
         elif [ "$use_gost" = true ]; then
             print_info "Setting up GOST configuration for V2 server..."
-            create_gost_server_config_range "$config_name" "$start_port" "$end_port" "127.0.0.1" "$haproxy_port" "tcp" "$ss_password"
+            
+            # Use single port or range version based on port mode
+            if [ "$is_single_port" = true ]; then
+                create_gost_server_config "$config_name" "$start_port" "127.0.0.1" "$haproxy_port" "tcp" "$ss_password"
+            else
+                create_gost_server_config_range "$config_name" "$start_port" "$end_port" "127.0.0.1" "$haproxy_port" "tcp" "$ss_password"
+            fi
             manage_gost_service "$config_name"
 
             # Open additional ports for V2 Server with GOST
@@ -178,7 +204,11 @@ EOF
             open_firewall_ports "$haproxy_port" "$haproxy_port"
 
             print_info "V2 Server with GOST:"
-            print_info "- External clients connect to ports: $start_port-$end_port"
+            if [ "$is_single_port" = true ]; then
+                print_info "- External clients connect to port: $start_port"
+            else
+                print_info "- External clients connect to ports: $start_port-$end_port"
+            fi
             print_info "- GOST forwards to waterwall on: $haproxy_port (with Proxy Protocol)"
             print_info "- Waterwall connects to: ${ip_plus1}:${haproxy_port}"
         else
@@ -375,21 +405,68 @@ handle_v2_config() {
     fi
     
     if [ "$config_type" = "server" ]; then
-        # v2 server config_name start-port end-port non-iran-ip iran-ip private-ip haproxy-port protocol
-    if [ "$#" -lt 9 ]; then
-            if [ "$use_haproxy" = true ]; then
-                echo "Usage: $0 v2 haproxy server <config_name> <start_port> <end_port> <non_iran_ip> <iran_ip> <private_ip> <haproxy_port> <protocol>"
-            elif [ "$use_caddy" = true ]; then
-                echo "Usage: $0 v2 caddy server <config_name> <start_port> <end_port> <non_iran_ip> <iran_ip> <private_ip> <haproxy_port> <protocol>"
-            elif [ "$use_gost" = true ]; then
-        echo "Usage: $0 v2 gost [<ss_password>] server <config_name> <start_port> <end_port> <non_iran_ip> <iran_ip> <private_ip> <haproxy_port> <protocol>"
+        # Detect port mode from flags: --port <single> or --ports <start> <end>
+        local start_port=""
+        local end_port=""
+        local port_arg_count=0
+        local remaining_args=()
+        
+        # Parse remaining args after config_type
+        shift 2  # Remove $1 (v2) and $2 (config_type or proxy type)
+        if [ "$use_haproxy" = true ] || [ "$use_caddy" = true ]; then
+            shift 1  # Remove 'server'
+        elif [ "$use_gost" = true ]; then
+            if [ -n "$gost_password" ]; then
+                shift 1  # Already shifted for password, just shift 'server'
             else
-                echo "Usage: $0 v2 server <config_name> <start_port> <end_port> <non_iran_ip> <iran_ip> <private_ip> <haproxy_port> <protocol>"
+                shift 1  # Remove 'server'
             fi
+        else
+            shift 1  # Remove 'server'  
+        fi
+        
+        local config_name="$1"
+        shift 1
+        
+        # Check for --port or --ports flag
+        if [ "$1" = "--port" ]; then
+            start_port="$2"
+            end_port=""  # Empty for single port
+            shift 2
+        elif [ "$1" = "--ports" ]; then
+            start_port="$2"
+            end_port="$3"
+            shift 3
+        else
+            # Legacy mode: assume first two args are ports if both are numbers
+            if [[ "$1" =~ ^[0-9]+$ ]] && [[ "$2" =~ ^[0-9]+$ ]] && ! [[ "$2" == *.* ]]; then
+                start_port="$1"
+                end_port="$2"
+                shift 2
+            elif [[ "$1" =~ ^[0-9]+$ ]]; then
+                start_port="$1"
+                end_port=""
+                shift 1
+            else
+                echo "Error: Port specification required. Use --port <port> or --ports <start> <end>"
+                exit 1
+            fi
+        fi
+        
+        # Remaining args: non-iran-ip iran-ip private-ip haproxy-port protocol
+        if [ "$#" -lt 5 ]; then
+            echo "Usage: $0 v2 [gost [password]] server <config_name> --port <port> <non_iran_ip> <iran_ip> <private_ip> <haproxy_port> <protocol>"
+            echo "       $0 v2 [gost [password]] server <config_name> --ports <start_port> <end_port> <non_iran_ip> <iran_ip> <private_ip> <haproxy_port> <protocol>"
             exit 1
         fi
-    # Pass gost_password as last param (only used when use_gost=true)
-    create_v2_server_config "$3" "$4" "$5" "$6" "$7" "$8" "$9" "${10}" "$use_haproxy" "$use_caddy" "$use_gost" "$gost_password"
+        
+        local non_iran_ip="$1"
+        local iran_ip="$2"
+        local private_ip="$3"
+        local haproxy_port="$4"
+        local protoswap_tcp="$5"
+        
+        create_v2_server_config "$config_name" "$start_port" "$end_port" "$non_iran_ip" "$iran_ip" "$private_ip" "$haproxy_port" "$protoswap_tcp" "$use_haproxy" "$use_caddy" "$use_gost" "$gost_password"
         
     elif [ "$config_type" = "client" ]; then
         # v2 client config_name non-iran-ip iran-ip private-ip haproxy-port protocol app-port

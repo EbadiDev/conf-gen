@@ -30,6 +30,268 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+# ============================================================================
+# Waterwall V3 Configuration Generation (embedded)
+# Optimized for UDP support - includes protoswap-tcp AND protoswap-udp
+# ============================================================================
+
+# Add config to core.json
+add_to_core_json() {
+    local config_name="$1"
+    local core_file="core.json"
+    
+    # Create core.json if it doesn't exist
+    if [ ! -f "$core_file" ]; then
+        echo '{"configs": []}' > "$core_file"
+    fi
+    
+    # Check if config already exists in core.json
+    if grep -q "\"$config_name\"" "$core_file" 2>/dev/null; then
+        # Remove old reference
+        local tmp_file=$(mktemp)
+        jq --arg name "$config_name" '.configs = [.configs[] | select(. != ($name + ".json"))]' "$core_file" > "$tmp_file" 2>/dev/null && mv "$tmp_file" "$core_file"
+    fi
+    
+    # Add new config reference
+    local tmp_file=$(mktemp)
+    jq --arg cfg "${config_name}.json" '.configs += [$cfg]' "$core_file" > "$tmp_file" 2>/dev/null && mv "$tmp_file" "$core_file"
+}
+
+# Create V3 Server Waterwall Config (Iran-side)
+create_waterwall_v3_server_config() {
+    local config_name="$1"
+    local non_iran_ip="$2"
+    local iran_ip="$3"
+    local private_ip="$4"
+    local protoswap_tcp="$5"
+
+    # Calculate protoswap_udp as protoswap_tcp + 1
+    local protoswap_udp=$((protoswap_tcp + 1))
+
+    # Calculate PRIVATE_IP+1 for ipovsrc2
+    IFS='.' read -r ip1 ip2 ip3 ip4 <<< "$private_ip"
+    local ip_plus1="$ip1.$ip2.$ip3.$((ip4+1))"
+
+    cat << EOF > "${config_name}.json"
+{
+    "name": "${config_name}",
+    "nodes": [
+        {
+            "name": "my tun",
+            "type": "TunDevice",
+            "settings": {
+                "device-name": "${config_name}",
+                "device-ip": "${private_ip}/24"
+            },
+            "next": "ipovsrc"
+        },
+        {
+            "name": "ipovsrc",
+            "type": "IpOverrider",
+            "settings": {
+                "direction": "up",
+                "mode": "source-ip",
+                "ipv4": "${iran_ip}"
+            },
+            "next": "ipovdest"
+        },
+        {
+            "name": "ipovdest",
+            "type": "IpOverrider",
+            "settings": {
+                "direction": "up",
+                "mode": "dest-ip",
+                "ipv4": "${non_iran_ip}"
+            },
+            "next": "manip"
+        },
+        {
+            "name": "manip",
+            "type": "IpManipulator",
+            "settings": {
+                "protoswap-tcp": ${protoswap_tcp},
+                "protoswap-udp": ${protoswap_udp}
+            },
+            "next": "ipovsrc2"
+        },
+        {
+            "name": "ipovsrc2",
+            "type": "IpOverrider",
+            "settings": {
+                "direction": "down",
+                "mode": "source-ip",
+                "ipv4": "${ip_plus1}"
+            },
+            "next": "ipovdest2"
+        },
+        {
+            "name": "ipovdest2",
+            "type": "IpOverrider",
+            "settings": {
+                "direction": "down",
+                "mode": "dest-ip",
+                "ipv4": "${private_ip}"
+            },
+            "next": "rd"
+        },
+        {
+            "name": "rd",
+            "type": "RawSocket",
+            "settings": {
+                "capture-filter-mode": "source-ip",
+                "capture-ip": "${non_iran_ip}"
+            }
+        }
+    ]
+}
+EOF
+
+    if [ $? -eq 0 ]; then
+        add_to_core_json "$config_name"
+        print_success "V3 Server configuration created: ${config_name}.json"
+        print_info "- Protoswap TCP: ${protoswap_tcp}, UDP: ${protoswap_udp}"
+    else
+        print_error "Failed to create V3 server configuration"
+        exit 1
+    fi
+}
+
+# Create V3 Client Waterwall Config (Non-Iran side)
+create_waterwall_v3_client_config() {
+    local config_name="$1"
+    local non_iran_ip="$2"
+    local iran_ip="$3"
+    local private_ip="$4"
+    local protoswap_tcp="$5"
+
+    # Calculate protoswap_udp as protoswap_tcp + 1
+    local protoswap_udp=$((protoswap_tcp + 1))
+
+    # Calculate PRIVATE_IP+1 for ipovsrc2
+    IFS='.' read -r ip1 ip2 ip3 ip4 <<< "$private_ip"
+    local ip_plus1="$ip1.$ip2.$ip3.$((ip4+1))"
+
+    cat << EOF > "${config_name}.json"
+{
+    "name": "${config_name}",
+    "nodes": [
+        {
+            "name": "rd",
+            "type": "RawSocket",
+            "settings": {
+                "capture-filter-mode": "source-ip",
+                "capture-ip": "${iran_ip}"
+            },
+            "next": "ipovsrc"
+        },
+        {
+            "name": "ipovsrc",
+            "type": "IpOverrider",
+            "settings": {
+                "direction": "down",
+                "mode": "source-ip",
+                "ipv4": "${non_iran_ip}"
+            },
+            "next": "ipovdest"
+        },
+        {
+            "name": "ipovdest",
+            "type": "IpOverrider",
+            "settings": {
+                "direction": "down",
+                "mode": "dest-ip",
+                "ipv4": "${iran_ip}"
+            },
+            "next": "manip"
+        },
+        {
+            "name": "manip",
+            "type": "IpManipulator",
+            "settings": {
+                "protoswap-tcp": ${protoswap_tcp},
+                "protoswap-udp": ${protoswap_udp}
+            },
+            "next": "ipovsrc2"
+        },
+        {
+            "name": "ipovsrc2",
+            "type": "IpOverrider",
+            "settings": {
+                "direction": "up",
+                "mode": "source-ip",
+                "ipv4": "${ip_plus1}"
+            },
+            "next": "ipovdest2"
+        },
+        {
+            "name": "ipovdest2",
+            "type": "IpOverrider",
+            "settings": {
+                "direction": "up",
+                "mode": "dest-ip",
+                "ipv4": "${private_ip}"
+            },
+            "next": "my tun"
+        },
+        {
+            "name": "my tun",
+            "type": "TunDevice",
+            "settings": {
+                "device-name": "${config_name}",
+                "device-ip": "${private_ip}/24"
+            }
+        }
+    ]
+}
+EOF
+
+    if [ $? -eq 0 ]; then
+        add_to_core_json "$config_name"
+        print_success "V3 Client configuration created: ${config_name}.json"
+        print_info "- Protoswap TCP: ${protoswap_tcp}, UDP: ${protoswap_udp}"
+    else
+        print_error "Failed to create V3 client configuration"
+        exit 1
+    fi
+}
+
+# Manage Waterwall service
+manage_waterwall_service() {
+    local service_file="/etc/systemd/system/waterwall.service"
+    
+    # Create service file if it doesn't exist
+    if [ ! -f "$service_file" ]; then
+        cat << 'EOF' > "$service_file"
+[Unit]
+Description=Waterwall Tunnel Service
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/root/tunnel/Waterwall
+WorkingDirectory=/root/tunnel
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    fi
+    
+    # Download Waterwall if not present
+    if [ ! -f /root/tunnel/Waterwall ]; then
+        print_info "Downloading Waterwall..."
+        curl -4 -Ls "https://github.com/radkesvat/WaterWall/releases/latest/download/Waterwall-linux-64.zip" -o /tmp/waterwall.zip
+        unzip -o /tmp/waterwall.zip -d /root/tunnel/
+        chmod +x /root/tunnel/Waterwall
+        rm -f /tmp/waterwall.zip
+    fi
+    
+    systemctl daemon-reload
+    systemctl enable waterwall
+    systemctl restart waterwall
+}
+
 # Display banner
 show_banner() {
     cat << 'EOF'
@@ -278,7 +540,8 @@ create_server() {
     print_info "Step 1/2: Creating Waterwall V3 tunnel..."
     mkdir -p /root/tunnel
     cd /root/tunnel
-    bash <(curl -4 -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/main.sh) v3 server "$name" "$non_iran_ip" "$iran_ip" "$private_ip" "$protocol"
+    create_waterwall_v3_server_config "$name" "$non_iran_ip" "$iran_ip" "$private_ip" "$protocol"
+    manage_waterwall_service
 
     # Step 2: Create Nodepass server configuration
     print_info "Step 2/2: Creating Nodepass tunnel server..."
@@ -348,7 +611,8 @@ create_client() {
     print_info "Step 1/2: Creating Waterwall V3 tunnel..."
     mkdir -p /root/tunnel
     cd /root/tunnel
-    bash <(curl -4 -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/main.sh) v3 client "$name" "$non_iran_ip" "$iran_ip" "$private_ip" "$protocol"
+    create_waterwall_v3_client_config "$name" "$non_iran_ip" "$iran_ip" "$private_ip" "$protocol"
+    manage_waterwall_service
 
     # Step 2: Create Nodepass client configuration
     print_info "Step 2/2: Creating Nodepass tunnel client..."

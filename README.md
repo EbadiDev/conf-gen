@@ -42,10 +42,10 @@ This script generates rathole server and client configurations with systemd serv
 #### Usage:
 ```bash
 # Server (with short options)
-./ultimate.sh server -n gehetz -pr 801-802 -ni 203.0.113.50 -ii 198.51.100.20 -pi 30.6.0.1 -rp 800 -p 27 -t strongpass -gr 1200-1299
+./ultimate.sh server -n gehetz -pr 801-802 -ni 203.0.113.50 -ii 198.51.100.20 -pi 30.6.0.1 -rp 800 -p 27 -t strongpass -gr 1200-1299 -gp 30121
 
 # Client (with long options)  
-./ultimate.sh client --name mahannet --non-iran-ip 203.0.113.50 --iran-ip 198.51.100.20 --private-ip 30.6.0.1 --waterwall-port 30122 --protocol 27 --app-port 800 --token strongpass --gost-port 30120
+./ultimate.sh client --name mahannet --non-iran-ip 203.0.113.50 --iran-ip 198.51.100.20 --private-ip 30.6.0.1 --waterwall-port 30122 --protocol 27 --rathole-server-port 800 --app-port 30120 --token strongpass --gost-port 30120
 ```
 
 ---
@@ -218,13 +218,14 @@ The `ultimate.sh` script is the most comprehensive solution that combines **Wate
 - `-ni, --non-iran-ip` - Non-Iran server IP
 - `-ii, --iran-ip` - Iran server IP
 - `-pi, --private-ip` - Private network IP (e.g., 30.6.0.1)
-- `-rp, --rathole-port` - Rathole communication port
+- `-rp, --rathole-port` - Rathole communication port (server only)
 - `-wp, --waterwall-port` - Waterwall internal port (client only)
 - `-p, --protocol` - Protocol number for waterwall
-- `-ap, --app-port` - Application port (client only)
+- `-rsp, --rathole-server-port` - Remote rathole server port (client only)
+- `-ap, --app-port` - Local application port (client only)
 - `-t, --token` - Rathole authentication token
 - `-gr, --gost-range` - GOST port range (server only)
-- `-gp, --gost-port` - GOST local port (client only)
+- `-gp, --gost-port` - GOST port (server: bind port, client: local port)
 - `-ps, --password` - Optional Shadowsocks password
 - `-s, --service` - Optional service name
 
@@ -232,26 +233,26 @@ The `ultimate.sh` script is the most comprehensive solution that combines **Wate
 
 #### Server Setup (Iran):
 ```bash
-./ultimate.sh server -n gehetz -pr 801-802 -ni 203.0.113.50 -ii 198.51.100.20 -pi 30.6.0.1 -rp 800 -p 27 -t strongpass -gr 1200-1299
+./ultimate.sh server -n gehetz -pr 801-802 -ni 203.0.113.50 -ii 198.51.100.20 -pi 30.6.0.1 -rp 800 -p 27 -t strongpass -gr 1200-1299 -gp 30121
 ```
 
 #### Client Setup:
 ```bash
-./ultimate.sh client -n mahannet -ni 203.0.113.50 -ii 198.51.100.20 -pi 30.6.0.1 -wp 30122 -p 27 -ap 800 -t strongpass -gp 30120
+./ultimate.sh client -n mahannet -ni 203.0.113.50 -ii 198.51.100.20 -pi 30.6.0.1 -wp 30122 -p 27 -rsp 800 -ap 30120 -t strongpass -gp 30120
 ```
 
 #### With Custom Password:
 ```bash
-./ultimate.sh server -n gehetz -pr 801-802 -ni 203.0.113.50 -ii 198.51.100.20 -pi 30.6.0.1 -rp 800 -p 27 -t strongpass -gr 1200-1299 -ps mySecretPass
+./ultimate.sh server -n gehetz -pr 801-802 -ni 203.0.113.50 -ii 198.51.100.20 -pi 30.6.0.1 -rp 800 -p 27 -t strongpass -gr 1200-1299 -gp 30121 -ps mySecretPass
 ```
 
 ### Traffic Flow
 
 1. **Client Side**: Application connects to `127.0.0.1:30120` (GOST port)
-2. **GOST Client**: Handles traffic and forwards to rathole via `127.0.0.1:30121`
-3. **Rathole Client**: Encrypts and sends through Waterwall tunnel to `30.6.0.2:800`
+2. **GOST Client**: Handles traffic and forwards to rathole via `127.0.0.1:30120` (app port)
+3. **Rathole Client**: Encrypts and sends through Waterwall tunnel to `30.6.0.2:800` (rathole server port)
 4. **Waterwall Tunnel**: Carries traffic through private network `30.6.0.1`
-5. **Rathole Server**: Receives on port 800, forwards to local GOST
+5. **Rathole Server**: Receives on port 800, forwards to local GOST on port 30121
 6. **GOST Server**: Distributes traffic across port range `1200-1299`
 7. **Target Services**: Receive traffic on final destination ports
 

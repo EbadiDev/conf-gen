@@ -203,16 +203,17 @@ build_nodepass_url() {
     local target_addr="$5"
     local target_port="$6"
     
-    # Default options (can be overridden via environment)
+    # Optimized defaults (based on testing)
+    # rate=0 for unlimited bandwidth, larger pool sizes for better performance
     local mode="${NODEPASS_MODE:-1}"
     local tls="${NODEPASS_TLS:-1}"
     local notcp="${NODEPASS_NOTCP:-0}"
     local noudp="${NODEPASS_NOUDP:-0}"
     local proxy="${NODEPASS_PROXY:-1}"
-    local max="${NODEPASS_MAX:-8192}"
-    local rate="${NODEPASS_RATE:-1000}"
-    local slot="${NODEPASS_SLOT:-10000}"
-    local min="${NODEPASS_MIN:-128}"
+    local max="${NODEPASS_MAX:-16384}"        # Increased from 8192
+    local rate="${NODEPASS_RATE:-0}"          # 0 = unlimited (was 1000)
+    local slot="${NODEPASS_SLOT:-20000}"      # Increased from 10000
+    local min="${NODEPASS_MIN:-256}"          # Increased from 128
     local log_level="${NODEPASS_LOG_LEVEL:-info}"
     
     local url=""

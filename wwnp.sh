@@ -255,14 +255,14 @@ EOF
     fi
 }
 
-# Download and install Waterwall binary to /usr/local/bin
+# Download and install Waterwall binary to /root/tunnel
 install_waterwall() {
     local version="${WATERWALL_VERSION:-v1.41}"
     local old_cpu="${WATERWALL_OLD_CPU:-false}"
     
     # Check if already installed
-    if command -v waterwall &>/dev/null; then
-        print_info "Waterwall already installed at $(which waterwall)"
+    if [ -f /root/tunnel/Waterwall ]; then
+        print_info "Waterwall already installed at /root/tunnel/Waterwall"
         return 0
     fi
     
@@ -271,7 +271,8 @@ install_waterwall() {
     # Ensure unzip is installed
     apt install unzip -y &>/dev/null || true
     
-    cd /tmp
+    mkdir -p /root/tunnel
+    cd /root/tunnel
     rm -f waterwall.zip Waterwall
     
     if [ "$old_cpu" = "true" ]; then
@@ -282,10 +283,9 @@ install_waterwall() {
     
     unzip -o waterwall.zip
     chmod +x Waterwall
-    mv Waterwall /usr/local/bin/waterwall
     rm -f waterwall.zip
     
-    print_success "Waterwall installed to /usr/local/bin/waterwall"
+    print_success "Waterwall installed to /root/tunnel/Waterwall"
 }
 
 # Download and install Nodepass binary to /usr/local/bin
@@ -330,7 +330,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/waterwall
+ExecStart=/root/tunnel/Waterwall
 WorkingDirectory=/root/tunnel
 Restart=always
 RestartSec=3

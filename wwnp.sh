@@ -314,12 +314,9 @@ install_nodepass() {
     print_success "Nodepass installed to /usr/local/bin/nodepass"
 }
 
-# Manage Waterwall service
+# Manage Waterwall service (assumes Waterwall is already installed by admin)
 manage_waterwall_service() {
     local service_file="/etc/systemd/system/waterwall.service"
-    
-    # Install Waterwall if not present
-    install_waterwall
     
     # Create service file if it doesn't exist
     if [ ! -f "$service_file" ]; then

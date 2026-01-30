@@ -272,13 +272,13 @@ create_server() {
         chmod +x /root/nodepass.sh
     fi
 
-    # Create Nodepass server: listens on private_ip+1 for tunnel, forwards to target
+    # Create Nodepass server: listens for tunnel connections, forwards to target
     /root/nodepass.sh server \
         --name "$name" \
         --pass "$password" \
         --tunnel-port "$nodepass_port" \
         --target-port "$target_port" \
-        --bind "$private_ip_plus1" \
+        --bind "0.0.0.0" \
         --target-addr "0.0.0.0"
 
     # Verify and display status

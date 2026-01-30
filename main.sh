@@ -35,6 +35,7 @@ download_modules() {
         "simple_config.sh"
         "half_config.sh"
         "v2_config.sh"
+        "v3_config.sh"
         "haproxy.sh"
     "caddy.sh"
     "gost.sh"
@@ -223,6 +224,10 @@ main() {
             source "$WATERWALL_DIR/v2_config.sh"
             handle_v2_config "$@"
             ;;
+        "v3")
+            source "$WATERWALL_DIR/v3_config.sh"
+            handle_v3_config "$@"
+            ;;
         "haproxy")
             # HAProxy-enabled configurations
             local sub_type="$2"
@@ -263,7 +268,7 @@ main() {
             ;;
         *)
             print_error "Unknown configuration type: $config_type"
-            print_info "Supported types: server, client, simple, half, v2"
+            print_info "Supported types: server, client, simple, half, v2, v3"
             print_info "For HAProxy integration: haproxy <type> <protocol> ..."
             print_info "For Caddy integration: caddy <type> <protocol> ..."
             show_help

@@ -59,6 +59,7 @@ show_usage() {
     echo "  -np, --nodepass-port   Nodepass tunnel port"
     echo "  -tp, --target-port     Target port for forwarded traffic"
     echo "  -ps, --password        Nodepass password"
+    echo "  -g,  --gaming          Enable gaming mode (low-latency profile)"
     echo ""
     echo "Client Options:"
     echo "  -n,  --name            Configuration name"
@@ -70,11 +71,16 @@ show_usage() {
     echo "  -np, --nodepass-port   Nodepass server's tunnel port"
     echo "  -lp, --local-port      Local port for apps to connect"
     echo "  -ps, --password        Nodepass password"
+    echo "  -g,  --gaming          Enable gaming mode (low-latency profile)"
     echo ""
     echo "Examples:"
     echo "  Server (External 443 -> Waterwall 30111 -> Nodepass 5009 -> Target 10010):"
     echo "    $0 server -n sweden -ep 443 -ni 87.121.105.148 -ii 213.176.7.229 \\"
     echo "              -pi 30.5.0.1 -wp 30111 -pt 26 -np 5009 -tp 10010 -ps mypassword"
+    echo ""
+    echo "  Server with gaming mode (low-latency):"
+    echo "    $0 server -n gameserver -ep 443 -ni 87.121.105.148 -ii 213.176.7.229 \\"
+    echo "              -pi 30.5.0.1 -wp 30111 -pt 26 -np 5009 -tp 10010 -ps mypassword --gaming"
     echo ""
     echo "  Client (App -> Local 18081 -> Nodepass -> Waterwall -> Internet):"
     echo "    $0 client -n iran -ni 87.121.105.148 -ii 213.176.7.229 \\"
@@ -93,6 +99,7 @@ parse_server_args() {
     local nodepass_port=""
     local target_port=""
     local password=""
+    local gaming="false"
 
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -136,6 +143,10 @@ parse_server_args() {
                 password="$2"
                 shift 2
                 ;;
+            -g|--gaming)
+                gaming="true"
+                shift
+                ;;
             "")
                 # Skip empty arguments (caused by trailing whitespace in multiline commands)
                 shift
@@ -158,7 +169,7 @@ parse_server_args() {
     fi
 
     create_server "$name" "$external_port" "$non_iran_ip" "$iran_ip" "$private_ip" \
-                  "$waterwall_port" "$protocol" "$nodepass_port" "$target_port" "$password"
+                  "$waterwall_port" "$protocol" "$nodepass_port" "$target_port" "$password" "$gaming"
 }
 
 # Parse client arguments
@@ -172,6 +183,7 @@ parse_client_args() {
     local nodepass_port=""
     local local_port=""
     local password=""
+    local gaming="false"
 
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -211,6 +223,10 @@ parse_client_args() {
                 password="$2"
                 shift 2
                 ;;
+            -g|--gaming)
+                gaming="true"
+                shift
+                ;;
             "")
                 # Skip empty arguments (caused by trailing whitespace in multiline commands)
                 shift
@@ -233,7 +249,7 @@ parse_client_args() {
     fi
 
     create_client "$name" "$non_iran_ip" "$iran_ip" "$private_ip" "$waterwall_port" \
-                  "$protocol" "$nodepass_port" "$local_port" "$password"
+                  "$protocol" "$nodepass_port" "$local_port" "$password" "$gaming"
 }
 
 # Create server configuration
@@ -248,20 +264,29 @@ create_server() {
     local nodepass_port="$8"
     local target_port="$9"
     local password="${10}"
+    local gaming="${11:-false}"
 
     # Calculate private IP + 1 for TUN device
     IFS='.' read -r ip1 ip2 ip3 ip4 <<< "$private_ip"
     local private_ip_plus1="$ip1.$ip2.$ip3.$((ip4+1))"
 
     print_info "Setting up Waterwall V2 + Nodepass Server: $name"
+    [ "$gaming" = "true" ] && print_info "Gaming mode: ENABLED (low-latency profile)"
     echo ""
 
-    # Step 1: Create Waterwall V2 configuration
-    print_info "Step 1/2: Creating Waterwall V2 tunnel..."
-    mkdir -p /root/tunnel
-    cd /root/tunnel
-
-    bash <(curl -4 -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/main.sh) v2 server "$name" --port "$external_port" "$non_iran_ip" "$iran_ip" "$private_ip" "$waterwall_port" "$protocol"
+    # Step 1: Create Waterwall configuration
+    # Use V3 (with UDP support) for gaming mode, V2 for normal mode
+    if [ "$gaming" = "true" ]; then
+        print_info "Step 1/2: Creating Waterwall V3 tunnel (UDP optimized)..."
+        mkdir -p /root/tunnel
+        cd /root/tunnel
+        bash <(curl -4 -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/main.sh) v3 server "$name" "$non_iran_ip" "$iran_ip" "$private_ip" "$protocol"
+    else
+        print_info "Step 1/2: Creating Waterwall V2 tunnel..."
+        mkdir -p /root/tunnel
+        cd /root/tunnel
+        bash <(curl -4 -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/main.sh) v2 server "$name" --port "$external_port" "$non_iran_ip" "$iran_ip" "$private_ip" "$waterwall_port" "$protocol"
+    fi
 
     # Step 2: Create Nodepass server configuration
     print_info "Step 2/2: Creating Nodepass tunnel server..."
@@ -272,6 +297,10 @@ create_server() {
         chmod +x /root/nodepass.sh
     fi
 
+    # Build gaming flag argument
+    local gaming_arg=""
+    [ "$gaming" = "true" ] && gaming_arg="--gaming"
+    
     # Create Nodepass server: listens for tunnel connections, forwards to target
     /root/nodepass.sh server \
         --name "$name" \
@@ -279,7 +308,8 @@ create_server() {
         --tunnel-port "$nodepass_port" \
         --target-port "$target_port" \
         --bind "0.0.0.0" \
-        --target-addr "0.0.0.0"
+        --target-addr "0.0.0.0" \
+        $gaming_arg
 
     # Verify and display status
     sleep 2
@@ -312,20 +342,29 @@ create_client() {
     local nodepass_port="$7"
     local local_port="$8"
     local password="$9"
+    local gaming="${10:-false}"
 
     # Calculate private IP + 1 for nodepass server connection
     IFS='.' read -r ip1 ip2 ip3 ip4 <<< "$private_ip"
     local nodepass_server_ip="$ip1.$ip2.$ip3.$((ip4+1))"
 
     print_info "Setting up Waterwall V2 + Nodepass Client: $name"
+    [ "$gaming" = "true" ] && print_info "Gaming mode: ENABLED (low-latency profile)"
     echo ""
 
-    # Step 1: Create Waterwall V2 client configuration
-    print_info "Step 1/2: Creating Waterwall V2 tunnel..."
-    mkdir -p /root/tunnel
-    cd /root/tunnel
-
-    bash <(curl -4 -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/main.sh) v2 client "$name" "$non_iran_ip" "$iran_ip" "$private_ip" "$waterwall_port" "$protocol"
+    # Step 1: Create Waterwall configuration
+    # Use V3 (with UDP support) for gaming mode, V2 for normal mode
+    if [ "$gaming" = "true" ]; then
+        print_info "Step 1/2: Creating Waterwall V3 tunnel (UDP optimized)..."
+        mkdir -p /root/tunnel
+        cd /root/tunnel
+        bash <(curl -4 -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/main.sh) v3 client "$name" "$non_iran_ip" "$iran_ip" "$private_ip" "$protocol"
+    else
+        print_info "Step 1/2: Creating Waterwall V2 tunnel..."
+        mkdir -p /root/tunnel
+        cd /root/tunnel
+        bash <(curl -4 -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/main.sh) v2 client "$name" "$non_iran_ip" "$iran_ip" "$private_ip" "$waterwall_port" "$protocol"
+    fi
 
     # Step 2: Create Nodepass client configuration
     print_info "Step 2/2: Creating Nodepass tunnel client..."
@@ -336,13 +375,18 @@ create_client() {
         chmod +x /root/nodepass.sh
     fi
 
+    # Build gaming flag argument
+    local gaming_arg=""
+    [ "$gaming" = "true" ] && gaming_arg="--gaming"
+    
     # Create Nodepass client: connects to server via private IP, forwards to local app port
     /root/nodepass.sh client \
         --name "$name" \
         --pass "$password" \
         --server "$nodepass_server_ip" \
         --server-port "$nodepass_port" \
-        --local-port "$local_port"
+        --local-port "$local_port" \
+        $gaming_arg
 
     # Verify and display status
     sleep 2

@@ -195,6 +195,7 @@ remove_nodepass_service() {
 # Build nodepass URL with options
 # Mode: 0=auto, 1=tcp+udp (recommended)
 # TLS: 0=plain, 1=TLS (recommended for server)
+# Gaming: true = low-latency settings, false = high-throughput settings
 build_nodepass_url() {
     local type="$1"          # server or client
     local password="$2"
@@ -202,19 +203,34 @@ build_nodepass_url() {
     local bind_port="$4"
     local target_addr="$5"
     local target_port="$6"
+    local gaming="${7:-false}"  # Gaming mode for low-latency
     
-    # Optimized defaults (based on testing)
-    # rate=0 for unlimited bandwidth, larger pool sizes for better performance
+    # Base settings
     local mode="${NODEPASS_MODE:-1}"
     local tls="${NODEPASS_TLS:-1}"
     local notcp="${NODEPASS_NOTCP:-0}"
     local noudp="${NODEPASS_NOUDP:-0}"
     local proxy="${NODEPASS_PROXY:-1}"
-    local max="${NODEPASS_MAX:-16384}"        # Increased from 8192
-    local rate="${NODEPASS_RATE:-0}"          # 0 = unlimited (was 1000)
-    local slot="${NODEPASS_SLOT:-20000}"      # Increased from 10000
-    local min="${NODEPASS_MIN:-256}"          # Increased from 128
+    local rate="${NODEPASS_RATE:-0}"          # 0 = unlimited
     local log_level="${NODEPASS_LOG_LEVEL:-info}"
+    
+    # Profile-based settings
+    local max min slot
+    if [ "$gaming" = "true" ]; then
+        # Low-latency gaming profile
+        max="${NODEPASS_MAX:-4096}"
+        min="${NODEPASS_MIN:-256}"
+        if [ "$type" = "server" ]; then
+            slot="${NODEPASS_SLOT:-3000}"
+        else
+            slot="${NODEPASS_SLOT:-2000}"
+        fi
+    else
+        # High-throughput default profile
+        max="${NODEPASS_MAX:-16384}"
+        min="${NODEPASS_MIN:-256}"
+        slot="${NODEPASS_SLOT:-20000}"
+    fi
     
     local url=""
     if [ "$type" = "server" ]; then
@@ -236,11 +252,13 @@ create_nodepass_server_config() {
     local target_port="$4"      # Port to forward traffic to (local app)
     local bind_addr="${5:-0.0.0.0}"
     local target_addr="${6:-0.0.0.0}"
+    local gaming="${7:-false}"  # Gaming mode
     
     print_info "Creating Nodepass Server configuration: $config_name"
+    [ "$gaming" = "true" ] && print_info "Gaming mode: ENABLED (low-latency profile)"
     
     local nodepass_url
-    nodepass_url=$(build_nodepass_url "server" "$password" "$bind_addr" "$tunnel_port" "$target_addr" "$target_port")
+    nodepass_url=$(build_nodepass_url "server" "$password" "$bind_addr" "$tunnel_port" "$target_addr" "$target_port" "$gaming")
     
     # Remove existing service and create new one
     remove_nodepass_service "$config_name"
@@ -268,11 +286,13 @@ create_nodepass_client_config() {
     local server_port="$4"      # Remote server tunnel port
     local local_addr="$5"       # Local address to forward to
     local local_port="$6"       # Local port to forward to (app port)
+    local gaming="${7:-false}"  # Gaming mode
     
     print_info "Creating Nodepass Client configuration: $config_name"
+    [ "$gaming" = "true" ] && print_info "Gaming mode: ENABLED (low-latency profile)"
     
     local nodepass_url
-    nodepass_url=$(build_nodepass_url "client" "$password" "$server_ip" "$server_port" "$local_addr" "$local_port")
+    nodepass_url=$(build_nodepass_url "client" "$password" "$server_ip" "$server_port" "$local_addr" "$local_port" "$gaming")
     
     # Remove existing service and create new one
     remove_nodepass_service "$config_name"
@@ -296,6 +316,7 @@ parse_server_args() {
     local target_port=""
     local bind_addr="0.0.0.0"
     local target_addr="0.0.0.0"
+    local gaming="false"
     
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -323,6 +344,10 @@ parse_server_args() {
                 target_addr="$2"
                 shift 2
                 ;;
+            --gaming|-g)
+                gaming="true"
+                shift
+                ;;
             *)
                 print_error "Unknown option: $1"
                 exit 1
@@ -343,13 +368,15 @@ parse_server_args() {
         echo "Optional:"
         echo "  --bind, -b          Bind address (default: 0.0.0.0)"
         echo "  --target-addr, -a   Target address (default: 0.0.0.0)"
+        echo "  --gaming, -g        Enable gaming mode (low-latency profile)"
         echo ""
         echo "Example:"
         echo "  $0 server --name sweden --pass mypassword --tunnel-port 5009 --target-port 10010"
+        echo "  $0 server --name gameserver --pass mypassword --tunnel-port 5009 --target-port 10010 --gaming"
         exit 1
     fi
     
-    create_nodepass_server_config "$config_name" "$password" "$tunnel_port" "$target_port" "$bind_addr" "$target_addr"
+    create_nodepass_server_config "$config_name" "$password" "$tunnel_port" "$target_port" "$bind_addr" "$target_addr" "$gaming"
     manage_nodepass_service "$config_name"
 }
 
@@ -361,6 +388,7 @@ parse_client_args() {
     local server_port=""
     local local_port=""
     local local_addr="127.0.0.1"
+    local gaming="false"
     
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -388,6 +416,10 @@ parse_client_args() {
                 local_addr="$2"
                 shift 2
                 ;;
+            --gaming|-g)
+                gaming="true"
+                shift
+                ;;
             *)
                 print_error "Unknown option: $1"
                 exit 1
@@ -408,13 +440,15 @@ parse_client_args() {
         echo ""
         echo "Optional:"
         echo "  --local-addr, -a    Local address (default: 127.0.0.1)"
+        echo "  --gaming, -g        Enable gaming mode (low-latency profile)"
         echo ""
         echo "Example:"
         echo "  $0 client --name sweden --pass mypassword --server 213.176.7.229 --server-port 5009 --local-port 18081"
+        echo "  $0 client --name gameserver --pass mypassword --server 213.176.7.229 --server-port 5009 --local-port 18081 --gaming"
         exit 1
     fi
     
-    create_nodepass_client_config "$config_name" "$password" "$server_ip" "$server_port" "$local_addr" "$local_port"
+    create_nodepass_client_config "$config_name" "$password" "$server_ip" "$server_port" "$local_addr" "$local_port" "$gaming"
     manage_nodepass_service "$config_name"
 }
 

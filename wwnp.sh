@@ -632,7 +632,7 @@ EOF
     print_info "  Internet:$external_port -> Waterwall V2 -> Nodepass:$nodepass_port -> :$target_port"
     echo ""
     print_info "Service status:"
-    systemctl is-active waterwall >/dev/null 2>&1 && echo "  ✅ Waterwall: Running" || echo "  ❌ Waterwall: Not running"
+    pgrep -f "Waterwall" >/dev/null && echo "  ✅ Waterwall: Running" || echo "  ❌ Waterwall: Not running"
     systemctl is-active "nodepass-${name}" >/dev/null 2>&1 && echo "  ✅ Nodepass: Running" || echo "  ❌ Nodepass: Not running"
 }
 
@@ -724,7 +724,7 @@ EOF
     print_info "  App -> 127.0.0.1:$local_port -> Nodepass -> ${nodepass_server_ip}:${nodepass_port} -> Waterwall V2 -> Internet"
     echo ""
     print_info "Service status:"
-    systemctl is-active waterwall >/dev/null 2>&1 && echo "  ✅ Waterwall: Running" || echo "  ❌ Waterwall: Not running"
+    pgrep -f "Waterwall" >/dev/null && echo "  ✅ Waterwall: Running" || echo "  ❌ Waterwall: Not running"
     systemctl is-active "nodepass-${name}" >/dev/null 2>&1 && echo "  ✅ Nodepass: Running" || echo "  ❌ Nodepass: Not running"
     echo ""
     print_info "Your application should connect to: 127.0.0.1:${local_port}"

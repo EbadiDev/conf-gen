@@ -412,17 +412,18 @@ handle_v2_config() {
         local remaining_args=()
         
         # Parse remaining args after config_type
-        shift 2  # Remove $1 (v2) and $2 (config_type or proxy type)
+        # When using proxy: v2 haproxy server config_name ... -> shift 3
+        # When no proxy:    v2 server config_name ...         -> shift 2
         if [ "$use_haproxy" = true ] || [ "$use_caddy" = true ]; then
-            shift 1  # Remove 'server'
+            shift 3  # Remove 'v2', 'haproxy/caddy', 'server'
         elif [ "$use_gost" = true ]; then
             if [ -n "$gost_password" ]; then
-                shift 1  # Already shifted for password, just shift 'server'
+                shift 4  # Remove 'v2', 'gost', password, 'server'
             else
-                shift 1  # Remove 'server'
+                shift 3  # Remove 'v2', 'gost', 'server'
             fi
         else
-            shift 1  # Remove 'server'  
+            shift 2  # Remove 'v2', 'server'
         fi
         
         local config_name="$1"

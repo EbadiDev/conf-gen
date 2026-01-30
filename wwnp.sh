@@ -339,7 +339,6 @@ show_usage() {
     echo "  -ni, --non-iran-ip     Non-Iran server IP (Sweden/etc)"
     echo "  -ii, --iran-ip         Iran server IP"
     echo "  -pi, --private-ip      Private network IP (e.g., 30.6.0.1)"
-    echo "  -wp, --waterwall-port  Waterwall internal port"
     echo "  -pt, --protocol        Protocol number for waterwall"
     echo "  -pu, --udp-protocol    UDP Protocol number (default: tcp + 1)"
     echo "  -np, --nodepass-port   Nodepass server's tunnel port"
@@ -348,17 +347,17 @@ show_usage() {
     echo "  -g,  --gaming          Enable gaming mode (low-latency profile)"
     echo ""
     echo "Examples:"
-    echo "  Server (External 443 -> Waterwall 30111 -> Nodepass 5009 -> Target 10010):"
+    echo "  Server (External 443 -> Waterwall -> Nodepass 5009 -> Target 10010):"
     echo "    $0 server -n sweden -ep 443 -ni 1.2.3.4 -ii 5.6.7.8 \\"
-    echo "              -pi 30.5.0.1 -wp 30111 -pt 26 -np 5009 -tp 10010 -ps mypassword"
+    echo "              -pi 30.5.0.1 -pt 26 -np 5009 -tp 10010 -ps mypassword"
     echo ""
     echo "  Server with gaming mode (low-latency):"
     echo "    $0 server -n gameserver -ep 443 -ni 1.2.3.4 -ii 5.6.7.8 \\"
-    echo "              -pi 30.5.0.1 -wp 30111 -pt 26 -np 5009 -tp 10010 -ps mypassword --gaming"
+    echo "              -pi 30.5.0.1 -pt 26 -np 5009 -tp 10010 -ps mypassword --gaming"
     echo ""
     echo "  Client (App -> Local 18081 -> Nodepass -> Waterwall -> Internet):"
     echo "    $0 client -n iran -ni 1.2.3.4 -ii 5.6.7.8 \\"
-    echo "              -pi 30.5.0.1 -wp 30111 -pt 26 -np 5009 -lp 18081 -ps mypassword"
+    echo "              -pi 30.5.0.1 -pt 26 -np 5009 -lp 18081 -ps mypassword"
 }
 
 # Parse server arguments
@@ -368,7 +367,6 @@ parse_server_args() {
     local non_iran_ip=""
     local iran_ip=""
     local private_ip=""
-    local waterwall_port=""
     local protocol=""
     local nodepass_port=""
     local target_port=""
@@ -396,10 +394,6 @@ parse_server_args() {
                 ;;
             -pi|--private-ip)
                 private_ip="$2"
-                shift 2
-                ;;
-            -wp|--waterwall-port)
-                waterwall_port="$2"
                 shift 2
                 ;;
             -pt|--protocol)
@@ -440,7 +434,7 @@ parse_server_args() {
 
     # Validate required parameters
     if [ -z "$name" ] || [ -z "$external_port" ] || [ -z "$non_iran_ip" ] || [ -z "$iran_ip" ] || \
-       [ -z "$private_ip" ] || [ -z "$waterwall_port" ] || [ -z "$protocol" ] || \
+       [ -z "$private_ip" ] || [ -z "$protocol" ] || \
        [ -z "$nodepass_port" ] || [ -z "$target_port" ] || [ -z "$password" ]; then
         print_error "Missing required server parameters"
         show_usage
@@ -448,7 +442,7 @@ parse_server_args() {
     fi
 
     create_server "$name" "$external_port" "$non_iran_ip" "$iran_ip" "$private_ip" \
-                  "$waterwall_port" "$protocol" "$nodepass_port" "$target_port" "$password" "$gaming" "$udp_protocol"
+                  "$protocol" "$nodepass_port" "$target_port" "$password" "$gaming" "$udp_protocol"
 }
 
 # Parse client arguments
@@ -457,7 +451,6 @@ parse_client_args() {
     local non_iran_ip=""
     local iran_ip=""
     local private_ip=""
-    local waterwall_port=""
     local protocol=""
     local nodepass_port=""
     local local_port=""
@@ -481,10 +474,6 @@ parse_client_args() {
                 ;;
             -pi|--private-ip)
                 private_ip="$2"
-                shift 2
-                ;;
-            -wp|--waterwall-port)
-                waterwall_port="$2"
                 shift 2
                 ;;
             -pt|--protocol)
@@ -525,14 +514,14 @@ parse_client_args() {
 
     # Validate required parameters
     if [ -z "$name" ] || [ -z "$non_iran_ip" ] || [ -z "$iran_ip" ] || [ -z "$private_ip" ] || \
-       [ -z "$waterwall_port" ] || [ -z "$protocol" ] || [ -z "$nodepass_port" ] || \
+       [ -z "$protocol" ] || [ -z "$nodepass_port" ] || \
        [ -z "$local_port" ] || [ -z "$password" ]; then
         print_error "Missing required client parameters"
         show_usage
         exit 1
     fi
 
-    create_client "$name" "$non_iran_ip" "$iran_ip" "$private_ip" "$waterwall_port" \
+    create_client "$name" "$non_iran_ip" "$iran_ip" "$private_ip" \
                   "$protocol" "$nodepass_port" "$local_port" "$password" "$gaming" "$udp_protocol"
 }
 
@@ -543,13 +532,12 @@ create_server() {
     local non_iran_ip="$3"
     local iran_ip="$4"
     local private_ip="$5"
-    local waterwall_port="$6"
-    local protocol="$7"
-    local nodepass_port="$8"
-    local target_port="$9"
-    local password="${10}"
-    local gaming="${11:-false}"
-    local udp_protocol="${12:-}"
+    local protocol="$6"
+    local nodepass_port="$7"
+    local target_port="$8"
+    local password="$9"
+    local gaming="${10:-false}"
+    local udp_protocol="${11:-}"
 
     # Calculate private IP + 1 for TUN device
     IFS='.' read -r ip1 ip2 ip3 ip4 <<< "$private_ip"
@@ -617,7 +605,6 @@ EOF
     echo ""
     print_info "Configuration summary:"
     print_info "  External port: $external_port"
-    print_info "  Waterwall internal port: $waterwall_port"
     print_info "  Private network: $private_ip (TUN: $private_ip_plus1)"
     print_info "  Nodepass tunnel: ${private_ip_plus1}:${nodepass_port}"
     print_info "  Target port: $target_port"
@@ -636,13 +623,12 @@ create_client() {
     local non_iran_ip="$2"
     local iran_ip="$3"
     local private_ip="$4"
-    local waterwall_port="$5"
-    local protocol="$6"
-    local nodepass_port="$7"
-    local local_port="$8"
-    local password="$9"
-    local gaming="${10:-false}"
-    local udp_protocol="${11:-}"
+    local protocol="$5"
+    local nodepass_port="$6"
+    local local_port="$7"
+    local password="$8"
+    local gaming="${9:-false}"
+    local udp_protocol="${10:-}"
 
     # Calculate private IP + 1 for nodepass server connection
     IFS='.' read -r ip1 ip2 ip3 ip4 <<< "$private_ip"
@@ -711,7 +697,6 @@ EOF
     print_info "Configuration summary:"
     print_info "  Private network: $private_ip"
     print_info "  Nodepass server: ${nodepass_server_ip}:${nodepass_port}"
-    print_info "  Waterwall port: $waterwall_port"
     print_info "  Local port: 127.0.0.1:$local_port"
     echo ""
     print_info "Traffic flow:"

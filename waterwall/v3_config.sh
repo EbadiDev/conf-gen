@@ -27,6 +27,13 @@ create_v3_server_config() {
         protoswap_udp=$((protoswap_tcp + 1))
     fi
 
+    # Validation: Protocols must be different
+    if [ "$protoswap_tcp" -eq "$protoswap_udp" ]; then
+        print_error "Error: TCP Protocol ($protoswap_tcp) and UDP Protocol ($protoswap_udp) CANNOT be the same."
+        print_error "Traffic would be indistinguishable. Please use different values."
+        exit 1
+    fi
+
     # Calculate PRIVATE_IP+1 for ipovsrc2
     IFS='.' read -r ip1 ip2 ip3 ip4 <<< "$private_ip"
     local ip_plus1="$ip1.$ip2.$ip3.$((ip4+1))"
@@ -138,6 +145,13 @@ create_v3_client_config() {
         protoswap_udp="$custom_udp"
     else
         protoswap_udp=$((protoswap_tcp + 1))
+    fi
+
+    # Validation: Protocols must be different
+    if [ "$protoswap_tcp" -eq "$protoswap_udp" ]; then
+        print_error "Error: TCP Protocol ($protoswap_tcp) and UDP Protocol ($protoswap_udp) CANNOT be the same."
+        print_error "Traffic would be indistinguishable. Please use different values."
+        exit 1
     fi
 
     # Calculate PRIVATE_IP+1 for ipovsrc2

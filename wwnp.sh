@@ -274,19 +274,11 @@ create_server() {
     [ "$gaming" = "true" ] && print_info "Gaming mode: ENABLED (low-latency profile)"
     echo ""
 
-    # Step 1: Create Waterwall configuration
-    # Use V3 (with UDP support) for gaming mode, V2 for normal mode
-    if [ "$gaming" = "true" ]; then
-        print_info "Step 1/2: Creating Waterwall V3 tunnel (UDP optimized)..."
-        mkdir -p /root/tunnel
-        cd /root/tunnel
-        bash <(curl -4 -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/main.sh) v3 server "$name" "$non_iran_ip" "$iran_ip" "$private_ip" "$protocol"
-    else
-        print_info "Step 1/2: Creating Waterwall V2 tunnel..."
-        mkdir -p /root/tunnel
-        cd /root/tunnel
-        bash <(curl -4 -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/main.sh) v2 server "$name" --port "$external_port" "$non_iran_ip" "$iran_ip" "$private_ip" "$waterwall_port" "$protocol"
-    fi
+    # Step 1: Create Waterwall V3 configuration (with UDP support)
+    print_info "Step 1/2: Creating Waterwall V3 tunnel..."
+    mkdir -p /root/tunnel
+    cd /root/tunnel
+    bash <(curl -4 -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/main.sh) v3 server "$name" "$non_iran_ip" "$iran_ip" "$private_ip" "$protocol"
 
     # Step 2: Create Nodepass server configuration
     print_info "Step 2/2: Creating Nodepass tunnel server..."
@@ -352,19 +344,11 @@ create_client() {
     [ "$gaming" = "true" ] && print_info "Gaming mode: ENABLED (low-latency profile)"
     echo ""
 
-    # Step 1: Create Waterwall configuration
-    # Use V3 (with UDP support) for gaming mode, V2 for normal mode
-    if [ "$gaming" = "true" ]; then
-        print_info "Step 1/2: Creating Waterwall V3 tunnel (UDP optimized)..."
-        mkdir -p /root/tunnel
-        cd /root/tunnel
-        bash <(curl -4 -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/main.sh) v3 client "$name" "$non_iran_ip" "$iran_ip" "$private_ip" "$protocol"
-    else
-        print_info "Step 1/2: Creating Waterwall V2 tunnel..."
-        mkdir -p /root/tunnel
-        cd /root/tunnel
-        bash <(curl -4 -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/main.sh) v2 client "$name" "$non_iran_ip" "$iran_ip" "$private_ip" "$waterwall_port" "$protocol"
-    fi
+    # Step 1: Create Waterwall V3 configuration (with UDP support)
+    print_info "Step 1/2: Creating Waterwall V3 tunnel..."
+    mkdir -p /root/tunnel
+    cd /root/tunnel
+    bash <(curl -4 -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/main.sh) v3 client "$name" "$non_iran_ip" "$iran_ip" "$private_ip" "$protocol"
 
     # Step 2: Create Nodepass client configuration
     print_info "Step 2/2: Creating Nodepass tunnel client..."

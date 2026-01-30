@@ -255,39 +255,6 @@ EOF
     fi
 }
 
-# Download and install Waterwall binary to /root/tunnel
-install_waterwall() {
-    local version="${WATERWALL_VERSION:-v1.41}"
-    local old_cpu="${WATERWALL_OLD_CPU:-false}"
-    
-    # Check if already installed
-    if [ -f /root/tunnel/Waterwall ]; then
-        print_info "Waterwall already installed at /root/tunnel/Waterwall"
-        return 0
-    fi
-    
-    print_info "Installing Waterwall ${version}..."
-    
-    # Ensure unzip is installed
-    apt install unzip -y &>/dev/null || true
-    
-    mkdir -p /root/tunnel
-    cd /root/tunnel
-    rm -f waterwall.zip Waterwall
-    
-    if [ "$old_cpu" = "true" ]; then
-        wget --inet4-only -q -O waterwall.zip "https://github.com/radkesvat/WaterWall/releases/download/${version}/Waterwall-linux-gcc-x64-old-cpu.zip"
-    else
-        wget --inet4-only -q -O waterwall.zip "https://github.com/radkesvat/WaterWall/releases/download/${version}/Waterwall-linux-clang-x64.zip"
-    fi
-    
-    unzip -o waterwall.zip
-    chmod +x Waterwall
-    rm -f waterwall.zip
-    
-    print_success "Waterwall installed to /root/tunnel/Waterwall"
-}
-
 # Download and install Nodepass binary to /usr/local/bin
 install_nodepass() {
     local version="${NODEPASS_VERSION:-v1.15.0}"
@@ -314,33 +281,6 @@ install_nodepass() {
     print_success "Nodepass installed to /usr/local/bin/nodepass"
 }
 
-# Manage Waterwall service (assumes Waterwall is already installed by admin)
-manage_waterwall_service() {
-    local service_file="/etc/systemd/system/waterwall.service"
-    
-    # Create service file if it doesn't exist
-    if [ ! -f "$service_file" ]; then
-        cat << 'EOF' > "$service_file"
-[Unit]
-Description=Waterwall Tunnel Service
-After=network.target
-
-[Service]
-Type=simple
-ExecStart=/root/tunnel/Waterwall
-WorkingDirectory=/root/tunnel
-Restart=always
-RestartSec=3
-
-[Install]
-WantedBy=multi-user.target
-EOF
-    fi
-    
-    systemctl daemon-reload
-    systemctl enable waterwall
-    systemctl restart waterwall
-}
 
 # Display banner
 show_banner() {
@@ -387,15 +327,15 @@ show_usage() {
     echo ""
     echo "Examples:"
     echo "  Server (External 443 -> Waterwall 30111 -> Nodepass 5009 -> Target 10010):"
-    echo "    $0 server -n sweden -ep 443 -ni 87.121.105.148 -ii 213.176.7.229 \\"
+    echo "    $0 server -n sweden -ep 443 -ni 1.2.3.4 -ii 5.6.7.8 \\"
     echo "              -pi 30.5.0.1 -wp 30111 -pt 26 -np 5009 -tp 10010 -ps mypassword"
     echo ""
     echo "  Server with gaming mode (low-latency):"
-    echo "    $0 server -n gameserver -ep 443 -ni 87.121.105.148 -ii 213.176.7.229 \\"
+    echo "    $0 server -n gameserver -ep 443 -ni 1.2.3.4 -ii 5.6.7.8 \\"
     echo "              -pi 30.5.0.1 -wp 30111 -pt 26 -np 5009 -tp 10010 -ps mypassword --gaming"
     echo ""
     echo "  Client (App -> Local 18081 -> Nodepass -> Waterwall -> Internet):"
-    echo "    $0 client -n iran -ni 87.121.105.148 -ii 213.176.7.229 \\"
+    echo "    $0 client -n iran -ni 1.2.3.4 -ii 5.6.7.8 \\"
     echo "              -pi 30.5.0.1 -wp 30111 -pt 26 -np 5009 -lp 18081 -ps mypassword"
 }
 
@@ -591,7 +531,6 @@ create_server() {
     mkdir -p /root/tunnel
     cd /root/tunnel
     create_waterwall_v3_server_config "$name" "$non_iran_ip" "$iran_ip" "$private_ip" "$protocol"
-    manage_waterwall_service
 
     # Step 2: Create Nodepass server configuration
     print_info "Step 2/2: Creating Nodepass tunnel server..."
@@ -684,7 +623,6 @@ create_client() {
     mkdir -p /root/tunnel
     cd /root/tunnel
     create_waterwall_v3_client_config "$name" "$non_iran_ip" "$iran_ip" "$private_ip" "$protocol"
-    manage_waterwall_service
 
     # Step 2: Create Nodepass client configuration
     print_info "Step 2/2: Creating Nodepass tunnel client..."

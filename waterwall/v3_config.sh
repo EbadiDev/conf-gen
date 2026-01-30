@@ -240,7 +240,7 @@ handle_v3_config() {
             echo "  protocol      - Protocol number for TCP swap (UDP will be +1)"
             echo ""
             echo "Example:"
-            echo "  $0 v3 server sweden 87.121.105.148 213.176.7.229 30.6.0.1 27"
+            echo "  $0 v3 server sweden 1.2.3.4 5.6.7.8 30.6.0.1 27"
             exit 1
         fi
         
@@ -259,7 +259,7 @@ handle_v3_config() {
             echo "  protocol      - Protocol number for TCP swap (UDP will be +1)"
             echo ""
             echo "Example:"
-            echo "  $0 v3 client iran 87.121.105.148 213.176.7.229 30.6.0.1 27"
+            echo "  $0 v3 client iran 1.2.3.4 5.6.7.8 30.6.0.1 27"
             exit 1
         fi
         

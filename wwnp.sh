@@ -136,6 +136,10 @@ parse_server_args() {
                 password="$2"
                 shift 2
                 ;;
+            "")
+                # Skip empty arguments (caused by trailing whitespace in multiline commands)
+                shift
+                ;;
             *)
                 print_error "Unknown option: $1"
                 show_usage
@@ -206,6 +210,10 @@ parse_client_args() {
             -ps|--password)
                 password="$2"
                 shift 2
+                ;;
+            "")
+                # Skip empty arguments (caused by trailing whitespace in multiline commands)
+                shift
                 ;;
             *)
                 print_error "Unknown option: $1"

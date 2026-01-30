@@ -255,9 +255,71 @@ EOF
     fi
 }
 
+# Download and install Waterwall binary to /usr/local/bin
+install_waterwall() {
+    local version="${WATERWALL_VERSION:-v1.41}"
+    local old_cpu="${WATERWALL_OLD_CPU:-false}"
+    
+    # Check if already installed
+    if command -v waterwall &>/dev/null; then
+        print_info "Waterwall already installed at $(which waterwall)"
+        return 0
+    fi
+    
+    print_info "Installing Waterwall ${version}..."
+    
+    # Ensure unzip is installed
+    apt install unzip -y &>/dev/null || true
+    
+    cd /tmp
+    rm -f waterwall.zip Waterwall
+    
+    if [ "$old_cpu" = "true" ]; then
+        wget --inet4-only -q -O waterwall.zip "https://github.com/radkesvat/WaterWall/releases/download/${version}/Waterwall-linux-gcc-x64-old-cpu.zip"
+    else
+        wget --inet4-only -q -O waterwall.zip "https://github.com/radkesvat/WaterWall/releases/download/${version}/Waterwall-linux-clang-x64.zip"
+    fi
+    
+    unzip -o waterwall.zip
+    chmod +x Waterwall
+    mv Waterwall /usr/local/bin/waterwall
+    rm -f waterwall.zip
+    
+    print_success "Waterwall installed to /usr/local/bin/waterwall"
+}
+
+# Download and install Nodepass binary to /usr/local/bin
+install_nodepass() {
+    local version="${NODEPASS_VERSION:-v1.15.0}"
+    
+    # Check if already installed
+    if command -v nodepass &>/dev/null; then
+        print_info "Nodepass already installed at $(which nodepass)"
+        return 0
+    fi
+    
+    print_info "Installing Nodepass ${version}..."
+    
+    cd /tmp
+    rm -f nodepass nodepass_*.tar.gz
+    
+    local version_num="${version#v}"  # Remove 'v' prefix
+    wget --inet4-only -q -O nodepass.tar.gz "https://github.com/NodePassProject/nodepass/releases/download/${version}/nodepass_${version_num}_linux_amd64.tar.gz"
+    
+    tar -xzf nodepass.tar.gz
+    chmod +x nodepass
+    mv nodepass /usr/local/bin/nodepass
+    rm -f nodepass.tar.gz README.md LICENSE
+    
+    print_success "Nodepass installed to /usr/local/bin/nodepass"
+}
+
 # Manage Waterwall service
 manage_waterwall_service() {
     local service_file="/etc/systemd/system/waterwall.service"
+    
+    # Install Waterwall if not present
+    install_waterwall
     
     # Create service file if it doesn't exist
     if [ ! -f "$service_file" ]; then
@@ -268,7 +330,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/root/tunnel/Waterwall
+ExecStart=/usr/local/bin/waterwall
 WorkingDirectory=/root/tunnel
 Restart=always
 RestartSec=3
@@ -276,15 +338,6 @@ RestartSec=3
 [Install]
 WantedBy=multi-user.target
 EOF
-    fi
-    
-    # Download Waterwall if not present
-    if [ ! -f /root/tunnel/Waterwall ]; then
-        print_info "Downloading Waterwall..."
-        curl -4 -Ls "https://github.com/radkesvat/WaterWall/releases/latest/download/Waterwall-linux-64.zip" -o /tmp/waterwall.zip
-        unzip -o /tmp/waterwall.zip -d /root/tunnel/
-        chmod +x /root/tunnel/Waterwall
-        rm -f /tmp/waterwall.zip
     fi
     
     systemctl daemon-reload
@@ -546,25 +599,47 @@ create_server() {
     # Step 2: Create Nodepass server configuration
     print_info "Step 2/2: Creating Nodepass tunnel server..."
     
-    # Download nodepass script if not present
-    if [ ! -f /root/nodepass.sh ]; then
-        curl -4 -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/nodepass.sh -o /root/nodepass.sh
-        chmod +x /root/nodepass.sh
-    fi
+    # Install nodepass binary if not present
+    install_nodepass
 
-    # Build gaming flag argument
-    local gaming_arg=""
-    [ "$gaming" = "true" ] && gaming_arg="--gaming"
+    # Build nodepass URL parameters
+    local mode="1"  # server mode
+    local tls="1"
+    local proxy="1"
+    local log="1"
+    local max="16384"
+    local rate="0"
+    local slot="20000"
+    local min="256"
     
-    # Create Nodepass server: listens for tunnel connections, forwards to target
-    /root/nodepass.sh server \
-        --name "$name" \
-        --pass "$password" \
-        --tunnel-port "$nodepass_port" \
-        --target-port "$target_port" \
-        --bind "0.0.0.0" \
-        --target-addr "0.0.0.0" \
-        $gaming_arg
+    # Gaming mode: low-latency profile
+    if [ "$gaming" = "true" ]; then
+        max="4096"
+        slot="3000"
+    fi
+    
+    local nodepass_url="server://${password}@0.0.0.0:${nodepass_port}/0.0.0.0:${target_port}?mode=${mode}&tls=${tls}&proxy=${proxy}&log=${log}&max=${max}&rate=${rate}&slot=${slot}&min=${min}"
+    
+    # Create systemd service for nodepass
+    local service_file="/etc/systemd/system/nodepass-${name}.service"
+    cat << EOF > "$service_file"
+[Unit]
+Description=Nodepass Server - ${name}
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/nodepass ${nodepass_url}
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    
+    systemctl daemon-reload
+    systemctl enable "nodepass-${name}"
+    systemctl restart "nodepass-${name}"
 
     # Verify and display status
     sleep 2
@@ -617,24 +692,47 @@ create_client() {
     # Step 2: Create Nodepass client configuration
     print_info "Step 2/2: Creating Nodepass tunnel client..."
     
-    # Download nodepass script if not present
-    if [ ! -f /root/nodepass.sh ]; then
-        curl -4 -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/nodepass.sh -o /root/nodepass.sh
-        chmod +x /root/nodepass.sh
-    fi
+    # Install nodepass binary if not present
+    install_nodepass
 
-    # Build gaming flag argument
-    local gaming_arg=""
-    [ "$gaming" = "true" ] && gaming_arg="--gaming"
+    # Build nodepass URL parameters
+    local mode="1"  # tcp mode
+    local tls="1"
+    local proxy="1"
+    local log="1"
+    local max="16384"
+    local rate="0"
+    local slot="20000"
+    local min="256"
     
-    # Create Nodepass client: connects to server via private IP, forwards to local app port
-    /root/nodepass.sh client \
-        --name "$name" \
-        --pass "$password" \
-        --server "$nodepass_server_ip" \
-        --server-port "$nodepass_port" \
-        --local-port "$local_port" \
-        $gaming_arg
+    # Gaming mode: low-latency profile
+    if [ "$gaming" = "true" ]; then
+        max="4096"
+        slot="2000"
+    fi
+    
+    local nodepass_url="client://${password}@${nodepass_server_ip}:${nodepass_port}/127.0.0.1:${local_port}?mode=${mode}&tls=${tls}&proxy=${proxy}&log=${log}&max=${max}&rate=${rate}&slot=${slot}&min=${min}"
+    
+    # Create systemd service for nodepass
+    local service_file="/etc/systemd/system/nodepass-${name}.service"
+    cat << EOF > "$service_file"
+[Unit]
+Description=Nodepass Client - ${name}
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/nodepass ${nodepass_url}
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    
+    systemctl daemon-reload
+    systemctl enable "nodepass-${name}"
+    systemctl restart "nodepass-${name}"
 
     # Verify and display status
     sleep 2

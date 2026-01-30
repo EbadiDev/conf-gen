@@ -17,9 +17,15 @@ create_v3_server_config() {
     local iran_ip="$3"
     local private_ip="$4"
     local protoswap_tcp="$5"
+    local custom_udp="$6"
 
-    # Calculate protoswap_udp as protoswap_tcp + 1
-    local protoswap_udp=$((protoswap_tcp + 1))
+    # Use custom UDP protocol if provided, otherwise calculate as tcp + 1
+    local protoswap_udp=""
+    if [ -n "$custom_udp" ]; then
+        protoswap_udp="$custom_udp"
+    else
+        protoswap_udp=$((protoswap_tcp + 1))
+    fi
 
     # Calculate PRIVATE_IP+1 for ipovsrc2
     IFS='.' read -r ip1 ip2 ip3 ip4 <<< "$private_ip"
@@ -124,9 +130,15 @@ create_v3_client_config() {
     local iran_ip="$3"
     local private_ip="$4"
     local protoswap_tcp="$5"
+    local custom_udp="$6"
 
-    # Calculate protoswap_udp as protoswap_tcp + 1
-    local protoswap_udp=$((protoswap_tcp + 1))
+    # Use custom UDP protocol if provided, otherwise calculate as tcp + 1
+    local protoswap_udp=""
+    if [ -n "$custom_udp" ]; then
+        protoswap_udp="$custom_udp"
+    else
+        protoswap_udp=$((protoswap_tcp + 1))
+    fi
 
     # Calculate PRIVATE_IP+1 for ipovsrc2
     IFS='.' read -r ip1 ip2 ip3 ip4 <<< "$private_ip"
@@ -230,40 +242,42 @@ handle_v3_config() {
     if [ "$config_type" = "server" ]; then
         # v3 server config_name non-iran-ip iran-ip private-ip protocol
         if [ "$#" -lt 7 ]; then
-            echo "Usage: $0 v3 server <config_name> <non_iran_ip> <iran_ip> <private_ip> <protocol>"
+            echo "Usage: $0 v3 server <config_name> <non_iran_ip> <iran_ip> <private_ip> <protocol> [udp_protocol]"
             echo ""
             echo "Arguments:"
             echo "  config_name   - Name for the tunnel configuration"
             echo "  non_iran_ip   - IP of the foreign server (e.g., Sweden)"
             echo "  iran_ip       - IP of the Iran server"
             echo "  private_ip    - Private network IP (e.g., 30.6.0.1)"
-            echo "  protocol      - Protocol number for TCP swap (UDP will be +1)"
+            echo "  protocol      - Protocol number for TCP swap"
+            echo "  udp_protocol  - Protocol number for UDP swap (default: tcp + 1)"
             echo ""
             echo "Example:"
             echo "  $0 v3 server sweden 1.2.3.4 5.6.7.8 30.6.0.1 27"
             exit 1
         fi
         
-        create_v3_server_config "$3" "$4" "$5" "$6" "$7"
+        create_v3_server_config "$3" "$4" "$5" "$6" "$7" "$8"
         
     elif [ "$config_type" = "client" ]; then
         # v3 client config_name non-iran-ip iran-ip private-ip protocol
         if [ "$#" -lt 7 ]; then
-            echo "Usage: $0 v3 client <config_name> <non_iran_ip> <iran_ip> <private_ip> <protocol>"
+            echo "Usage: $0 v3 client <config_name> <non_iran_ip> <iran_ip> <private_ip> <protocol> [udp_protocol]"
             echo ""
             echo "Arguments:"
             echo "  config_name   - Name for the tunnel configuration"
             echo "  non_iran_ip   - IP of the foreign server (e.g., Sweden)"
             echo "  iran_ip       - IP of the Iran server"
             echo "  private_ip    - Private network IP (e.g., 30.6.0.1)"
-            echo "  protocol      - Protocol number for TCP swap (UDP will be +1)"
+            echo "  protocol      - Protocol number for TCP swap"
+            echo "  udp_protocol  - Protocol number for UDP swap (default: tcp + 1)"
             echo ""
             echo "Example:"
             echo "  $0 v3 client iran 1.2.3.4 5.6.7.8 30.6.0.1 27"
             exit 1
         fi
         
-        create_v3_client_config "$3" "$4" "$5" "$6" "$7"
+        create_v3_client_config "$3" "$4" "$5" "$6" "$7" "$8"
         
     else
         echo "Error: v3 config type must be either 'server' or 'client'"

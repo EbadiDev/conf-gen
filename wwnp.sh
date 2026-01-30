@@ -64,9 +64,15 @@ create_waterwall_v3_server_config() {
     local iran_ip="$3"
     local private_ip="$4"
     local protoswap_tcp="$5"
+    local custom_udp="$6"
 
-    # Calculate protoswap_udp as protoswap_tcp + 1
-    local protoswap_udp=$((protoswap_tcp + 1))
+    # Use custom UDP protocol if provided, otherwise calculate as tcp + 1
+    local protoswap_udp=""
+    if [ -n "$custom_udp" ]; then
+        protoswap_udp="$custom_udp"
+    else
+        protoswap_udp=$((protoswap_tcp + 1))
+    fi
 
     # Calculate PRIVATE_IP+1 for ipovsrc2
     IFS='.' read -r ip1 ip2 ip3 ip4 <<< "$private_ip"
@@ -163,9 +169,15 @@ create_waterwall_v3_client_config() {
     local iran_ip="$3"
     local private_ip="$4"
     local protoswap_tcp="$5"
+    local custom_udp="$6"
 
-    # Calculate protoswap_udp as protoswap_tcp + 1
-    local protoswap_udp=$((protoswap_tcp + 1))
+    # Use custom UDP protocol if provided, otherwise calculate as tcp + 1
+    local protoswap_udp=""
+    if [ -n "$custom_udp" ]; then
+        protoswap_udp="$custom_udp"
+    else
+        protoswap_udp=$((protoswap_tcp + 1))
+    fi
 
     # Calculate PRIVATE_IP+1 for ipovsrc2
     IFS='.' read -r ip1 ip2 ip3 ip4 <<< "$private_ip"
@@ -308,6 +320,7 @@ show_usage() {
     echo "  -pi, --private-ip      Private network IP (e.g., 30.6.0.1)"
     echo "  -wp, --waterwall-port  Waterwall internal port"
     echo "  -pt, --protocol        Protocol number for waterwall"
+    echo "  -pu, --udp-protocol    UDP Protocol number (default: tcp + 1)"
     echo "  -np, --nodepass-port   Nodepass tunnel port"
     echo "  -tp, --target-port     Target port for forwarded traffic"
     echo "  -ps, --password        Nodepass password"
@@ -320,6 +333,7 @@ show_usage() {
     echo "  -pi, --private-ip      Private network IP (e.g., 30.6.0.1)"
     echo "  -wp, --waterwall-port  Waterwall internal port"
     echo "  -pt, --protocol        Protocol number for waterwall"
+    echo "  -pu, --udp-protocol    UDP Protocol number (default: tcp + 1)"
     echo "  -np, --nodepass-port   Nodepass server's tunnel port"
     echo "  -lp, --local-port      Local port for apps to connect"
     echo "  -ps, --password        Nodepass password"
@@ -352,6 +366,7 @@ parse_server_args() {
     local target_port=""
     local password=""
     local gaming="false"
+    local udp_protocol=""
 
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -399,6 +414,10 @@ parse_server_args() {
                 gaming="true"
                 shift
                 ;;
+            -pu|--udp-protocol)
+                udp_protocol="$2"
+                shift 2
+                ;;
             "")
                 # Skip empty arguments (caused by trailing whitespace in multiline commands)
                 shift
@@ -421,7 +440,7 @@ parse_server_args() {
     fi
 
     create_server "$name" "$external_port" "$non_iran_ip" "$iran_ip" "$private_ip" \
-                  "$waterwall_port" "$protocol" "$nodepass_port" "$target_port" "$password" "$gaming"
+                  "$waterwall_port" "$protocol" "$nodepass_port" "$target_port" "$password" "$gaming" "$udp_protocol"
 }
 
 # Parse client arguments
@@ -436,6 +455,7 @@ parse_client_args() {
     local local_port=""
     local password=""
     local gaming="false"
+    local udp_protocol=""
 
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -479,6 +499,10 @@ parse_client_args() {
                 gaming="true"
                 shift
                 ;;
+            -pu|--udp-protocol)
+                udp_protocol="$2"
+                shift 2
+                ;;
             "")
                 # Skip empty arguments (caused by trailing whitespace in multiline commands)
                 shift
@@ -501,7 +525,7 @@ parse_client_args() {
     fi
 
     create_client "$name" "$non_iran_ip" "$iran_ip" "$private_ip" "$waterwall_port" \
-                  "$protocol" "$nodepass_port" "$local_port" "$password" "$gaming"
+                  "$protocol" "$nodepass_port" "$local_port" "$password" "$gaming" "$udp_protocol"
 }
 
 # Create server configuration
@@ -517,6 +541,7 @@ create_server() {
     local target_port="$9"
     local password="${10}"
     local gaming="${11:-false}"
+    local udp_protocol="${12:-}"
 
     # Calculate private IP + 1 for TUN device
     IFS='.' read -r ip1 ip2 ip3 ip4 <<< "$private_ip"
@@ -530,7 +555,7 @@ create_server() {
     print_info "Step 1/2: Creating Waterwall V3 tunnel..."
     mkdir -p /root/tunnel
     cd /root/tunnel
-    create_waterwall_v3_server_config "$name" "$non_iran_ip" "$iran_ip" "$private_ip" "$protocol"
+    create_waterwall_v3_server_config "$name" "$non_iran_ip" "$iran_ip" "$private_ip" "$protocol" "$udp_protocol"
 
     # Step 2: Create Nodepass server configuration
     print_info "Step 2/2: Creating Nodepass tunnel server..."
@@ -609,6 +634,7 @@ create_client() {
     local local_port="$8"
     local password="$9"
     local gaming="${10:-false}"
+    local udp_protocol="${11:-}"
 
     # Calculate private IP + 1 for nodepass server connection
     IFS='.' read -r ip1 ip2 ip3 ip4 <<< "$private_ip"
@@ -622,7 +648,7 @@ create_client() {
     print_info "Step 1/2: Creating Waterwall V3 tunnel..."
     mkdir -p /root/tunnel
     cd /root/tunnel
-    create_waterwall_v3_client_config "$name" "$non_iran_ip" "$iran_ip" "$private_ip" "$protocol"
+    create_waterwall_v3_client_config "$name" "$non_iran_ip" "$iran_ip" "$private_ip" "$protocol" "$udp_protocol"
 
     # Step 2: Create Nodepass client configuration
     print_info "Step 2/2: Creating Nodepass tunnel client..."

@@ -44,8 +44,8 @@ show_usage() {
     echo "Ultimate Configuration Generator - Complete Tunnel Solution"
     echo ""
     echo "Usage:"
-    echo "  Server: $0 server --name <name> --port-range <start-end> --non-iran-ip <ip> --iran-ip <ip> --private-ip <ip> --rathole-port <port> --protocol <num> --token <token> --gost-range <start-end> [--password <pass>] [--service <name>]"
-    echo "  Client: $0 client --name <name> --non-iran-ip <ip> --iran-ip <ip> --private-ip <ip> --waterwall-port <port> --protocol <num> --app-port <port> --token <token> --gost-port <port> [--password <pass>] [--service <name>]"
+    echo "  Server: $0 server --name <name> --port-range <start-end> --non-iran-ip <ip> --iran-ip <ip> --private-ip <ip> --rathole-port <port> --protocol <num> --token <token> --gost-range <start-end> --gost-bind-port <port> [--password <pass>] [--service <name>]"
+    echo "  Client: $0 client --name <name> --non-iran-ip <ip> --iran-ip <ip> --private-ip <ip> --waterwall-port <port> --protocol <num> --app-port <port> --token <token> --gost-port <port> --gost-bind-port <port> [--password <pass>] [--service <name>]"
     echo ""
     echo "Short options:"
     echo "  -n, --name           Configuration name"
@@ -60,17 +60,18 @@ show_usage() {
     echo "  -t, --token          Rathole authentication token"
     echo "  -gr, --gost-range    GOST port range (e.g., 1200-1299) - server only"
     echo "  -gp, --gost-port     GOST local port - client only"
+    echo "  -gb, --gost-bind-port GOST bind port (internal communication)"
     echo "  -ps, --password      Optional Shadowsocks password"
     echo "  -s, --service        Optional service name"
     echo ""
     echo "Examples:"
     echo "  Server:"
-    echo "    $0 server -n gehetz -pr 801-802 -ni 5.75.201.5 -ii 213.176.7.229 -pi 30.6.0.1 -rp 800 -p 27 -t strongpass -gr 1200-1299"
-    echo "    $0 server --name gehetz --port-range 801-802 --non-iran-ip 5.75.201.5 --iran-ip 213.176.7.229 --private-ip 30.6.0.1 --rathole-port 800 --protocol 27 --token strongpass --gost-range 1200-1299 --password mySSpass"
+    echo "    $0 server -n gehetz -pr 801-802 -ni 203.0.113.50 -ii 198.51.100.20 -pi 30.6.0.1 -rp 800 -p 27 -t strongpass -gr 1200-1299 -gb 30121"
+    echo "    $0 server --name gehetz --port-range 801-802 --non-iran-ip 203.0.113.50 --iran-ip 198.51.100.20 --private-ip 30.6.0.1 --rathole-port 800 --protocol 27 --token strongpass --gost-range 1200-1299 --gost-bind-port 30121 --password mySSpass"
     echo ""
     echo "  Client:"
-    echo "    $0 client -n mahannet -ni 5.75.201.5 -ii 213.176.7.229 -pi 30.6.0.1 -wp 30122 -p 27 -ap 800 -t strongpass -gp 30120"
-    echo "    $0 client --name mahannet --non-iran-ip 5.75.201.5 --iran-ip 213.176.7.229 --private-ip 30.6.0.1 --waterwall-port 30122 --protocol 27 --app-port 800 --token strongpass --gost-port 30120 --password mySSpass"
+    echo "    $0 client -n mahannet -ni 203.0.113.50 -ii 198.51.100.20 -pi 30.6.0.1 -wp 30122 -p 27 -ap 800 -t strongpass -gp 30120 -gb 30121"
+    echo "    $0 client --name mahannet --non-iran-ip 203.0.113.50 --iran-ip 198.51.100.20 --private-ip 30.6.0.1 --waterwall-port 30122 --protocol 27 --app-port 800 --token strongpass --gost-port 30120 --gost-bind-port 30121 --password mySSpass"
 }
 
 # Function to parse command line arguments
@@ -91,6 +92,7 @@ parse_args() {
     token=""
     gost_range=""
     gost_port=""
+    gost_bind_port=""
     ss_password="strongpass"
     service_name=""
     
@@ -145,6 +147,10 @@ parse_args() {
                 gost_port="$2"
                 shift 2
                 ;;
+            -gb|--gost-bind-port)
+                gost_bind_port="$2"
+                shift 2
+                ;;
             -ps|--password)
                 ss_password="$2"
                 shift 2
@@ -163,7 +169,7 @@ parse_args() {
     
     # Validate required parameters based on config type
     if [ "$config_type" = "server" ]; then
-        if [ -z "$name" ] || [ -z "$port_range" ] || [ -z "$non_iran_ip" ] || [ -z "$iran_ip" ] || [ -z "$private_ip" ] || [ -z "$rathole_port" ] || [ -z "$protocol" ] || [ -z "$token" ] || [ -z "$gost_range" ]; then
+        if [ -z "$name" ] || [ -z "$port_range" ] || [ -z "$non_iran_ip" ] || [ -z "$iran_ip" ] || [ -z "$private_ip" ] || [ -z "$rathole_port" ] || [ -z "$protocol" ] || [ -z "$token" ] || [ -z "$gost_range" ] || [ -z "$gost_bind_port" ]; then
             print_error "Missing required server parameters"
             show_usage
             exit 1
@@ -190,10 +196,10 @@ parse_args() {
         [ -z "$service_name" ] && service_name="$token"
         
         # Call server function
-        create_ultimate_server "$name" "$external_port_start" "$external_port_end" "$non_iran_ip" "$iran_ip" "$private_ip" "$rathole_port" "$protocol" "$token" "$gost_port_start" "$gost_port_end" "$ss_password" "$service_name"
+        create_ultimate_server "$name" "$external_port_start" "$external_port_end" "$non_iran_ip" "$iran_ip" "$private_ip" "$rathole_port" "$protocol" "$token" "$gost_port_start" "$gost_port_end" "$ss_password" "$service_name" "$gost_bind_port"
         
     elif [ "$config_type" = "client" ]; then
-        if [ -z "$name" ] || [ -z "$non_iran_ip" ] || [ -z "$iran_ip" ] || [ -z "$private_ip" ] || [ -z "$waterwall_port" ] || [ -z "$protocol" ] || [ -z "$app_port" ] || [ -z "$token" ] || [ -z "$gost_port" ]; then
+        if [ -z "$name" ] || [ -z "$non_iran_ip" ] || [ -z "$iran_ip" ] || [ -z "$private_ip" ] || [ -z "$waterwall_port" ] || [ -z "$protocol" ] || [ -z "$app_port" ] || [ -z "$token" ] || [ -z "$gost_port" ] || [ -z "$gost_bind_port" ]; then
             print_error "Missing required client parameters"
             show_usage
             exit 1
@@ -203,7 +209,7 @@ parse_args() {
         [ -z "$service_name" ] && service_name="$token"
         
         # Call client function
-        create_ultimate_client "$name" "$non_iran_ip" "$iran_ip" "$private_ip" "$waterwall_port" "$protocol" "$app_port" "$token" "$gost_port" "$ss_password" "$service_name"
+        create_ultimate_client "$name" "$non_iran_ip" "$iran_ip" "$private_ip" "$waterwall_port" "$protocol" "$app_port" "$token" "$gost_port" "$ss_password" "$service_name" "$gost_bind_port"
     fi
 }
 create_ultimate_server() {
@@ -218,8 +224,9 @@ create_ultimate_server() {
     local rathole_token="$9"
     local gost_port_start="${10}"
     local gost_port_end="${11}"
-    local ss_password="${12:-anaIsMyLife}"
+    local ss_password="${12:-strongpass}"
     local service_name="${13:-$rathole_token}"
+    local gost_bind_port="${14}"
 
     print_info "Setting up Ultimate Server configuration: $name"
     
@@ -231,7 +238,7 @@ create_ultimate_server() {
     # Step 2: Create Rathole configuration  
     print_info "Step 2/3: Creating Rathole server with GOST..."
     cd /root/rathole
-    bash <(curl -4 -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/rathole.sh) server "$name" "$rathole_port" "$rathole_token" "${gost_port_start}-${gost_port_end}" tcp true gost "$ss_password" 30121 "$service_name"
+    bash <(curl -4 -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/rathole.sh) server "$name" "$rathole_port" "$rathole_token" "${gost_port_start}-${gost_port_end}" tcp true gost "$ss_password" "$gost_bind_port" "$service_name"
     
     # Step 3: Verify and display status
     print_info "Step 3/3: Verifying services..."
@@ -262,6 +269,7 @@ create_ultimate_client() {
     local gost_local_port="$9"
     local ss_password="${10:-strongpass}"
     local service_name="${11:-$rathole_token}"
+    local gost_bind_port="${12}"
 
     # Calculate private IP + 1 for rathole connection
     IFS='.' read -r ip1 ip2 ip3 ip4 <<< "$private_ip"
@@ -277,14 +285,14 @@ create_ultimate_client() {
     # Step 2: Create Rathole configuration
     print_info "Step 2/4: Creating Rathole client with GOST..."
     cd /root/rathole  
-    bash <(curl -4 -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/rathole.sh) client "$name" "${rathole_server_ip}:${app_port}" "$rathole_token" "$gost_local_port" tcp true gost "$ss_password" 30121 "$service_name"
+    bash <(curl -4 -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/rathole.sh) client "$name" "${rathole_server_ip}:${app_port}" "$rathole_token" "$gost_local_port" tcp true gost "$ss_password" "$gost_bind_port" "$service_name"
     
     # Step 3: Fix rathole client config (add 127.0.0.1 to local_addr)
     print_info "Step 3/4: Fixing rathole client configuration..."
     local rathole_config="/etc/rathole/${name}_client.toml"
     if [ -f "$rathole_config" ]; then
         # Fix the local_addr to include 127.0.0.1
-        sed -i 's/local_addr = ":30121"/local_addr = "127.0.0.1:30121"/' "$rathole_config"
+        sed -i "s/local_addr = \":${gost_bind_port}\"/local_addr = \"127.0.0.1:${gost_bind_port}\"/" "$rathole_config"
         print_success "Fixed rathole client local_addr configuration"
         
         # Restart rathole client service

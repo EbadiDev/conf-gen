@@ -26,6 +26,28 @@ Both scripts generate JSON configuration files for client and server-side setups
 
 This script generates rathole server and client configurations with systemd services and optional HAProxy integration for real IP logging and load balancing.
 
+### 3. Ultimate Configuration Generator (`ultimate.sh`) ⭐
+
+**The Ultimate Solution**: Combines Waterwall V2 + Rathole + GOST for the most secure and flexible tunneling setup. This script automates the entire process of creating a layered tunnel with private networking, automatic health monitoring, and port range support.
+
+#### Features:
+- **Layered Security**: Waterwall V2 tunnel + Rathole encryption + GOST proxy
+- **Private Networking**: Creates isolated private IP space (e.g., 30.6.0.1)
+- **Port Range Support**: Handle multiple ports efficiently 
+- **Auto Bug-Fix**: Automatically fixes rathole client configuration issues
+- **Health Monitoring**: Installs automatic service monitoring and recovery
+- **Modern CLI**: Supports both short (-n) and long (--name) options
+- **One-Command Setup**: Complete tunnel setup in a single command
+
+#### Usage:
+```bash
+# Server (with short options)
+./ultimate.sh server -n gehetz -pr 801-802 -ni 203.0.113.50 -ii 198.51.100.20 -pi 30.6.0.1 -rp 800 -p 27 -t strongpass -gr 1200-1299
+
+# Client (with long options)  
+./ultimate.sh client --name mahannet --non-iran-ip 203.0.113.50 --iran-ip 198.51.100.20 --private-ip 30.6.0.1 --waterwall-port 30122 --protocol 27 --app-port 800 --token strongpass --gost-port 30120
+```
+
 ---
 
 ## Rathole Configuration Generator
@@ -163,6 +185,125 @@ The generated HAProxy configurations include:
 - **Fast timeouts**: 2s connect, aggressive health checks
 - **Disabled logging**: For maximum performance (can be re-enabled)
 - **Load balancing**: Optimized roundrobin algorithm
+
+---
+
+## Ultimate Configuration Generator
+
+The `ultimate.sh` script is the most comprehensive solution that combines **Waterwall V2 + Rathole + GOST** into a single automated setup. It creates a multi-layered secure tunnel with private networking, automatic health monitoring, and intelligent port management.
+
+### Architecture Overview
+
+```
+[Client App] → [Client GOST] → [Client Rathole] → [Waterwall V2 Tunnel] → [Server Rathole] → [Server GOST] → [Server Ports]
+     ↓              ↓               ↓                    ↓                      ↓              ↓             ↓
+  Local Port    Port Range      Private Net         Encrypted Tunnel      Private Net    Port Range   Target Services
+```
+
+### What It Does Automatically
+
+1. **Creates Waterwall V2 Tunnel**: Establishes encrypted tunnel with private networking
+2. **Sets up Rathole**: Installs rathole server/client with noise protocol encryption  
+3. **Configures GOST**: Sets up GOST proxy with Shadowsocks for port range handling
+4. **Fixes Configuration Bugs**: Automatically patches known rathole client issues
+5. **Installs Monitoring**: Sets up automatic health checking and service recovery
+6. **Starts All Services**: Enables and starts all systemd services
+7. **Verifies Setup**: Checks that all components are running correctly
+
+### Command Line Options
+
+#### Short Options:
+- `-n, --name` - Configuration name
+- `-pr, --port-range` - External port range (e.g., 801-802)
+- `-ni, --non-iran-ip` - Non-Iran server IP
+- `-ii, --iran-ip` - Iran server IP
+- `-pi, --private-ip` - Private network IP (e.g., 30.6.0.1)
+- `-rp, --rathole-port` - Rathole communication port
+- `-wp, --waterwall-port` - Waterwall internal port (client only)
+- `-p, --protocol` - Protocol number for waterwall
+- `-ap, --app-port` - Application port (client only)
+- `-t, --token` - Rathole authentication token
+- `-gr, --gost-range` - GOST port range (server only)
+- `-gp, --gost-port` - GOST local port (client only)
+- `-ps, --password` - Optional Shadowsocks password
+- `-s, --service` - Optional service name
+
+### Examples
+
+#### Server Setup (Iran):
+```bash
+./ultimate.sh server -n gehetz -pr 801-802 -ni 203.0.113.50 -ii 198.51.100.20 -pi 30.6.0.1 -rp 800 -p 27 -t strongpass -gr 1200-1299
+```
+
+#### Client Setup:
+```bash
+./ultimate.sh client -n mahannet -ni 203.0.113.50 -ii 198.51.100.20 -pi 30.6.0.1 -wp 30122 -p 27 -ap 800 -t strongpass -gp 30120
+```
+
+#### With Custom Password:
+```bash
+./ultimate.sh server -n gehetz -pr 801-802 -ni 203.0.113.50 -ii 198.51.100.20 -pi 30.6.0.1 -rp 800 -p 27 -t strongpass -gr 1200-1299 -ps mySecretPass
+```
+
+### Traffic Flow
+
+1. **Client Side**: Application connects to `127.0.0.1:30120` (GOST port)
+2. **GOST Client**: Handles traffic and forwards to rathole via `127.0.0.1:30121`
+3. **Rathole Client**: Encrypts and sends through Waterwall tunnel to `30.6.0.2:800`
+4. **Waterwall Tunnel**: Carries traffic through private network `30.6.0.1`
+5. **Rathole Server**: Receives on port 800, forwards to local GOST
+6. **GOST Server**: Distributes traffic across port range `1200-1299`
+7. **Target Services**: Receive traffic on final destination ports
+
+### Monitoring & Health Checks
+
+The ultimate script automatically installs:
+- **Rathole Monitor**: Cron job every 6 hours checking for connection timeouts
+- **Service Recovery**: Automatic restart of failed services
+- **Log Monitoring**: Centralized logging at `/var/log/rathole_monitor.log`
+- **Status Reporting**: Real-time service status verification
+
+### Troubleshooting
+
+#### Check All Services:
+```bash
+# Check service status
+systemctl status waterwall ratholes@gehetz gost-gehetz
+systemctl status waterwall ratholec@mahannet gost-mahannet
+
+# View logs
+journalctl -u waterwall -u ratholes@gehetz -u gost-gehetz -f
+journalctl -u waterwall -u ratholec@mahannet -u gost-mahannet -f
+```
+
+#### Test Connectivity:
+```bash
+# Test private network (on client)
+ping 30.6.0.1
+ping 30.6.0.2
+
+# Test local services
+nc -zv 127.0.0.1 30120  # GOST port
+nc -zv 127.0.0.1 30121  # Rathole port
+```
+
+#### Monitor Health:
+```bash
+# View monitor logs
+tail -f /var/log/rathole_monitor.log
+
+# Manual health check
+sudo /usr/local/bin/rathole_monitor.sh
+```
+
+### Security Features
+
+- **Encrypted Tunnel**: Waterwall V2 with protocol obfuscation
+- **Noise Protocol**: Rathole uses modern cryptographic protocols
+- **Shadowsocks**: GOST layer with additional encryption
+- **Private Networking**: Isolated IP space prevents direct access
+- **Key Exchange**: Secure automatic key generation and exchange
+- **Health Monitoring**: Automatic detection and mitigation of attacks/failures
 
 ---
 

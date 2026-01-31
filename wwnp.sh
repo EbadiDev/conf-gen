@@ -301,6 +301,18 @@ install_nodepass() {
     print_success "Nodepass installed to /usr/local/bin/nodepass"
 }
 
+# Install GOST using official script
+install_gost() {
+    if command -v gost &>/dev/null; then
+        print_info "GOST already installed at $(which gost)"
+        return 0
+    fi
+    
+    print_info "Installing GOST..."
+    bash <(curl -fsSL https://github.com/go-gost/gost/raw/master/install.sh) --install
+    print_success "GOST installed"
+}
+
 
 # Display banner
 show_banner() {
@@ -332,6 +344,7 @@ show_usage() {
     echo "  -np, --nodepass-port   Nodepass tunnel port"
     echo "  -tp, --target-port     Target port for forwarded traffic"
     echo "  -ps, --password        Nodepass password"
+    echo "  -go, --gost            GOST port range (e.g., 20000-30000) for port forwarding"
     echo "  -g,  --gaming          Enable gaming mode (low-latency profile)"
     echo ""
     echo "Client Options:"
@@ -373,6 +386,7 @@ parse_server_args() {
     local password=""
     local gaming="false"
     local udp_protocol=""
+    local gost_range=""
 
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -420,6 +434,10 @@ parse_server_args() {
                 udp_protocol="$2"
                 shift 2
                 ;;
+            -go|--gost)
+                gost_range="$2"
+                shift 2
+                ;;
             "")
                 # Skip empty arguments (caused by trailing whitespace in multiline commands)
                 shift
@@ -442,7 +460,7 @@ parse_server_args() {
     fi
 
     create_server "$name" "$external_port" "$non_iran_ip" "$iran_ip" "$private_ip" \
-                  "$protocol" "$nodepass_port" "$target_port" "$password" "$gaming" "$udp_protocol"
+                  "$protocol" "$nodepass_port" "$target_port" "$password" "$gaming" "$udp_protocol" "$gost_range"
 }
 
 # Parse client arguments
@@ -615,6 +633,38 @@ EOF
     print_info "Service status:"
     pgrep -f "Waterwall" >/dev/null && echo "  ✅ Waterwall: Running" || echo "  ❌ Waterwall: Not running"
     systemctl is-active "nodepass-${name}" >/dev/null 2>&1 && echo "  ✅ Nodepass: Running" || echo "  ❌ Nodepass: Not running"
+
+    # Step 3: Configure GOST if requested
+    if [ -n "$gost_range" ]; then
+        print_info "Step 3/3: Setting up GOST port forwarding ($gost_range -> $nodepass_port)..."
+        install_gost
+        
+        # Create systemd service for GOST
+        local gost_service_file="/etc/systemd/system/gost-${name}.service"
+        cat << EOF > "$gost_service_file"
+[Unit]
+Description=GOST Forwarder - ${name}
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/gost -L tcp://:${gost_range}/127.0.0.1:${nodepass_port}?proxyprotocol=2
+Restart=always
+RestartSec=3
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
+EOF
+        systemctl daemon-reload
+        systemctl enable "gost-${name}"
+        systemctl restart "gost-${name}"
+        
+        print_success "GOST service started!"
+        echo "  Traffic flow (GOST): Internet:${gost_range} -> GOST -> Nodepass -> ..."
+        
+        systemctl is-active "gost-${name}" >/dev/null 2>&1 && echo "  ✅ GOST: Running" || echo "  ❌ GOST: Not running"
+    fi
 }
 
 # Create client configuration

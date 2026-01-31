@@ -825,8 +825,49 @@ perform_remove() {
 
 perform_logs() {
     local name="$1"
-    print_info "Tailing logs for '$name' (Ctrl+C to exit)..."
-    journalctl -u "nodepass-$name" -u "gost-$name" -f -n 20
+    
+    echo ""
+    print_info "Log Viewer for '$name':"
+    echo "  1. Nodepass Logs"
+    echo "  2. GOST Logs"
+    echo "  3. Waterwall Logs (/var/log/water_wall_test.*)"
+    echo "  4. Combined (Nodepass + GOST)"
+    echo "  5. Cancel"
+    echo ""
+    read -p "Select log source: " log_idx
+    
+    case "$log_idx" in
+        1)
+            print_info "Tailing Nodepass logs (Ctrl+C to exit)..."
+            journalctl -u "nodepass-$name" -f -n 50
+            ;;
+        2)
+            if systemctl is-active "gost-$name" >/dev/null 2>&1; then
+                print_info "Tailing GOST logs (Ctrl+C to exit)..."
+                journalctl -u "gost-$name" -f -n 50
+            else
+                print_warning "GOST service 'gost-$name' not running."
+            fi
+            ;;
+        3)
+            local log_file="/var/log/water_wall_test.log"
+            local err_file="/var/log/water_wall_test.error.log"
+            print_info "Tailing Waterwall logs (Ctrl+C to exit)..."
+            if [ -f "$log_file" ] || [ -f "$err_file" ]; then
+                tail -f -n 50 "$log_file" "$err_file" 2>/dev/null
+            else
+                print_warning "Log files not found. Trying journalctl..."
+                journalctl -u waterwall -f -n 50
+            fi
+            ;;
+        4)
+             print_info "Tailing combined logs (Ctrl+C to exit)..."
+             journalctl -u "nodepass-$name" -u "gost-$name" -f -n 20
+             ;;
+        *)
+            echo "Cancelled."
+            ;;
+    esac
 }
 
 interactive_menu() {

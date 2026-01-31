@@ -780,7 +780,15 @@ perform_restart() {
     print_info "Restarting services for '$name'..."
     systemctl restart "nodepass-$name" 2>/dev/null && echo "  ✅ Nodepass restarted" || echo "  ⚠️ Nodepass not found/failed"
     systemctl restart "gost-$name" 2>/dev/null && echo "  ✅ GOST restarted" || echo "  ⚠️ GOST not found (optional)"
-    systemctl restart waterwall 2>/dev/null && echo "  ✅ Waterwall Service restarted" || echo "  ⚠️ Waterwall service not found (if manual, restart manually)"
+    
+    print_info "Restarting Waterwall (water-test)..."
+    systemctl daemon-reload
+    systemctl enable water-test >/dev/null 2>&1
+    if systemctl restart water-test; then
+        echo "  ✅ Waterwall (water-test) restarted"
+    else
+        echo "  ⚠️ Waterwall (water-test) failed to restart"
+    fi
 }
 
 perform_stop() {

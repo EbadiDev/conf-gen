@@ -560,14 +560,14 @@ create_server() {
     install_nodepass
 
     # Build nodepass URL parameters
-    local mode="1"  # server mode
+    # Build nodepass URL parameters
+    local mode="1"
     local tls="1"
     local proxy="1"
-    local log="1"
+    local log="info"
     local max="16384"
     local rate="0"
     local slot="20000"
-    local min="256"
     
     # Gaming mode: low-latency profile
     if [ "$gaming" = "true" ]; then
@@ -575,7 +575,7 @@ create_server() {
         slot="3000"
     fi
     
-    local nodepass_url="server://${password}@0.0.0.0:${nodepass_port}/0.0.0.0:${target_port}?mode=${mode}&tls=${tls}&proxy=${proxy}&log=${log}&max=${max}&rate=${rate}&slot=${slot}&min=${min}"
+    local nodepass_url="server://${password}@0.0.0.0:${nodepass_port}/0.0.0.0:${target_port}?mode=${mode}&tls=${tls}&proxy=${proxy}&max=${max}&rate=${rate}&slot=${slot}&log=${log}"
     
     # Create systemd service for nodepass
     local service_file="/etc/systemd/system/nodepass-${name}.service"
@@ -651,22 +651,20 @@ create_client() {
     install_nodepass
 
     # Build nodepass URL parameters
-    local mode="1"  # tcp mode
-    local tls="1"
+    # Build nodepass URL parameters
     local proxy="1"
-    local log="1"
-    local max="16384"
+    local log="info"
     local rate="0"
-    local slot="20000"
-    local min="256"
+    local slot="10000"
+    local min="512"
     
     # Gaming mode: low-latency profile
     if [ "$gaming" = "true" ]; then
-        max="4096"
         slot="2000"
+        min="256"
     fi
     
-    local nodepass_url="client://${password}@${nodepass_server_ip}:${nodepass_port}/127.0.0.1:${local_port}?mode=${mode}&tls=${tls}&proxy=${proxy}&log=${log}&max=${max}&rate=${rate}&slot=${slot}&min=${min}"
+    local nodepass_url="client://${password}@${nodepass_server_ip}:${nodepass_port}/127.0.0.1:${local_port}?min=${min}&proxy=${proxy}&rate=${rate}&slot=${slot}&log=${log}"
     
     # Create systemd service for nodepass
     local service_file="/etc/systemd/system/nodepass-${name}.service"

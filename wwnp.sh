@@ -636,7 +636,7 @@ EOF
 
     # Step 3: Configure GOST if requested
     if [ -n "$gost_range" ]; then
-        print_info "Step 3/3: Setting up GOST port forwarding ($gost_range -> $nodepass_port)..."
+        print_info "Step 3/3: Setting up GOST port forwarding ($gost_range -> $target_port)..."
         install_gost
         
         # Create systemd service for GOST
@@ -648,7 +648,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/gost -L tcp://:${gost_range}/127.0.0.1:${nodepass_port}?proxyprotocol=2
+ExecStart=/usr/local/bin/gost -L tcp://:${gost_range}/127.0.0.1:${target_port}?proxyprotocol=2
 Restart=always
 RestartSec=3
 LimitNOFILE=65536
@@ -661,7 +661,7 @@ EOF
         systemctl restart "gost-${name}"
         
         print_success "GOST service started!"
-        echo "  Traffic flow (GOST): Internet:${gost_range} -> GOST -> Nodepass -> ..."
+        echo "  Traffic flow (GOST): Internet:${gost_range} -> GOST -> Target:${target_port}"
         
         systemctl is-active "gost-${name}" >/dev/null 2>&1 && echo "  ✅ GOST: Running" || echo "  ❌ GOST: Not running"
     fi

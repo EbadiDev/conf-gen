@@ -769,13 +769,118 @@ EOF
     print_info "Your application should connect to: 127.0.0.1:${local_port}"
 }
 
+# --- Service Management ---
+
+get_service_list() {
+    ls /etc/systemd/system/nodepass-*.service 2>/dev/null | sed 's/.*nodepass-\(.*\)\.service/\1/'
+}
+
+perform_restart() {
+    local name="$1"
+    print_info "Restarting services for '$name'..."
+    systemctl restart "nodepass-$name" 2>/dev/null && echo "  ✅ Nodepass restarted" || echo "  ⚠️ Nodepass not found/failed"
+    systemctl restart "gost-$name" 2>/dev/null && echo "  ✅ GOST restarted" || echo "  ⚠️ GOST not found (optional)"
+    systemctl restart waterwall 2>/dev/null && echo "  ✅ Waterwall Service restarted" || echo "  ⚠️ Waterwall service not found (if manual, restart manually)"
+}
+
+perform_stop() {
+    local name="$1"
+    print_info "Stopping services for '$name'..."
+    systemctl stop "nodepass-$name" 2>/dev/null
+    systemctl stop "gost-$name" 2>/dev/null
+    echo "  ✅ Services stopped"
+}
+
+perform_remove() {
+    local name="$1"
+    echo
+    read -p "⚠️  Are you sure you want to COMPLETELY REMOVE '$name' (Services + Configs)? [y/N] " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then echo "Aborted."; return; fi
+
+    perform_stop "$name"
+    
+    # Disable and remove units
+    systemctl disable "nodepass-$name" "gost-$name" 2>/dev/null
+    rm -f "/etc/systemd/system/nodepass-$name.service"
+    rm -f "/etc/systemd/system/gost-$name.service"
+    systemctl daemon-reload
+    echo "  ✅ Systemd services removed"
+    
+    # Remove Waterwall Config
+    if [ -f "/root/tunnel/$name.json" ]; then
+        rm -f "/root/tunnel/$name.json"
+        echo "  ✅ Removed /root/tunnel/$name.json"
+        
+        # Remove from core.json
+        if [ -f "/root/tunnel/core.json" ] && command -v jq >/dev/null; then
+             jq --arg n "$name.json" '.configs -= [$n]' /root/tunnel/core.json > /tmp/core.json.tmp && mv /tmp/core.json.tmp /root/tunnel/core.json
+             echo "  ✅ Removed from core.json"
+        fi
+    fi
+
+    print_success "Removal complete for '$name'"
+    print_warning "Note: Waterwall process was NOT restarted. Restart it via menu to apply removals."
+}
+
+perform_logs() {
+    local name="$1"
+    print_info "Tailing logs for '$name' (Ctrl+C to exit)..."
+    journalctl -u "nodepass-$name" -u "gost-$name" -f -n 20
+}
+
+interactive_menu() {
+    echo ""
+    print_info "Interactive Service Manager"
+    echo "Scanning for services..."
+    services=($(get_service_list))
+    
+    if [ ${#services[@]} -eq 0 ]; then
+        echo "  No services found."
+        echo ""
+        echo "Run '$0 server' or '$0 client' to create one."
+        exit 0
+    fi
+    
+    for i in "${!services[@]}"; do
+        echo "  $((i+1)). ${services[$i]}"
+    done
+    echo ""
+    read -p "Select a service number: " svc_idx
+    svc_idx=$((svc_idx-1))
+    
+    if [ -z "${services[$svc_idx]}" ]; then
+        print_error "Invalid selection."
+        exit 1
+    fi
+    
+    local name="${services[$svc_idx]}"
+    echo ""
+    print_info "Action for '$name':"
+    echo "  1. Logs (Live)"
+    echo "  2. Restart"
+    echo "  3. Stop"
+    echo "  4. REMOVE (Delete Config & Service)"
+    echo "  5. Cancel"
+    echo ""
+    read -p "Select action: " act_idx
+    
+    case "$act_idx" in
+        1) perform_logs "$name" ;;
+        2) perform_restart "$name" ;;
+        3) perform_stop "$name" ;;
+        4) perform_remove "$name" ;;
+        *) echo "Cancelled." ;;
+    esac
+}
+
 # Main script logic
 main() {
     show_banner
 
     if [ $# -lt 1 ]; then
-        show_usage
-        exit 1
+        interactive_menu
+        exit 0
     fi
 
     local type="$1"

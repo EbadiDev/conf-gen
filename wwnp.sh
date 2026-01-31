@@ -316,13 +316,11 @@ install_gost() {
 
 # Display banner
 show_banner() {
-    cat << 'EOF'
-╔══════════════════════════════════════════════════════════════════════════════╗
-║                    Waterwall V2 + Nodepass Configuration                     ║
-║                        TLS Tunnel with Proxy Protocol                        ║
-║                                v1.0.0                                        ║
-╚══════════════════════════════════════════════════════════════════════════════╝
-EOF
+    echo "╔══════════════════════════════════════════════════════════════════════════════╗"
+    echo "║                    Waterwall V2 + Nodepass Configuration                     ║"
+    echo "║                        TLS Tunnel with Proxy Protocol                        ║"
+    echo "║                                v1.2.0                                        ║"
+    echo "╚══════════════════════════════════════════════════════════════════════════════╝"
 }
 
 show_usage() {

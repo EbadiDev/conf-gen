@@ -357,6 +357,7 @@ show_usage() {
     echo "  -np, --nodepass-port   Nodepass server's tunnel port"
     echo "  -lp, --local-port      Local port for apps to connect"
     echo "  -ps, --password        Nodepass password"
+    echo "  -go, --gost            GOST port range (e.g., 20000-30000) - disables Nodepass proxy"
     echo "  -g,  --gaming          Enable gaming mode (low-latency profile)"
     echo ""
     echo "Examples:"
@@ -475,6 +476,7 @@ parse_client_args() {
     local password=""
     local gaming="false"
     local udp_protocol=""
+    local gost_range=""
 
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -518,6 +520,10 @@ parse_client_args() {
                 udp_protocol="$2"
                 shift 2
                 ;;
+            -go|--gost)
+                gost_range="$2"
+                shift 2
+                ;;
             "")
                 # Skip empty arguments (caused by trailing whitespace in multiline commands)
                 shift
@@ -540,7 +546,7 @@ parse_client_args() {
     fi
 
     create_client "$name" "$non_iran_ip" "$iran_ip" "$private_ip" \
-                  "$protocol" "$nodepass_port" "$local_port" "$password" "$gaming" "$udp_protocol"
+                  "$protocol" "$nodepass_port" "$local_port" "$password" "$gaming" "$udp_protocol" "$gost_range"
 }
 
 # Create server configuration
@@ -582,6 +588,9 @@ create_server() {
     local mode="1"
     local tls="1"
     local proxy="1"
+    # When GOST is enabled, disable Nodepass proxy protocol to avoid double headers
+    [ -n "$gost_range" ] && proxy="0"
+    
     local log="info"
     local max="16384"
     local rate="0"
@@ -648,7 +657,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/gost -L tcp://:${gost_range}/127.0.0.1:${target_port}?proxyprotocol=2
+ExecStart=/usr/local/bin/gost -L tcp://:${gost_range}/127.0.0.1:${target_port}?proxyprotocol=2&nodelay=true&keepalive=true
 Restart=always
 RestartSec=3
 LimitNOFILE=65536
@@ -679,6 +688,7 @@ create_client() {
     local password="$8"
     local gaming="${9:-false}"
     local udp_protocol="${10:-}"
+    local gost_range="${11:-}"
 
     # Calculate private IP + 1 for nodepass server connection
     IFS='.' read -r ip1 ip2 ip3 ip4 <<< "$private_ip"
@@ -701,8 +711,10 @@ create_client() {
     install_nodepass
 
     # Build nodepass URL parameters
-    # Build nodepass URL parameters
     local proxy="1"
+    # When GOST is enabled (signaled by -go), disable Nodepass proxy protocol
+    [ -n "$gost_range" ] && proxy="0"
+
     local log="info"
     local rate="0"
     local slot="10000"

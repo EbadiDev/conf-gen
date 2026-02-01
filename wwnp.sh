@@ -876,6 +876,97 @@ perform_logs() {
     esac
 }
 
+perform_restart_all() {
+    print_info "Restarting ALL services..."
+    local services=($(get_service_list))
+    
+    if [ ${#services[@]} -eq 0 ]; then
+        print_warning "No services found to restart."
+        return
+    fi
+    
+    for name in "${services[@]}"; do
+        print_info "Restarting services for '$name'..."
+        systemctl restart "nodepass-$name" 2>/dev/null && echo "  ✅ Nodepass ($name) restarted"
+        systemctl restart "gost-$name" 2>/dev/null && echo "  ✅ GOST ($name) restarted"
+    done
+    
+    print_info "Restarting Waterwall (water-test)..."
+    systemctl daemon-reload
+    systemctl start water-test 2>/dev/null
+    if systemctl restart water-test; then
+        print_success "Waterwall (water-test) restarted"
+    else
+        print_error "Waterwall (water-test) failed to restart"
+    fi
+}
+
+setup_cronjob() {
+    echo ""
+    print_info "Setup Auto-Restart Cronjob"
+    echo "This will configure a cronjob to run 'restart-all' periodically."
+    echo ""
+    echo "Frequency Options:"
+    echo "  1) Every 30 minutes"
+    echo "  2) Every 1 hour"
+    echo "  3) Every 6 hours"
+    echo "  4) Every 12 hours"
+    echo "  5) Every 24 hours"
+    echo "  6) Custom (Every N hours)"
+    echo "  7) Remove Existing Cronjob"
+    echo "  8) Cancel"
+    echo ""
+    read -p "Select option: " cron_opt
+
+    local schedule=""
+    case "$cron_opt" in
+        1) schedule="*/30 * * * *" ;;
+        2) schedule="0 * * * *" ;;
+        3) schedule="0 */6 * * *" ;;
+        4) schedule="0 */12 * * *" ;;
+        5) schedule="0 0 * * *" ;;
+        6)
+            read -p "Enter number of hours (e.g. 5): " hours
+            if [[ ! "$hours" =~ ^[0-9]+$ ]]; then
+                print_error "Invalid number"
+                return
+            fi
+            schedule="0 */$hours * * *"
+            ;;
+        7)
+            local script_path
+            script_path=$(readlink -f "$0")
+            (crontab -l 2>/dev/null | grep -v "$script_path") | crontab -
+            print_success "Cronjobs for this script removed."
+            return
+            ;;
+        *)
+            echo "Cancelled."
+            return
+            ;;
+    esac
+
+    # Ensure cron is installed
+    if ! command -v crontab &>/dev/null; then
+         print_error "Crontab not found. Please install cron (apt install cron)."
+         return
+    fi
+
+    local script_path
+    script_path=$(readlink -f "$0")
+    
+    # 1. Remove existing cron for this script to avoid duplicates
+    (crontab -l 2>/dev/null | grep -v "$script_path") | crontab -
+    
+    # 2. Add new cron
+    local job="$schedule $script_path restart-all >> /var/log/wwnp_restart.log 2>&1"
+    (crontab -l 2>/dev/null; echo "$job") | crontab -
+    
+    print_success "Cronjob installed successfully!"
+    print_info "Schedule: $schedule"
+    print_info "Logs: /var/log/wwnp_restart.log"
+}
+
 interactive_menu() {
     echo ""
     print_info "Interactive Service Manager"
@@ -893,8 +984,23 @@ interactive_menu() {
         echo "  $((i+1)). ${services[$i]}"
     done
     echo ""
-    read -p "Select a service number: " svc_idx
-    svc_idx=$((svc_idx-1))
+    echo "  [A] Restart ALL Services"
+    echo "  [C] Setup Auto-Restart Cronjob"
+    echo ""
+    
+    read -p "Select a service number or option: " selection
+    
+    case "$selection" in
+        A|a) perform_restart_all; return ;;
+        C|c) setup_cronjob; return ;;
+    esac
+
+    if [[ ! "$selection" =~ ^[0-9]+$ ]]; then
+        print_error "Invalid selection."
+        exit 1
+    fi
+    
+    svc_idx=$((selection-1))
     
     if [ -z "${services[$svc_idx]}" ]; then
         print_error "Invalid selection."
@@ -939,6 +1045,10 @@ main() {
             ;;
         "client")
             parse_client_args "$@"
+            ;;
+        "restart-all")
+            perform_restart_all
+            exit 0
             ;;
         "-h"|"--help"|"help")
             show_usage

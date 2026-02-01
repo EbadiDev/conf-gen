@@ -936,8 +936,13 @@ setup_cronjob() {
         7)
             local script_path
             script_path=$(readlink -f "$0")
-            (crontab -l 2>/dev/null | grep -v "$script_path") | crontab -
-            print_success "Cronjobs for this script removed."
+            # If path is invalid (pipe), try to remove based on known install location
+            if [[ "$script_path" == "/proc/"* ]] || [[ ! -f "$script_path" ]]; then
+                script_path="/usr/local/bin/wwnp"
+            fi
+            
+            (crontab -l 2>/dev/null | grep -v "restart-all") | crontab -
+            print_success "Cronjobs for restart-all removed."
             return
             ;;
         *)
@@ -955,8 +960,32 @@ setup_cronjob() {
     local script_path
     script_path=$(readlink -f "$0")
     
+    # Check if running from pipe/fd
+    if [[ "$script_path" == "/proc/"* ]] || [[ ! -f "$script_path" ]]; then
+        print_warning "Script is running from a temporary location (pipe/stream)."
+        print_warning "To enable auto-restart, the script must be installed to a permanent location."
+        
+        echo
+        read -p "Install script to /usr/local/bin/wwnp? [Y/n] " install_opt
+        if [[ ! "$install_opt" =~ ^[Nn]$ ]]; then
+            print_info "Installing to /usr/local/bin/wwnp..."
+            # Download latest version
+            if curl -sL "https://raw.githubusercontent.com/EbadiDev/conf-gen/main/wwnp.sh" -o /usr/local/bin/wwnp; then
+                chmod +x /usr/local/bin/wwnp
+                script_path="/usr/local/bin/wwnp"
+                print_success "Installed to $script_path"
+            else
+                print_error "Failed to download script."
+                return
+            fi
+        else
+            print_error "Aborted. Cronjob requires a persistent script file."
+            return
+        fi
+    fi
+    
     # 1. Remove existing cron for this script to avoid duplicates
-    (crontab -l 2>/dev/null | grep -v "$script_path") | crontab -
+    (crontab -l 2>/dev/null | grep -v "restart-all") | crontab -
     
     # 2. Add new cron
     local job="$schedule $script_path restart-all >> /var/log/wwnp_restart.log 2>&1"
@@ -964,6 +993,7 @@ setup_cronjob() {
     
     print_success "Cronjob installed successfully!"
     print_info "Schedule: $schedule"
+    print_info "Command: $script_path restart-all"
     print_info "Logs: /var/log/wwnp_restart.log"
 }
 

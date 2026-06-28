@@ -98,23 +98,26 @@ add_config_manual() {
         return
     fi
     
-    # Add to configs array before the closing bracket
+    # Add to configs array
     if grep -q '"configs"' "$core_json_path"; then
-        # Configs array exists, add to it
-        sed -i "/\"configs\":/,/\]/{
-            s/\]/        ,\"$config_path\"\
-    \]/
-        }" "$core_json_path"
+        # Check if configs array is empty: "configs": []
+        if grep -qE '"configs"[[:space:]]*:[[:space:]]*\[[[:space:]]*\]' "$core_json_path"; then
+            # Empty array — replace [] with ["config.json"]
+            sed -i -E 's/"configs"[[:space:]]*:[[:space:]]*\[[[:space:]]*\]/"configs": ["'"$config_path"'"]/' "$core_json_path"
+        else
+            # Non-empty array — insert before closing bracket
+            sed -i "/\"configs\":/,/\]/{
+                s/\]/        ,\"$config_path\"\n    \]/
+            }" "$core_json_path"
+        fi
     else
         # No configs array, add it
-        sed -i 's/}$/    ,\"configs\": [\
-        \"'$config_path'\"\
-    ]\
-}/' "$core_json_path"
+        sed -i 's/}$/    ,"configs": [\n        "'"$config_path"'"\n    ]\n}/' "$core_json_path"
     fi
     
     print_info "Added $config_path to core.json manually"
 }
+
 
 # Firewall management
 open_firewall_ports() {

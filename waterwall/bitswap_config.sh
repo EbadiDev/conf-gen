@@ -155,7 +155,7 @@ EOF
             "type": "TunDevice",
             "settings": {
                 "device-name": "${tun_name}",
-                "device-ip": "\$tun_ip_1\$/24"
+                "device-ip": "${tun_ip1}/24"
             },
             "next": "ipovsrc"
         },
@@ -321,7 +321,7 @@ EOF
             "type": "TunDevice",
             "settings": {
                 "device-name": "${tun_name}2",
-                "device-ip": "\$tun2_ip_1\$/24"
+                "device-ip": "${tun2_ip1}/24"
             },
             "next": "ipcorrect"
         },
@@ -380,7 +380,7 @@ EOF
             "type": "TunDevice",
             "settings": {
                 "device-name": "${tun_name}",
-                "device-ip": "\$tun_ip_1\$/24"
+                "device-ip": "${tun_ip1}/24"
             },
             "next": "ipovsrc"
         },
@@ -514,7 +514,7 @@ EOF
             "type": "TunDevice",
             "settings": {
                 "device-name": "${tun_name}",
-                "device-ip": "\$tun_ip_1\$/24"
+                "device-ip": "${tun_ip1}/24"
             },
             "next": "ipovsrc"
         },
@@ -678,7 +678,7 @@ EOF
             "type": "TunDevice",
             "settings": {
                 "device-name": "${tun_name}2",
-                "device-ip": "\$tun2_ip_1\$/24"
+                "device-ip": "${tun2_ip1}/24"
             },
             "next": "ipcorrect"
         },
@@ -737,7 +737,7 @@ EOF
             "type": "TunDevice",
             "settings": {
                 "device-name": "${tun_name}",
-                "device-ip": "\$tun_ip_1\$/24"
+                "device-ip": "${tun_ip1}/24"
             },
             "next": "ipovsrc"
         },

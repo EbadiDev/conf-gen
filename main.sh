@@ -36,6 +36,10 @@ download_modules() {
         "half_config.sh"
         "v2_config.sh"
         "v3_config.sh"
+        "bitswap_config.sh"
+        "reverse_reality_config.sh"
+        "tls_reverse_config.sh"
+        "udp_reverse_config.sh"
         "haproxy.sh"
     "caddy.sh"
     "gost.sh"
@@ -174,7 +178,7 @@ show_banner() {
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║                     Waterwall Configuration Generator                        ║
 ║                              Modular Edition                                 ║
-║                                v1.2.0                                        ║
+║                                v2.0.0                                        ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 EOF
 }
@@ -228,6 +232,22 @@ main() {
             source "$WATERWALL_DIR/v3_config.sh"
             handle_v3_config "$@"
             ;;
+        "bitswap")
+            source "$WATERWALL_DIR/bitswap_config.sh"
+            handle_bitswap_config "$@"
+            ;;
+        "reverse-reality")
+            source "$WATERWALL_DIR/reverse_reality_config.sh"
+            handle_reverse_reality_config "$@"
+            ;;
+        "tls-reverse")
+            source "$WATERWALL_DIR/tls_reverse_config.sh"
+            handle_tls_reverse_config "$@"
+            ;;
+        "udp-reverse")
+            source "$WATERWALL_DIR/udp_reverse_config.sh"
+            handle_udp_reverse_config "$@"
+            ;;
         "haproxy")
             # HAProxy-enabled configurations
             local sub_type="$2"
@@ -268,7 +288,7 @@ main() {
             ;;
         *)
             print_error "Unknown configuration type: $config_type"
-            print_info "Supported types: server, client, simple, half, v2, v3"
+            print_info "Supported types: server, client, simple, half, v2, v3, bitswap, reverse-reality, tls-reverse, udp-reverse"
             print_info "For HAProxy integration: haproxy <type> <protocol> ..."
             print_info "For Caddy integration: caddy <type> <protocol> ..."
             show_help

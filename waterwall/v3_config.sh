@@ -2,15 +2,13 @@
 
 # V3 Configuration Module for Waterwall
 # Optimized for UDP support - includes protoswap-tcp AND protoswap-udp
-# Simpler config without TcpListener/TcpConnector nodes (uses TUN device only)
+# Modern variable syntax and consolidated IpOverrider configuration
 # Best for: Gaming, VPN, QUIC, WireGuard, L2TP
 
-# Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/common.sh"
 
 # V3 Server Configuration (Iran-side)
-# Simpler config focused on raw IP tunneling with UDP support
 create_v3_server_config() {
     local config_name="$1"
     local non_iran_ip="$2"
@@ -19,7 +17,6 @@ create_v3_server_config() {
     local protoswap_tcp="$5"
     local custom_udp="$6"
 
-    # Use custom UDP protocol if provided, otherwise calculate as tcp + 1
     local protoswap_udp=""
     if [ -n "$custom_udp" ]; then
         protoswap_udp="$custom_udp"
@@ -27,47 +24,56 @@ create_v3_server_config() {
         protoswap_udp=$((protoswap_tcp + 1))
     fi
 
-    # Validation: Protocols must be different
     if [ "$protoswap_tcp" -eq "$protoswap_udp" ]; then
         print_error "Error: TCP Protocol ($protoswap_tcp) and UDP Protocol ($protoswap_udp) CANNOT be the same."
         print_error "Traffic would be indistinguishable. Please use different values."
         exit 1
     fi
 
-    # Calculate PRIVATE_IP+1 for ipovsrc2
     IFS='.' read -r ip1 ip2 ip3 ip4 <<< "$private_ip"
     local ip_plus1="$ip1.$ip2.$ip3.$((ip4+1))"
 
     cat << EOF > "${config_name}.json"
 {
     "name": "${config_name}",
+    "variables": {
+        "ip_server_kharej": "${non_iran_ip}",
+        "ip_server_iran": "${iran_ip}",
+        "private_ip": "${private_ip}",
+        "private_ip_endpoint": "${ip_plus1}",
+        "protoswap_tcp": ${protoswap_tcp},
+        "protoswap_udp": ${protoswap_udp}
+    },
     "nodes": [
         {
             "name": "my tun",
             "type": "TunDevice",
             "settings": {
                 "device-name": "${config_name}",
-                "device-ip": "${private_ip}/24"
+                "device-ip": "\$private_ip\$/24"
             },
-            "next": "ipovsrc"
+            "next": "ip_rewrite"
         },
         {
-            "name": "ipovsrc",
+            "name": "ip_rewrite",
             "type": "IpOverrider",
             "settings": {
-                "direction": "up",
-                "mode": "source-ip",
-                "ipv4": "${iran_ip}"
-            },
-            "next": "ipovdest"
-        },
-        {
-            "name": "ipovdest",
-            "type": "IpOverrider",
-            "settings": {
-                "direction": "up",
-                "mode": "dest-ip",
-                "ipv4": "${non_iran_ip}"
+                "up": {
+                    "source-ip": {
+                        "ipv4": \$ip_server_iran\$
+                    },
+                    "dest-ip": {
+                        "ipv4": \$ip_server_kharej\$
+                    }
+                },
+                "down": {
+                    "source-ip": {
+                        "ipv4": \$private_ip_endpoint\$
+                    },
+                    "dest-ip": {
+                        "ipv4": \$private_ip\$
+                    }
+                }
             },
             "next": "manip"
         },
@@ -75,28 +81,8 @@ create_v3_server_config() {
             "name": "manip",
             "type": "IpManipulator",
             "settings": {
-                "protoswap-tcp": ${protoswap_tcp},
-                "protoswap-udp": ${protoswap_udp}
-            },
-            "next": "ipovsrc2"
-        },
-        {
-            "name": "ipovsrc2",
-            "type": "IpOverrider",
-            "settings": {
-                "direction": "down",
-                "mode": "source-ip",
-                "ipv4": "${ip_plus1}"
-            },
-            "next": "ipovdest2"
-        },
-        {
-            "name": "ipovdest2",
-            "type": "IpOverrider",
-            "settings": {
-                "direction": "down",
-                "mode": "dest-ip",
-                "ipv4": "${private_ip}"
+                "protoswap-tcp": \$protoswap_tcp\$,
+                "protoswap-udp": \$protoswap_udp\$
             },
             "next": "rd"
         },
@@ -105,7 +91,7 @@ create_v3_server_config() {
             "type": "RawSocket",
             "settings": {
                 "capture-filter-mode": "source-ip",
-                "capture-ip": "${non_iran_ip}"
+                "capture-ip": \$ip_server_kharej\$
             }
         }
     ]
@@ -130,7 +116,6 @@ EOF
 }
 
 # V3 Client Configuration (Non-Iran side)
-# Mirror of server config with reversed direction
 create_v3_client_config() {
     local config_name="$1"
     local non_iran_ip="$2"
@@ -139,7 +124,6 @@ create_v3_client_config() {
     local protoswap_tcp="$5"
     local custom_udp="$6"
 
-    # Use custom UDP protocol if provided, otherwise calculate as tcp + 1
     local protoswap_udp=""
     if [ -n "$custom_udp" ]; then
         protoswap_udp="$custom_udp"
@@ -147,47 +131,33 @@ create_v3_client_config() {
         protoswap_udp=$((protoswap_tcp + 1))
     fi
 
-    # Validation: Protocols must be different
     if [ "$protoswap_tcp" -eq "$protoswap_udp" ]; then
         print_error "Error: TCP Protocol ($protoswap_tcp) and UDP Protocol ($protoswap_udp) CANNOT be the same."
         print_error "Traffic would be indistinguishable. Please use different values."
         exit 1
     fi
 
-    # Calculate PRIVATE_IP+1 for ipovsrc2
     IFS='.' read -r ip1 ip2 ip3 ip4 <<< "$private_ip"
     local ip_plus1="$ip1.$ip2.$ip3.$((ip4+1))"
 
     cat << EOF > "${config_name}.json"
 {
     "name": "${config_name}",
+    "variables": {
+        "ip_server_kharej": "${non_iran_ip}",
+        "ip_server_iran": "${iran_ip}",
+        "private_ip": "${private_ip}",
+        "private_ip_endpoint": "${ip_plus1}",
+        "protoswap_tcp": ${protoswap_tcp},
+        "protoswap_udp": ${protoswap_udp}
+    },
     "nodes": [
         {
             "name": "rd",
             "type": "RawSocket",
             "settings": {
                 "capture-filter-mode": "source-ip",
-                "capture-ip": "${iran_ip}"
-            },
-            "next": "ipovsrc"
-        },
-        {
-            "name": "ipovsrc",
-            "type": "IpOverrider",
-            "settings": {
-                "direction": "down",
-                "mode": "source-ip",
-                "ipv4": "${non_iran_ip}"
-            },
-            "next": "ipovdest"
-        },
-        {
-            "name": "ipovdest",
-            "type": "IpOverrider",
-            "settings": {
-                "direction": "down",
-                "mode": "dest-ip",
-                "ipv4": "${iran_ip}"
+                "capture-ip": \$ip_server_iran\$
             },
             "next": "manip"
         },
@@ -195,28 +165,31 @@ create_v3_client_config() {
             "name": "manip",
             "type": "IpManipulator",
             "settings": {
-                "protoswap-tcp": ${protoswap_tcp},
-                "protoswap-udp": ${protoswap_udp}
+                "protoswap-tcp": \$protoswap_tcp\$,
+                "protoswap-udp": \$protoswap_udp\$
             },
-            "next": "ipovsrc2"
+            "next": "ip_rewrite"
         },
         {
-            "name": "ipovsrc2",
+            "name": "ip_rewrite",
             "type": "IpOverrider",
             "settings": {
-                "direction": "up",
-                "mode": "source-ip",
-                "ipv4": "${ip_plus1}"
-            },
-            "next": "ipovdest2"
-        },
-        {
-            "name": "ipovdest2",
-            "type": "IpOverrider",
-            "settings": {
-                "direction": "up",
-                "mode": "dest-ip",
-                "ipv4": "${private_ip}"
+                "up": {
+                    "source-ip": {
+                        "ipv4": \$private_ip_endpoint\$
+                    },
+                    "dest-ip": {
+                        "ipv4": \$private_ip\$
+                    }
+                },
+                "down": {
+                    "source-ip": {
+                        "ipv4": \$ip_server_kharej\$
+                    },
+                    "dest-ip": {
+                        "ipv4": \$ip_server_iran\$
+                    }
+                }
             },
             "next": "my tun"
         },
@@ -225,7 +198,7 @@ create_v3_client_config() {
             "type": "TunDevice",
             "settings": {
                 "device-name": "${config_name}",
-                "device-ip": "${private_ip}/24"
+                "device-ip": "\$private_ip\$/24"
             }
         }
     ]
@@ -242,7 +215,7 @@ EOF
         print_info "- Protoswap TCP: ${protoswap_tcp}"
         print_info "- Protoswap UDP: ${protoswap_udp}"
         print_info ""
-        print_info "Traffic flow: RawSocket -> IP Override -> Protocol Swap -> TUN"
+        print_info "Traffic flow: RawSocket -> Protocol Swap -> IP Override -> TUN"
     else
         print_error "Failed to create V3 client configuration"
         exit 1
@@ -254,7 +227,6 @@ handle_v3_config() {
     local config_type="$2"  # server or client
     
     if [ "$config_type" = "server" ]; then
-        # v3 server config_name non-iran-ip iran-ip private-ip protocol
         if [ "$#" -lt 7 ]; then
             echo "Usage: $0 v3 server <config_name> <non_iran_ip> <iran_ip> <private_ip> <protocol> [udp_protocol]"
             echo ""
@@ -274,7 +246,6 @@ handle_v3_config() {
         create_v3_server_config "$3" "$4" "$5" "$6" "$7" "$8"
         
     elif [ "$config_type" = "client" ]; then
-        # v3 client config_name non-iran-ip iran-ip private-ip protocol
         if [ "$#" -lt 7 ]; then
             echo "Usage: $0 v3 client <config_name> <non_iran_ip> <iran_ip> <private_ip> <protocol> [udp_protocol]"
             echo ""

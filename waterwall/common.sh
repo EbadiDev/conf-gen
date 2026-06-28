@@ -34,7 +34,25 @@ add_to_core_json() {
     
     # Check if core.json exists and create basic structure if not
     if [ ! -f "$core_json_path" ]; then
-        echo '{"configs": []}' > "$core_json_path"
+        cat << EOF > "$core_json_path"
+{
+    "log": {
+        "path": "log/",
+        "internal": { "loglevel": "DEBUG", "console": true },
+        "core": { "loglevel": "DEBUG", "console": true },
+        "network": { "loglevel": "DEBUG", "console": true },
+        "dns": { "loglevel": "DEBUG", "console": false }
+    },
+    "dns": {},
+    "misc": {
+        "workers": 0,
+        "ram-profile": "server",
+        "mtu": 1400,
+        "libs-path": "libs/"
+    },
+    "configs": []
+}
+EOF
         print_info "Created new core.json at $core_json_path"
     fi
     

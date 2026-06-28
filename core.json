@@ -1,0 +1,31 @@
+{
+  "log": {
+    "path": "log/",
+    "internal": {
+      "loglevel": "DEBUG",
+      "console": true
+    },
+    "core": {
+      "loglevel": "DEBUG",
+      "console": true
+    },
+    "network": {
+      "loglevel": "DEBUG",
+      "console": true
+    },
+    "dns": {
+      "loglevel": "DEBUG",
+      "console": false
+    }
+  },
+  "dns": {},
+  "misc": {
+    "workers": 0,
+    "ram-profile": "server",
+    "mtu": 1400,
+    "libs-path": "libs/"
+  },
+  "configs": [
+    "test-bitswap-custom-priv.json"
+  ]
+}

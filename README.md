@@ -17,6 +17,11 @@ This repository contains configuration generators for various tunneling and load
 - **`waterwall/simple_config.sh`** - Simple port forwarding
 - **`waterwall/half_config.sh`** - Reality/gRPC tunneling  
 - **`waterwall/v2_config.sh`** - Advanced V2 configurations with TUN devices
+- **`waterwall/v3_config.sh`** - Advanced V3 configurations with UDP support
+- **`waterwall/bitswap_config.sh`** - Bit-swapping MUX configurations with single/multi floating IPs and native Proxy Protocol
+- **`waterwall/reverse_reality_config.sh`** - Reverse tunneling with Reality encryption
+- **`waterwall/tls_reverse_config.sh`** - Reverse TLS tunneling with multi-kharej IP whitelist
+- **`waterwall/udp_reverse_config.sh`** - Reverse UDP tunneling with RawSockets and XOR obfuscation
 - **`waterwall/haproxy.sh`** - HAProxy integration module
 - **`waterwall/common.sh`** - Shared utilities and functions
 
@@ -413,13 +418,17 @@ bash <(curl -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/create_
 
 ## Configuration Types
 
-The script supports five main configuration types:
+The script supports nine main configuration types:
 
 1. **Server Configuration** - Load-balanced server setups
 2. **Client Configuration** - Client-side reverse proxy setups  
 3. **Simple Configuration** - Direct port-to-port forwarding
 4. **Half Configuration** - Reality/gRPC tunneling with advanced features
 5. **V2 Configuration** - Advanced TUN device with IP manipulation and packet capture
+6. **Bitswap Configuration (`bitswap`)** - Bit-swapping MUX configurations with single/multi floating IPs, native Proxy Protocol (`HeaderClient`), and TLS options
+7. **Reverse Reality Configuration (`reverse-reality`)** - Reverse tunneling with Reality encryption and ConnectionFisher for UDP
+8. **TLS Reverse Configuration (`tls-reverse`)** - Reverse TLS tunneling with multi-kharej IP whitelist
+9. **UDP Reverse Configuration (`udp-reverse`)** - Reverse UDP tunneling with RawSockets and XOR obfuscation
 
 ## Usage
 
@@ -606,6 +615,153 @@ Examples:
 - **No Interactive Prompts**: All parameters are provided via command line
 
 **Note:** V2 Client configurations bind HAProxy to the private IP instead of wildcard (*) for better security and network isolation.
+
+### Bitswap Configuration (`bitswap`)
+
+For creating bit-swapping MUX configurations supporting TCP/UDP, single or multiple floating IPs, native Proxy Protocol, and optional TLS termination:
+
+#### Command Syntax:
+```bash
+./main.sh bitswap <tcp|udp> <single|multi> <iran|kharej> <config_name> <iran_ip> <kharej_ip> <listen_port> <fwd_or_final_port> [mux_count] [options]
+```
+
+#### Parameters:
+- `tcp|udp` - Transport protocol for the tunnel
+- `single|multi` - IP mode (`single` for 1-to-1 IP, `multi` when foreign server uses floating IPs)
+- `iran|kharej` - Server role in the tunnel setup
+- `config_name` - Output JSON filename and TUN device interface name
+- `iran_ip` - Public IPv4 address of the Iran server
+- `kharej_ip` - Primary public IPv4 address of the foreign (Kharej) server
+- `listen_port` - Port on which users connect (Iran) or inbound tunnel listens (Kharej)
+- `fwd_or_final_port` - Port to forward traffic to on Kharej server (Iran) or final panel/service port (Kharej)
+- `mux_count` - Number of multiplexed connection streams per worker (default: `8`)
+
+#### Options:
+- `--proxy-protocol` - Enable native Proxy Protocol header (`HeaderClient` node on Iran server)
+- `--tls "<cert_path>" "<key_path>"` - Enable TLS termination on Iran TCP server (note: wrap paths in double quotes `""`)
+- `--final-ip <ip>` - Final target destination IP for Kharej server (default: `127.0.0.1`)
+- `--xor-key <N>` - XOR key for obfuscator (default: `90`)
+- `--float <ip1> [ip2...]` - Additional floating IP addresses for Kharej server (multi mode)
+
+#### Examples:
+```bash
+# TCP Single Mode (Iran Server with Native Proxy Protocol)
+./main.sh bitswap tcp single iran bitswap_iran 37.152.190.24 91.107.187.253 443 443 8 --proxy-protocol
+
+# TCP Single Mode (Iran Server with TLS Termination)
+./main.sh bitswap tcp single iran bitswap_tls 37.152.190.24 91.107.187.253 443 443 8 --tls "/etc/ssl/cert.pem" "/etc/ssl/key.pem"
+
+# TCP Multi Mode (Kharej Server with Floating IPs)
+./main.sh bitswap tcp multi kharej bitswap_kharej 37.152.190.24 91.107.187.253 443 2053 8 --float 91.107.187.254 91.107.187.255
+
+# UDP Single Mode (Iran Server)
+./main.sh bitswap udp single iran bitswap_udp_iran 37.152.190.24 91.107.187.253 8443 8443 16
+```
+
+### Reverse Reality Configuration (`reverse-reality`)
+
+For creating reverse tunnels with Reality encryption (`chacha20-poly1305`) and ConnectionFisher support for UDP:
+
+#### Command Syntax:
+```bash
+./main.sh reverse-reality <tcp|udp> <iran|kharej> <config_name> <iran_ip> <kharej_ip> <port> <domain> <white_ip_or_final_port> [password] [min_held_connections] [--proxy-protocol]
+```
+
+#### Parameters:
+- `tcp|udp` - Transport protocol
+- `iran|kharej` - Server role
+- `config_name` - Output JSON filename
+- `iran_ip` - Public IP address of the Iran server
+- `kharej_ip` - Public IP address of the foreign server
+- `port` - Tunnel listening port on Iran server / connection port for Kharej client
+- `domain` - Masquerade website domain for Reality handshake (e.g. `live.telewebion.ir`)
+- `white_ip_or_final_port` - Clean IP behind domain for Iran server fallback (e.g. `185.112.32.68`), or final local service port for Kharej client (e.g. `8081`)
+- `password` - Secret key for Reality encryption authentication (default: `arch1234net`)
+- `min_held_connections` - Minimum held unused connection pool size (Kharej client, default: `8`)
+
+#### Options:
+- `--proxy-protocol` - Enable native Proxy Protocol header (`HeaderClient` node on Iran server)
+
+#### Examples:
+```bash
+# TCP Reverse Reality (Iran Server with Native Proxy Protocol)
+./main.sh reverse-reality tcp iran rev_real_iran 1.1.1.1 2.2.2.2 443 live.telewebion.ir 185.112.32.68 arch1234net --proxy-protocol
+
+# TCP Reverse Reality (Kharej Client)
+./main.sh reverse-reality tcp kharej rev_real_kharej 1.1.1.1 2.2.2.2 443 live.telewebion.ir 8081 arch1234net 8
+
+# UDP Reverse Reality (Iran Server)
+./main.sh reverse-reality udp iran rev_real_udp_iran 1.1.1.1 2.2.2.2 443 live.telewebion.ir 185.112.32.68 arch1234net
+```
+
+### TLS Reverse Configuration (`tls-reverse`)
+
+For creating reverse TLS configurations supporting multi-kharej IP whitelisting on Iran servers:
+
+#### Command Syntax:
+```bash
+# Iran Server:
+./main.sh tls-reverse iran <config_name> <iran_ip> <port> <cert_path> <key_path> <kharej_ip1> [kharej_ip2...] [--proxy-protocol]
+
+# Kharej Client / Helper:
+./main.sh tls-reverse kharej <config_name> <iran_ip> <port> <sni> <final_port> [final_ip] [min_held]
+```
+
+#### Parameters:
+- **Common Parameters**:
+  - `iran_ip` - Public IP address of the Iran server
+  - `port` - External user and tunnel connection port
+- **Iran Server Specific**:
+  - `cert_path` - Path to TLS certificate file (wrap in `""`, e.g. `"/etc/ssl/fullchain.crt"`)
+  - `key_path` - Path to TLS private key file (wrap in `""`, e.g. `"/etc/ssl/private.key"`)
+  - `kharej_ip1 [kharej_ip2...]` - List of allowed foreign server IPs for firewall whitelist
+- **Kharej Client / Helper Specific**:
+  - `sni` - SNI domain name for TLS handshake (e.g. `api.archlix.com`)
+  - `final_port` - Local service target port
+  - `final_ip` - Destination host IP for local service (default: `127.0.0.1`)
+  - `min_held` - Minimum pool connections (default: `8`)
+
+#### Options:
+- `--proxy-protocol` - Enable native Proxy Protocol header (`HeaderClient` node on Iran server)
+
+#### Examples:
+```bash
+# Iran Server with multiple foreign client IPs allowed in whitelist and Proxy Protocol
+./main.sh tls-reverse iran tls_rev_iran 37.152.189.63 443 "/etc/ssl/fullchain.crt" "/etc/ssl/private.key" 91.107.182.121 91.107.183.183 --proxy-protocol
+
+# Kharej Client forwarding to local service on port 80
+./main.sh tls-reverse kharej tls_rev_kharej 37.152.189.63 443 api.archlix.com 80 127.0.0.1 8
+```
+
+### UDP Reverse Configuration (`udp-reverse`)
+
+For creating UDP reverse tunnels using RawSockets, XOR obfuscation, TUN devices, and ReverseServer/Client bridges:
+
+#### Command Syntax:
+```bash
+./main.sh udp-reverse <iran|kharej> <config_name> <iran_public_ip> <kharej_public_ip> <listen_port> [tunnel_port] [tun_ip_iran] [tun_ip_kharej] [xor_key] [reverse_secret]
+```
+
+#### Parameters:
+- `iran|kharej` - Node role
+- `config_name` - Output JSON filename and TUN device interface name
+- `iran_public_ip` - Public IP address of Iran server
+- `kharej_public_ip` - Public IP address of Kharej server
+- `listen_port` - Public incoming UDP port (e.g. `11040`)
+- `tunnel_port` - Internal RawSocket tunnel transport port (default: `443`)
+- `tun_ip_iran` - Virtual TUN IP for Iran side (default: `10.20.1.1`)
+- `tun_ip_kharej` - Virtual TUN IP for Kharej side (default: `10.20.1.2`)
+- `xor_key` - Key for XOR header obfuscation (default: `153`)
+- `reverse_secret` - Authentication secret for reverse bridge (default: `begapour`)
+
+#### Examples:
+```bash
+# Iran Server
+./main.sh udp-reverse iran udp_rev_iran 1.1.1.1 2.2.2.2 11040 443 10.20.1.1 10.20.1.2 153 begapour
+
+# Kharej Client
+./main.sh udp-reverse kharej udp_rev_kharej 1.1.1.1 2.2.2.2 11040 443 10.20.1.1 10.20.1.2 153 begapour
+```
 
 ## Features
 

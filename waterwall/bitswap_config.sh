@@ -625,14 +625,20 @@ EOF
     "name": "${config_name}",
     "variables": {
         "ip_server_iran": "${iran_ip}",
-        "ip_server_kharej_main": "${kharej_ip}",
 EOF
             if [ "$mode" = "multi" ]; then
+                cat << EOF >&3
+        "ip_server_kharej_main": "${kharej_ip}",
+EOF
                 for i in "${!float_ips[@]}"; do
                     cat << EOF >&3
         "ip_server_kharej_float_$((i+1))": "${float_ips[$i]}",
 EOF
                 done
+            else
+                cat << EOF >&3
+        "ip_server_kharej": "${kharej_ip}",
+EOF
             fi
             cat << EOF >&3
         "port_to_listen": ${listen_port},

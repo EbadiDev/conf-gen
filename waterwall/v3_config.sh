@@ -50,7 +50,7 @@ create_v3_server_config() {
             "type": "TunDevice",
             "settings": {
                 "device-name": "${config_name}",
-                "device-ip": "\$private_ip\$/24"
+                "device-ip": "${private_ip}/24"
             },
             "next": "ip_rewrite"
         },
@@ -198,7 +198,7 @@ create_v3_client_config() {
             "type": "TunDevice",
             "settings": {
                 "device-name": "${config_name}",
-                "device-ip": "\$private_ip\$/24"
+                "device-ip": "${private_ip}/24"
             }
         }
     ]

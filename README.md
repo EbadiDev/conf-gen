@@ -664,7 +664,7 @@ For creating reverse tunnels with Reality encryption (`chacha20-poly1305`) and C
 
 #### Command Syntax:
 ```bash
-./main.sh reverse-reality <tcp|udp> <iran|kharej> <config_name> <iran_ip> <kharej_ip> <port> <domain> <white_ip_or_final_port> [password] [min_held_connections] [--proxy-protocol]
+./main.sh reverse-reality <tcp|udp> <iran|kharej> <config_name> <iran_ip> <kharej_ip> <port> <domain> <white_ip_or_final_port> [password] [min_held_connections] [--proxy-protocol] [--float <ip1> ...]
 ```
 
 #### Parameters:
@@ -681,14 +681,15 @@ For creating reverse tunnels with Reality encryption (`chacha20-poly1305`) and C
 
 #### Options:
 - `--proxy-protocol` - Enable native Proxy Protocol header (`HeaderClient` node on Iran server)
+- `--float <ip1> [ip2...]` - Additional floating IP addresses for Kharej server
 
 #### Examples:
 ```bash
 # TCP Reverse Reality (Iran Server with Native Proxy Protocol)
 ./main.sh reverse-reality tcp iran rev_real_iran 1.1.1.1 2.2.2.2 443 live.telewebion.ir 185.112.32.68 arch1234net --proxy-protocol
 
-# TCP Reverse Reality (Kharej Client)
-./main.sh reverse-reality tcp kharej rev_real_kharej 1.1.1.1 2.2.2.2 443 live.telewebion.ir 8081 arch1234net 8
+# TCP Reverse Reality (Kharej Client with Floating IPs)
+./main.sh reverse-reality tcp kharej rev_real_kharej 1.1.1.1 2.2.2.2 443 live.telewebion.ir 8081 arch1234net 8 --float 2.2.2.3 2.2.2.4
 
 # UDP Reverse Reality (Iran Server)
 ./main.sh reverse-reality udp iran rev_real_udp_iran 1.1.1.1 2.2.2.2 443 live.telewebion.ir 185.112.32.68 arch1234net

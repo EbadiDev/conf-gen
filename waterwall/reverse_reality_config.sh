@@ -2,6 +2,7 @@
 
 # Reverse Reality Configuration Module for Waterwall
 # Supports TCP and UDP reverse tunneling with Reality encryption and ConnectionFisher for UDP.
+# Supports floating IPs via --float flag for multi-IP load balancing.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/common.sh"
@@ -18,6 +19,8 @@ create_reverse_reality_config() {
     local password="${9:-arch1234net}"
     local min_held="${10:-8}"
     local use_proxy_protocol="${11:-false}"
+    shift 11 2>/dev/null
+    local float_ips=("$@")
 
     if [ "$protocol" = "tcp" ]; then
         if [ "$side" = "iran" ]; then
@@ -30,6 +33,13 @@ create_reverse_reality_config() {
         "domain_white": "${domain}",
         "ip_behind_domain_white": "${white_ip}",
         "ip_server_kharej": "${kharej_ip}/32",
+EOF
+            for i in "${!float_ips[@]}"; do
+                cat << EOF >&3
+        "ip_server_kharej_float_$((i+1))": "${float_ips[$i]}/32",
+EOF
+            done
+            cat << EOF >&3
         "user_and_server_kharej_port": ${port},
         "password": "${password}"
     },
@@ -111,6 +121,13 @@ EOF
                 "nodelay": true,
                 "whitelist": [
                     \$ip_server_kharej\$
+EOF
+            for i in "${!float_ips[@]}"; do
+                cat << EOF >&3
+                    ,\$ip_server_kharej_float_$((i+1))\$
+EOF
+            done
+            cat << EOF >&3
                 ]
             },
             "next": "reality-server"
@@ -125,6 +142,14 @@ EOF
     "name": "${config_name}",
     "variables": {
         "ip_server_iran": "${iran_ip}",
+        "ip_server_kharej": "${kharej_ip}",
+EOF
+            for i in "${!float_ips[@]}"; do
+                cat << VAREOF >> "${config_name}.json"
+        "ip_server_kharej_float_$((i+1))": "${float_ips[$i]}",
+VAREOF
+            done
+            cat << EOF >> "${config_name}.json"
         "connect_to_iran_port": ${port},
         "domain_to_handshake_reality": "${domain}",
         "password": "${password}",
@@ -181,6 +206,37 @@ EOF
             "name": "tcp_to_iran",
             "type": "TcpConnector",
             "settings": {
+EOF
+            if [ ${#float_ips[@]} -gt 0 ]; then
+                cat << EOF >> "${config_name}.json"
+                "addresses": [
+                    {
+                        "address": \$ip_server_iran\$,
+                        "port": \$connect_to_iran_port\$,
+                        "weight": 1,
+                        "source_ip": \$ip_server_kharej\$
+                    }
+EOF
+                for i in "${!float_ips[@]}"; do
+                    cat << EOF >> "${config_name}.json"
+                    ,{
+                        "address": \$ip_server_iran\$,
+                        "port": \$connect_to_iran_port\$,
+                        "weight": 1,
+                        "source_ip": \$ip_server_kharej_float_$((i+1))\$
+                    }
+EOF
+                done
+                cat << EOF >> "${config_name}.json"
+                ],
+                "nodelay": true
+            }
+        }
+    ]
+}
+EOF
+            else
+                cat << EOF >> "${config_name}.json"
                 "address": \$ip_server_iran\$,
                 "port": \$connect_to_iran_port\$,
                 "nodelay": true
@@ -189,16 +245,25 @@ EOF
     ]
 }
 EOF
+            fi
         fi
     else # UDP
         if [ "$side" = "iran" ]; then
-            cat << EOF > "${config_name}.json"
+            exec 3> "${config_name}.json"
+            cat << EOF >&3
 {
     "name": "${config_name}",
     "variables": {
         "domain_white": "${domain}",
         "ip_behind_domain_white": "${white_ip}",
         "ip_server_kharej": "${kharej_ip}/32",
+EOF
+            for i in "${!float_ips[@]}"; do
+                cat << EOF >&3
+        "ip_server_kharej_float_$((i+1))": "${float_ips[$i]}/32",
+EOF
+            done
+            cat << EOF >&3
         "user_and_server_kharej_port": ${port},
         "password": "${password}"
     },
@@ -274,6 +339,13 @@ EOF
                 "nodelay": true,
                 "whitelist": [
                     \$ip_server_kharej\$
+EOF
+            for i in "${!float_ips[@]}"; do
+                cat << EOF >&3
+                    ,\$ip_server_kharej_float_$((i+1))\$
+EOF
+            done
+            cat << EOF >&3
                 ]
             },
             "next": "fisher_server"
@@ -287,12 +359,21 @@ EOF
     ]
 }
 EOF
+            exec 3>&-
         else # udp kharej
             cat << EOF > "${config_name}.json"
 {
     "name": "${config_name}",
     "variables": {
         "ip_server_iran": "${iran_ip}",
+        "ip_server_kharej": "${kharej_ip}",
+EOF
+            for i in "${!float_ips[@]}"; do
+                cat << VAREOF >> "${config_name}.json"
+        "ip_server_kharej_float_$((i+1))": "${float_ips[$i]}",
+VAREOF
+            done
+            cat << EOF >> "${config_name}.json"
         "connect_to_iran_port": ${port},
         "domain_to_handshake_reality": "${domain}",
         "password": "${password}",
@@ -368,6 +449,37 @@ EOF
             "name": "tcp_to_iran",
             "type": "TcpConnector",
             "settings": {
+EOF
+            if [ ${#float_ips[@]} -gt 0 ]; then
+                cat << EOF >> "${config_name}.json"
+                "addresses": [
+                    {
+                        "address": \$ip_server_iran\$,
+                        "port": \$connect_to_iran_port\$,
+                        "weight": 1,
+                        "source_ip": \$ip_server_kharej\$
+                    }
+EOF
+                for i in "${!float_ips[@]}"; do
+                    cat << EOF >> "${config_name}.json"
+                    ,{
+                        "address": \$ip_server_iran\$,
+                        "port": \$connect_to_iran_port\$,
+                        "weight": 1,
+                        "source_ip": \$ip_server_kharej_float_$((i+1))\$
+                    }
+EOF
+                done
+                cat << EOF >> "${config_name}.json"
+                ],
+                "nodelay": true
+            }
+        }
+    ]
+}
+EOF
+            else
+                cat << EOF >> "${config_name}.json"
                 "address": \$ip_server_iran\$,
                 "port": \$connect_to_iran_port\$,
                 "nodelay": true
@@ -376,6 +488,7 @@ EOF
     ]
 }
 EOF
+            fi
         fi
     fi
 
@@ -400,9 +513,9 @@ handle_reverse_reality_config() {
     local white_ip_or_final_port="${8}"
 
     if [ -z "$white_ip_or_final_port" ]; then
-        echo "Usage: $0 reverse-reality <tcp|udp> <iran|kharej> <config_name> <iran_ip> <kharej_ip> <port> <domain> <white_ip_or_final_port> [password] [min_held_connections] [--proxy-protocol]"
+        echo "Usage: $0 reverse-reality <tcp|udp> <iran|kharej> <config_name> <iran_ip> <kharej_ip> <port> <domain> <white_ip_or_final_port> [password] [min_held_connections] [--proxy-protocol] [--float <ip1> ...]"
         echo "Example (Iran):   $0 reverse-reality tcp iran rev-iran 1.1.1.1 2.2.2.2 443 live.telewebion.ir 185.112.32.68 mypass --proxy-protocol"
-        echo "Example (Kharej): $0 reverse-reality tcp kharej rev-kharej 1.1.1.1 2.2.2.2 443 live.telewebion.ir 8081 mypass 8"
+        echo "Example (Kharej): $0 reverse-reality tcp kharej rev-kharej 1.1.1.1 2.2.2.2 443 live.telewebion.ir 8081 mypass 8 --float 2.2.2.3 2.2.2.4"
         exit 1
     fi
 
@@ -410,6 +523,7 @@ handle_reverse_reality_config() {
     local password="arch1234net"
     local min_held=8
     local use_proxy_protocol=false
+    local float_ips=()
 
     if [ "$#" -gt 0 ] && [[ ! "$1" =~ ^-- ]]; then
         password="$1"
@@ -426,11 +540,18 @@ handle_reverse_reality_config() {
                 use_proxy_protocol=true
                 shift 1
                 ;;
+            --float)
+                shift 1
+                while [ "$#" -gt 0 ] && [[ ! "$1" =~ ^-- ]]; do
+                    float_ips+=("$1")
+                    shift 1
+                done
+                ;;
             *)
                 shift 1
                 ;;
         esac
     done
 
-    create_reverse_reality_config "$protocol" "$side" "$config_name" "$iran_ip" "$kharej_ip" "$port" "$domain" "$white_ip_or_final_port" "$password" "$min_held" "$use_proxy_protocol"
+    create_reverse_reality_config "$protocol" "$side" "$config_name" "$iran_ip" "$kharej_ip" "$port" "$domain" "$white_ip_or_final_port" "$password" "$min_held" "$use_proxy_protocol" "${float_ips[@]}"
 }

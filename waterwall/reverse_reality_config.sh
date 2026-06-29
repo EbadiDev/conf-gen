@@ -19,7 +19,9 @@ create_reverse_reality_config() {
     local password="${9:-arch1234net}"
     local min_held="${10:-8}"
     local use_proxy_protocol="${11:-false}"
-    shift 11 2>/dev/null
+    local cert_path="${12:-}"
+    local key_path="${13:-}"
+    shift 13 2>/dev/null
     local float_ips=("$@")
 
     if [ "$protocol" = "tcp" ]; then
@@ -39,6 +41,13 @@ EOF
         "ip_server_kharej_float_$((i+1))": "${float_ips[$i]}/32",
 EOF
             done
+            # Add TLS variables if enabled
+            if [ -n "$cert_path" ]; then
+                cat << EOF >&3
+        "certificate_path": "${cert_path}",
+        "key_path": "${key_path}",
+EOF
+            fi
             cat << EOF >&3
         "user_and_server_kharej_port": ${port},
         "password": "${password}"
@@ -52,9 +61,31 @@ EOF
                 "port": \$user_and_server_kharej_port\$,
                 "nodelay": true
             },
-            "next": "$([ "$use_proxy_protocol" = true ] && echo "proxy-header" || echo "bridge_user_side")"
+            "next": "$(if [ -n "$cert_path" ]; then echo "tls_termination"; elif [ "$use_proxy_protocol" = true ]; then echo "proxy-header"; else echo "bridge_user_side"; fi)"
         }
 EOF
+            # Determine next node after TLS termination
+            local _after_tls="$([ "$use_proxy_protocol" = true ] && echo "proxy-header" || echo "bridge_user_side")"
+            if [ -n "$cert_path" ]; then
+                cat << EOF >&3
+        ,
+        {
+            "name": "tls_termination",
+            "type": "TlsServer",
+            "settings": {
+                "cert-file": \$certificate_path\$,
+                "key-file": \$key_path\$,
+                "min-version": "TLSv1.2",
+                "max-version": "TLSv1.3",
+                "ciphers": "HIGH:!aNULL:!MD5",
+                "session-cache": "none",
+                "session-tickets": true,
+                "verbose": false
+            },
+            "next": "${_after_tls}"
+        }
+EOF
+            fi
             if [ "$use_proxy_protocol" = true ]; then
                 cat << EOF >&3
         ,
@@ -513,8 +544,9 @@ handle_reverse_reality_config() {
     local white_ip_or_final_port="${8}"
 
     if [ -z "$white_ip_or_final_port" ]; then
-        echo "Usage: $0 reverse-reality <tcp|udp> <iran|kharej> <config_name> <iran_ip> <kharej_ip> <port> <domain> <white_ip_or_final_port> [password] [min_held_connections] [--proxy-protocol] [--float <ip1> ...]"
+        echo "Usage: $0 reverse-reality <tcp|udp> <iran|kharej> <config_name> <iran_ip> <kharej_ip> <port> <domain> <white_ip_or_final_port> [password] [min_held_connections] [--proxy-protocol] [--tls <cert> <key>] [--float <ip1> ...]"
         echo "Example (Iran):   $0 reverse-reality tcp iran rev-iran 1.1.1.1 2.2.2.2 443 live.telewebion.ir 185.112.32.68 mypass --proxy-protocol"
+        echo "Example (Iran+TLS): $0 reverse-reality tcp iran rev-iran 1.1.1.1 2.2.2.2 443 live.telewebion.ir 185.112.32.68 mypass --tls /etc/ssl/cert.crt /etc/ssl/key.key"
         echo "Example (Kharej): $0 reverse-reality tcp kharej rev-kharej 1.1.1.1 2.2.2.2 443 live.telewebion.ir 8081 mypass 8 --float 2.2.2.3 2.2.2.4"
         exit 1
     fi
@@ -523,6 +555,8 @@ handle_reverse_reality_config() {
     local password="arch1234net"
     local min_held=8
     local use_proxy_protocol=false
+    local cert_path=""
+    local key_path=""
     local float_ips=()
 
     if [ "$#" -gt 0 ] && [[ ! "$1" =~ ^-- ]]; then
@@ -540,6 +574,12 @@ handle_reverse_reality_config() {
                 use_proxy_protocol=true
                 shift 1
                 ;;
+            --tls)
+                shift 1
+                cert_path="$1"
+                key_path="$2"
+                shift 2
+                ;;
             --float)
                 shift 1
                 while [ "$#" -gt 0 ] && [[ ! "$1" =~ ^-- ]]; do
@@ -553,5 +593,5 @@ handle_reverse_reality_config() {
         esac
     done
 
-    create_reverse_reality_config "$protocol" "$side" "$config_name" "$iran_ip" "$kharej_ip" "$port" "$domain" "$white_ip_or_final_port" "$password" "$min_held" "$use_proxy_protocol" "${float_ips[@]}"
+    create_reverse_reality_config "$protocol" "$side" "$config_name" "$iran_ip" "$kharej_ip" "$port" "$domain" "$white_ip_or_final_port" "$password" "$min_held" "$use_proxy_protocol" "$cert_path" "$key_path" "${float_ips[@]}"
 }

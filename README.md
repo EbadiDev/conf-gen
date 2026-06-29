@@ -681,12 +681,16 @@ For creating reverse tunnels with Reality encryption (`chacha20-poly1305`) and C
 
 #### Options:
 - `--proxy-protocol` - Enable native Proxy Protocol header (`HeaderClient` node on Iran server)
+- `--tls <cert_path> <key_path>` - Enable TLS termination on user-facing side (Iran TCP only, inserts `TlsServer` node)
 - `--float <ip1> [ip2...]` - Additional floating IP addresses for Kharej server
 
 #### Examples:
 ```bash
 # TCP Reverse Reality (Iran Server with Native Proxy Protocol)
 ./main.sh reverse-reality tcp iran rev_real_iran 1.1.1.1 2.2.2.2 443 live.telewebion.ir 185.112.32.68 arch1234net --proxy-protocol
+
+# TCP Reverse Reality (Iran Server with TLS Termination)
+./main.sh reverse-reality tcp iran rev_real_iran 1.1.1.1 2.2.2.2 443 live.telewebion.ir 185.112.32.68 arch1234net --tls /etc/ssl/cert.crt /etc/ssl/key.key
 
 # TCP Reverse Reality (Kharej Client with Floating IPs)
 ./main.sh reverse-reality tcp kharej rev_real_kharej 1.1.1.1 2.2.2.2 443 live.telewebion.ir 8081 arch1234net 8 --float 2.2.2.3 2.2.2.4

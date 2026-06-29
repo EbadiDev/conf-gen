@@ -90,7 +90,7 @@ EOF
                 "port": \$port_to_listen\$,
                 "nodelay": true
             },
-            "next": "$([ "$use_tls" = true ] && echo "tls_server_user_side_tls_termination" || echo "mux-client")"
+            "next": "$(if [ "$use_tls" = true ]; then echo "tls_server_user_side_tls_termination"; elif [ "$use_proxy_protocol" = true ]; then echo "proxy-header"; else echo "mux-client"; fi)"
         }
 EOF
             if [ "$use_tls" = true ]; then
@@ -109,7 +109,7 @@ EOF
                 "session-tickets": true,
                 "verbose": false
             },
-            "next": "mux-client"
+            "next": "$([ "$use_proxy_protocol" = true ] && echo "proxy-header" || echo "mux-client")"
         }
 EOF
             fi
@@ -122,7 +122,7 @@ EOF
                 "mode": "fixed-connections-count",
                 "per-worker-connections-count": \$each_worker_mux_connections_count\$
             },
-            "next": "$([ "$use_proxy_protocol" = true ] && echo "proxy-header" || echo "tcp-out")"
+            "next": "tcp-out"
         }
 EOF
             if [ "$use_proxy_protocol" = true ]; then
@@ -135,7 +135,7 @@ EOF
                 "data": "proxy-protocol",
                 "frontend-ipv4": \$ip_server_iran\$
             },
-            "next": "tcp-out"
+            "next": "mux-client"
         }
 EOF
             fi

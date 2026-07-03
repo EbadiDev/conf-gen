@@ -559,11 +559,11 @@ handle_reverse_reality_config() {
     local key_path=""
     local float_ips=()
 
-    if [ "$#" -gt 0 ] && [[ ! "$1" =~ ^-- ]]; then
+    if [ "$#" -gt 0 ] && [[ ! "$1" =~ ^- ]]; then
         password="$1"
         shift 1
     fi
-    if [ "$#" -gt 0 ] && [[ ! "$1" =~ ^-- ]]; then
+    if [ "$#" -gt 0 ] && [[ ! "$1" =~ ^- ]]; then
         min_held="$1"
         shift 1
     fi

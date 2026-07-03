@@ -241,9 +241,12 @@ EOF
             "type": "RawSocket",
             "settings": {
                 "capture-filter-mode": "source-ip",
-                "capture-ip": $([ "$mode" = "multi" ] && echo "[\n                    \$ip_server_kharej_main\$" || echo "\$ip_server_kharej\$")
 EOF
             if [ "$mode" = "multi" ]; then
+                cat << EOF >&3
+                "capture-ip": [
+                    \$ip_server_kharej_main\$
+EOF
                 for i in "${!float_ips[@]}"; do
                     cat << EOF >&3
                     ,\$ip_server_kharej_float_$((i+1))\$
@@ -251,6 +254,10 @@ EOF
                 done
                 cat << EOF >&3
                 ]
+EOF
+            else
+                cat << EOF >&3
+                "capture-ip": \$ip_server_kharej\$
 EOF
             fi
             cat << EOF >&3
@@ -390,9 +397,12 @@ EOF
             "settings": {
                 "up": {
                     "source-ip": {
-                        "ipv4": $([ "$mode" = "multi" ] && echo "[\n                            \$ip_server_kharej_main\$" || echo "\$ip_server_kharej\$")
 EOF
             if [ "$mode" = "multi" ]; then
+                cat << EOF >&3
+                        "ipv4": [
+                            \$ip_server_kharej_main\$
+EOF
                 for i in "${!float_ips[@]}"; do
                     cat << EOF >&3
                             ,\$ip_server_kharej_float_$((i+1))\$
@@ -400,6 +410,10 @@ EOF
                 done
                 cat << EOF >&3
                         ]
+EOF
+            else
+                cat << EOF >&3
+                        "ipv4": \$ip_server_kharej\$
 EOF
             fi
             cat << EOF >&3
@@ -753,9 +767,12 @@ EOF
             "settings": {
                 "up": {
                     "source-ip": {
-                        "ipv4": $([ "$mode" = "multi" ] && echo "[\n                            \$ip_server_kharej_main\$" || echo "\$ip_server_kharej\$")
 EOF
             if [ "$mode" = "multi" ]; then
+                cat << EOF >&3
+                        "ipv4": [
+                            \$ip_server_kharej_main\$
+EOF
                 for i in "${!float_ips[@]}"; do
                     cat << EOF >&3
                             ,\$ip_server_kharej_float_$((i+1))\$
@@ -763,6 +780,10 @@ EOF
                 done
                 cat << EOF >&3
                         ]
+EOF
+            else
+                cat << EOF >&3
+                        "ipv4": \$ip_server_kharej\$
 EOF
             fi
             cat << EOF >&3

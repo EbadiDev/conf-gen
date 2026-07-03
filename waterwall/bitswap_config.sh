@@ -244,7 +244,7 @@ EOF
 EOF
             if [ "$mode" = "multi" ]; then
                 cat << EOF >&3
-                "capture-ip": [
+                "capture-ips": [
                     \$ip_server_kharej_main\$
 EOF
                 for i in "${!float_ips[@]}"; do

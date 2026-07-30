@@ -32,6 +32,17 @@ bb_tun_values() {
     BB_TUN_SECOND="$a.$((b + 10)).$c.$d"
 }
 
+bb_validate_json() {
+    local file="$1"
+    if command -v jq >/dev/null 2>&1; then
+        jq empty "$file" >/dev/null 2>&1
+    elif command -v python3 >/dev/null 2>&1; then
+        python3 -c "import json, sys; json.load(open(sys.argv[1]))" "$file" >/dev/null 2>&1
+    else
+        bb_fail "Neither jq nor python3 is available for JSON parsing."
+    fi
+}
+
 bb_resolve_config() {
     local input="$1" output="$2" iran="$3" germany="$4" private="$5" listen_port="$6" final_ip="$7" final_port="$8"
     bb_tun_values "$private"
@@ -48,27 +59,74 @@ bb_resolve_config() {
     content="${content//\$tun2_ip_1\$/\"$BB_TUN_SECOND\"}"
     printf '%s\n' "$content" > "$output"
 
-    jq empty "$output" >/dev/null 2>&1 || bb_fail "Could not resolve generated BitSwap config $input."
+    bb_validate_json "$output" || bb_fail "Could not resolve generated BitSwap config $input."
 }
 
 bb_suffix_nodes() {
     local input="$1" output="$2" suffix="$3" private="$4"
-    jq --arg suffix "$suffix" --arg private "$private/32" '
-      .nodes |= map(
-        .name = (.name + $suffix)
-        | if has("next") then .next = (.next + $suffix) else . end
-        | if (.settings | type) == "object" and (.settings | has("pair")) then .settings.pair = (.settings.pair + $suffix) else . end
-        | if .type == "PacketSplitStream" then
-            .settings.up = (.settings.up + $suffix) | .settings.down = (.settings.down + $suffix)
-          else . end
-        | if .type == "RawSocket" and (.settings | has("capture-ip")) then
-            .settings["capture-ips"] = [.settings["capture-ip"]] | del(.settings["capture-ip"])
-          else . end
-        | if .type == "TcpListener" and (.name | startswith("users_inbound")) then
-            .settings.whitelist = [$private]
-          else . end
-      )
-    ' "$input" > "$output"
+    if command -v jq >/dev/null 2>&1; then
+        jq --arg suffix "$suffix" --arg private "$private/32" '
+          .nodes |= map(
+            .name = (.name + $suffix)
+            | if has("next") then .next = (.next + $suffix) else . end
+            | if (.settings | type) == "object" and (.settings | has("pair")) then .settings.pair = (.settings.pair + $suffix) else . end
+            | if .type == "PacketSplitStream" then
+                .settings.up = (.settings.up + $suffix) | .settings.down = (.settings.down + $suffix)
+              else . end
+            | if .type == "RawSocket" and (.settings | has("capture-ip")) then
+                .settings["capture-ips"] = [.settings["capture-ip"]] | del(.settings["capture-ip"])
+              else . end
+            | if .type == "TcpListener" and (.name | startswith("users_inbound")) then
+                .settings.whitelist = [$private]
+              else . end
+          )
+        ' "$input" > "$output"
+    elif command -v python3 >/dev/null 2>&1; then
+        python3 -c '
+import json, sys
+input_file, output_file, suffix, private = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+with open(input_file) as f:
+    data = json.load(f)
+for node in data.get("nodes", []):
+    node["name"] += suffix
+    if "next" in node and isinstance(node["next"], str):
+        node["next"] += suffix
+    if isinstance(node.get("settings"), dict) and "pair" in node["settings"]:
+        node["settings"]["pair"] += suffix
+    if node.get("type") == "PacketSplitStream":
+        if "up" in node.get("settings", {}): node["settings"]["up"] += suffix
+        if "down" in node.get("settings", {}): node["settings"]["down"] += suffix
+    if node.get("type") == "RawSocket" and "capture-ip" in node.get("settings", {}):
+        ip = node["settings"].pop("capture-ip")
+        node["settings"]["capture-ips"] = [ip]
+    if node.get("type") == "TcpListener" and node.get("name", "").startswith("users_inbound"):
+        node["settings"]["whitelist"] = [f"{private}/32"]
+with open(output_file, "w") as f:
+    json.dump(data, f, indent=2)
+' "$input" "$output" "$suffix" "$private"
+    else
+        bb_fail "Neither jq nor python3 is available for JSON parsing."
+    fi
+}
+
+bb_merge_configs() {
+    local name="$1" in1="$2" in2="$3" output="$4"
+    if command -v jq >/dev/null 2>&1; then
+        jq -s --arg name "$name" '{name: $name, nodes: (.[0].nodes + .[1].nodes)}' \
+          "$in1" "$in2" > "$output"
+    elif command -v python3 >/dev/null 2>&1; then
+        python3 -c '
+import json, sys
+name, f1, f2, out = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+with open(f1) as a, open(f2) as b:
+    d1, d2 = json.load(a), json.load(b)
+res = {"name": name, "nodes": d1.get("nodes", []) + d2.get("nodes", [])}
+with open(out, "w") as f:
+    json.dump(res, f, indent=2)
+' "$name" "$in1" "$in2" "$output"
+    else
+        bb_fail "Neither jq nor python3 is available for JSON parsing."
+    fi
 }
 
 create_bitswap_balancer_config() {
@@ -103,9 +161,8 @@ create_bitswap_balancer_config() {
     bb_suffix_nodes "$work/pair1-resolved.json" "$work/pair1-suffixed.json" "-ir1" "$private1"
     bb_suffix_nodes "$work/pair2-resolved.json" "$work/pair2-suffixed.json" "-ir2" "$private2"
 
-    jq -s --arg name "$name" '{name: $name, nodes: (.[0].nodes + .[1].nodes)}' \
-      "$work/pair1-suffixed.json" "$work/pair2-suffixed.json" > "${name}.json"
-    jq empty "${name}.json" >/dev/null 2>&1 || bb_fail "Merged BitSwap balancer JSON is invalid."
+    bb_merge_configs "$name" "$work/pair1-suffixed.json" "$work/pair2-suffixed.json" "${name}.json"
+    bb_validate_json "${name}.json" || bb_fail "Merged BitSwap balancer JSON is invalid."
 
     add_to_core_json "$name" "bitswap-balancer"
     print_success "One Germany BitSwap MUX balancer config created: ${name}.json"

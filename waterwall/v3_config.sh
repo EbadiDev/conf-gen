@@ -291,18 +291,18 @@ create_v3_client_config() {
             "settings": {
                 "up": {
                     "source-ip": {
-                        "ipv4": \$private_ip_endpoint\$
-                    },
-                    "dest-ip": {
-                        "ipv4": \$private_ip\$
-                    }
-                },
-                "down": {
-                    "source-ip": {
                         "ipv4": \$ip_server_kharej\$
                     },
                     "dest-ip": {
                         "ipv4": \$ip_server_iran\$
+                    }
+                },
+                "down": {
+                    "source-ip": {
+                        "ipv4": \$private_ip\$
+                    },
+                    "dest-ip": {
+                        "ipv4": \$private_ip_endpoint\$
                     }
                 }
             },
@@ -313,7 +313,7 @@ create_v3_client_config() {
             "type": "TunDevice",
             "settings": {
                 "device-name": "${config_name}",
-                "device-ip": "${private_ip}/24"
+                "device-ip": "${ip_plus1}/24"
             }
         }
     ]

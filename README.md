@@ -616,6 +616,34 @@ Examples:
 
 **Note:** V2 Client configurations bind HAProxy to the private IP instead of wildcard (*) for better security and network isolation.
 
+### V3 Configuration (`v3` / Protoswap)
+
+For creating advanced protocol swapping (`IpManipulator`) TUN configurations with UDP support, optional TCP TLS termination, and Proxy Protocol header injection:
+
+#### Command Syntax:
+```bash
+./main.sh v3 server <config_name> <non_iran_ip> <iran_ip> <private_ip> <protocol> [udp_protocol] [options]
+./main.sh v3 client <config_name> <non_iran_ip> <iran_ip> <private_ip> <protocol> [udp_protocol]
+```
+
+#### Server Options:
+- `--tls <cert_path> <key_path>` - Enable TLS termination on Iran side (`TlsServer` node)
+- `--proxy-protocol` - Enable Proxy Protocol header injection (`HeaderClient` node)
+- `--listen-port, -p <port>` - Port to listen on Iran side (default: `443`)
+- `--target-port, -t <port>` - Target backend port on Kharej server across TUN interface (default: `443`)
+
+#### Examples:
+```bash
+# Basic L3 Protoswap tunnel
+./main.sh v3 server sweden 1.2.3.4 5.6.7.8 30.6.0.1 27
+
+# Protoswap tunnel with TLS termination and Proxy Protocol on Iran server
+./main.sh v3 server sweden 1.2.3.4 5.6.7.8 30.6.0.1 27 --tls "/etc/letsencrypt/live/example.com/fullchain.pem" "/etc/letsencrypt/live/example.com/privkey.pem" --proxy-protocol -p 443 -t 2059
+
+# Kharej client configuration
+./main.sh v3 client iran 1.2.3.4 5.6.7.8 30.6.0.1 27
+```
+
 ### Bitswap Configuration (`bitswap`)
 
 For creating bit-swapping MUX configurations supporting TCP/UDP, single or multiple floating IPs, native Proxy Protocol, and optional TLS termination:

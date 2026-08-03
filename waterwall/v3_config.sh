@@ -238,6 +238,9 @@ create_v3_client_config() {
     local private_ip="$4"
     local protoswap_tcp="$5"
     local custom_udp="$6"
+    local target_port="${7:-2059}"
+    local final_ip="${8:-127.0.0.1}"
+    local has_target_forwarder="${9:-true}"
 
     local protoswap_udp=""
     if [ -n "$custom_udp" ] && [[ "$custom_udp" =~ ^[0-9]+$ ]]; then
@@ -255,7 +258,8 @@ create_v3_client_config() {
     IFS='.' read -r ip1 ip2 ip3 ip4 <<< "$private_ip"
     local ip_plus1="$ip1.$ip2.$ip3.$((ip4+1))"
 
-    cat << EOF > "${config_name}.json"
+    exec 3> "${config_name}.json"
+    cat << EOF >&3
 {
     "name": "${config_name}",
     "variables": {
@@ -265,6 +269,14 @@ create_v3_client_config() {
         "private_ip_endpoint": "${ip_plus1}",
         "protoswap_tcp": ${protoswap_tcp},
         "protoswap_udp": ${protoswap_udp}
+EOF
+    if [ "$has_target_forwarder" = true ]; then
+        cat << EOF >&3
+        ,"port_to_forward": ${target_port},
+        "final_target_ip": "${final_ip}"
+EOF
+    fi
+    cat << EOF >&3
     },
     "nodes": [
         {
@@ -316,9 +328,38 @@ create_v3_client_config() {
                 "device-ip": "${ip_plus1}/24"
             }
         }
+EOF
+
+    if [ "$has_target_forwarder" = true ]; then
+        cat << EOF >&3
+        ,
+        {
+            "name": "target_inbound",
+            "type": "TcpListener",
+            "settings": {
+                "address": "0.0.0.0",
+                "port": \$port_to_forward\$,
+                "nodelay": true
+            },
+            "next": "target_outbound"
+        },
+        {
+            "name": "target_outbound",
+            "type": "TcpConnector",
+            "settings": {
+                "address": \$final_target_ip\$,
+                "port": \$port_to_forward\$,
+                "nodelay": true
+            }
+        }
+EOF
+    fi
+
+    cat << EOF >&3
     ]
 }
 EOF
+    exec 3>&-
 
     if [ $? -eq 0 ]; then
         add_to_core_json "$config_name" "v3"
@@ -329,6 +370,9 @@ EOF
         print_info "- Tunnel endpoint: ${ip_plus1}"
         print_info "- Protoswap TCP: ${protoswap_tcp}"
         print_info "- Protoswap UDP: ${protoswap_udp}"
+        if [ "$has_target_forwarder" = true ]; then
+            print_info "- Target Forwarder: Port ${target_port} -> ${final_ip}:${target_port}"
+        fi
         print_info ""
         print_info "Traffic flow: RawSocket -> Protocol Swap -> IP Override -> TUN"
     else
@@ -359,7 +403,7 @@ handle_v3_config() {
             echo "  --tls <cert> <key>        Enable TLS termination on Iran side"
             echo "  --proxy-protocol          Enable Proxy Protocol header"
             echo "  --listen-port, -p <port>  Listen port on Iran side (default: 443)"
-            echo "  --target-port, -t <port>  Target port on Kharej side (default: 443)"
+            echo "  --target-port, -t <port>  Target port on Kharej side (default: 2059)"
             echo ""
             echo "Examples:"
             echo "  $0 v3 server sweden 1.2.3.4 5.6.7.8 30.6.0.1 27"
@@ -385,7 +429,7 @@ handle_v3_config() {
         local key_path=""
         local use_proxy_protocol=false
         local listen_port=443
-        local target_port=443
+        local target_port=2059
         local explicit_listener=false
 
         while [ "$#" -gt 0 ]; do
@@ -420,7 +464,7 @@ handle_v3_config() {
 
     elif [ "$config_type" = "client" ]; then
         if [ "$#" -lt 5 ]; then
-            echo "Usage: $0 v3 client <config_name> <non_iran_ip> <iran_ip> <private_ip> <protocol> [udp_protocol]"
+            echo "Usage: $0 v3 client <config_name> <non_iran_ip> <iran_ip> <private_ip> <protocol> [udp_protocol] [options]"
             echo ""
             echo "Arguments:"
             echo "  config_name   - Name for the tunnel configuration"
@@ -430,8 +474,13 @@ handle_v3_config() {
             echo "  protocol      - Protocol number for TCP swap"
             echo "  udp_protocol  - Protocol number for UDP swap (default: tcp + 1)"
             echo ""
+            echo "Options:"
+            echo "  --target-port, -t <port>  Target port to forward on Kharej (default: 2059)"
+            echo "  --final-ip <ip>           Final service target IP (default: 127.0.0.1)"
+            echo "  --no-forwarder            Disable automatic target forwarder node"
+            echo ""
             echo "Example:"
-            echo "  $0 v3 client iran 1.2.3.4 5.6.7.8 30.6.0.1 27"
+            echo "  $0 v3 client iran 1.2.3.4 5.6.7.8 30.6.0.1 27 -t 2059"
             exit 1
         fi
 
@@ -448,7 +497,31 @@ handle_v3_config() {
             shift 1
         fi
 
-        create_v3_client_config "$config_name" "$non_iran_ip" "$iran_ip" "$private_ip" "$protoswap_tcp" "$custom_udp"
+        local target_port=2059
+        local final_ip="127.0.0.1"
+        local has_target_forwarder=true
+
+        while [ "$#" -gt 0 ]; do
+            case "$1" in
+                --target-port|-t)
+                    target_port="$2"
+                    shift 2
+                    ;;
+                --final-ip)
+                    final_ip="$2"
+                    shift 2
+                    ;;
+                --no-forwarder)
+                    has_target_forwarder=false
+                    shift 1
+                    ;;
+                *)
+                    shift 1
+                    ;;
+            esac
+        done
+
+        create_v3_client_config "$config_name" "$non_iran_ip" "$iran_ip" "$private_ip" "$protoswap_tcp" "$custom_udp" "$target_port" "$final_ip" "$has_target_forwarder"
 
     else
         echo "Error: v3 config type must be either 'server' or 'client'"

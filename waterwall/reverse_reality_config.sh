@@ -21,8 +21,34 @@ create_reverse_reality_config() {
     local use_proxy_protocol="${11:-false}"
     local cert_path="${12:-}"
     local key_path="${13:-}"
-    shift 13 2>/dev/null
+    local use_halfduplex="${14:-false}"
+    local use_fisher="${15:-false}"
+    local reverse_secret_length="${16:-}"
+    local reverse_secret="${17:-}"
+    shift 17 2>/dev/null
     local float_ips=("$@")
+
+    # --- Shared routing decisions (order matters) ---
+    # Users/local entry side: HalfDuplex (if enabled) sits closest to the
+    # user-facing entry, splitting the line before it reaches the Bridge/
+    # Reverse/Reality chain.
+    local user_side_entry="bridge_user_side"
+    [ "$use_halfduplex" = true ] && user_side_entry="halfduplex_client"
+
+    # Kharej-facing reverse-link listener (iran side): ConnectionFisher (if
+    # enabled) sits right after the raw listener, before Reality.
+    local kharej_listener_next="reality-server"
+    [ "$use_fisher" = true ] && kharej_listener_next="fisher_server"
+
+    # Optional ReverseClient/ReverseServer handshake settings. Both peers
+    # (and any SniffRouter reverse detector in front of them) must match.
+    local -a _revparts=()
+    [ -n "$reverse_secret_length" ] && _revparts+=("\"reverse-secret-length\": ${reverse_secret_length}")
+    [ -n "$reverse_secret" ] && _revparts+=("\"reverse-secret\": \"${reverse_secret}\"")
+    local reverse_extra_settings=""
+    if [ ${#_revparts[@]} -gt 0 ]; then
+        reverse_extra_settings=$(IFS=,; echo "${_revparts[*]}")
+    fi
 
     if [ "$protocol" = "tcp" ]; then
         if [ "$side" = "iran" ]; then
@@ -61,11 +87,11 @@ EOF
                 "port": \$user_and_server_kharej_port\$,
                 "nodelay": true
             },
-            "next": "$(if [ -n "$cert_path" ]; then echo "tls_termination"; elif [ "$use_proxy_protocol" = true ]; then echo "proxy-header"; else echo "bridge_user_side"; fi)"
+            "next": "$(if [ -n "$cert_path" ]; then echo "tls_termination"; elif [ "$use_proxy_protocol" = true ]; then echo "proxy-header"; else echo "$user_side_entry"; fi)"
         }
 EOF
             # Determine next node after TLS termination
-            local _after_tls="$([ "$use_proxy_protocol" = true ] && echo "proxy-header" || echo "bridge_user_side")"
+            local _after_tls="$([ "$use_proxy_protocol" = true ] && echo "proxy-header" || echo "$user_side_entry")"
             if [ -n "$cert_path" ]; then
                 cat << EOF >&3
         ,
@@ -96,6 +122,17 @@ EOF
                 "data": "proxy-protocol",
                 "frontend-ipv4": \$ip_server_iran\$
             },
+            "next": "${user_side_entry}"
+        }
+EOF
+            fi
+            if [ "$use_halfduplex" = true ]; then
+                cat << EOF >&3
+        ,
+        {
+            "name": "halfduplex_client",
+            "type": "HalfDuplexClient",
+            "settings": {},
             "next": "bridge_user_side"
         }
 EOF
@@ -119,7 +156,7 @@ EOF
         {
             "name": "reverse_server",
             "type": "ReverseServer",
-            "settings": {},
+            "settings": { ${reverse_extra_settings} },
             "next": "bridge_reverse_side"
         },
         {
@@ -161,8 +198,21 @@ EOF
             cat << EOF >&3
                 ]
             },
+            "next": "${kharej_listener_next}"
+        }
+EOF
+            if [ "$use_fisher" = true ]; then
+                cat << EOF >&3
+        ,
+        {
+            "name": "fisher_server",
+            "type": "ConnectionFisherServer",
+            "settings": {},
             "next": "reality-server"
         }
+EOF
+            fi
+            cat << EOF >&3
     ]
 }
 EOF
@@ -203,8 +253,20 @@ VAREOF
             "settings": {
                 "pair": "bridge_reverse_client_side"
             },
+            "next": "$([ "$use_halfduplex" = true ] && echo "halfduplex_server" || echo "outbound_to_local_service")"
+        },
+EOF
+            if [ "$use_halfduplex" = true ]; then
+                cat << EOF >> "${config_name}.json"
+        {
+            "name": "halfduplex_server",
+            "type": "HalfDuplexServer",
+            "settings": {},
             "next": "outbound_to_local_service"
         },
+EOF
+            fi
+            cat << EOF >> "${config_name}.json"
         {
             "name": "bridge_reverse_client_side",
             "type": "Bridge",
@@ -217,7 +279,7 @@ VAREOF
             "name": "reverse_client",
             "type": "ReverseClient",
             "settings": {
-                "minimum-unused": \$min_held_connections\$
+                "minimum-unused": \$min_held_connections\$${reverse_extra_settings:+, ${reverse_extra_settings}}
             },
             "next": "reality-client"
         },
@@ -231,8 +293,22 @@ VAREOF
                 "algorithm": "chacha20-poly1305",
                 "kdf-iterations": 12000
             },
+            "next": "$([ "$use_fisher" = true ] && echo "fisher_client" || echo "tcp_to_iran")"
+        },
+EOF
+            if [ "$use_fisher" = true ]; then
+                cat << EOF >> "${config_name}.json"
+        {
+            "name": "fisher_client",
+            "type": "ConnectionFisherClient",
+            "settings": {
+                "simultaneous-tries-perline": 3
+            },
             "next": "tcp_to_iran"
         },
+EOF
+            fi
+            cat << EOF >> "${config_name}.json"
         {
             "name": "tcp_to_iran",
             "type": "TcpConnector",
@@ -312,14 +388,22 @@ EOF
             "name": "udpovertcp_client",
             "type": "UdpOverTcpClient",
             "settings": {},
-            "next": "halfduplex_client"
-        },
+            "next": "${user_side_entry}"
+        }
+EOF
+            if [ "$use_halfduplex" = true ]; then
+                cat << EOF >&3
+        ,
         {
             "name": "halfduplex_client",
             "type": "HalfDuplexClient",
             "settings": {},
             "next": "bridge_user_side"
-        },
+        }
+EOF
+            fi
+            cat << EOF >&3
+        ,
         {
             "name": "bridge_user_side",
             "type": "Bridge",
@@ -337,7 +421,7 @@ EOF
         {
             "name": "reverse_server",
             "type": "ReverseServer",
-            "settings": {},
+            "settings": { ${reverse_extra_settings} },
             "next": "bridge_reverse_side"
         },
         {
@@ -379,14 +463,21 @@ EOF
             cat << EOF >&3
                 ]
             },
-            "next": "fisher_server"
-        },
+            "next": "${kharej_listener_next}"
+        }
+EOF
+            if [ "$use_fisher" = true ]; then
+                cat << EOF >&3
+        ,
         {
             "name": "fisher_server",
             "type": "ConnectionFisherServer",
             "settings": {},
             "next": "reality-server"
         }
+EOF
+            fi
+            cat << EOF >&3
     ]
 }
 EOF
@@ -432,14 +523,20 @@ VAREOF
             "settings": {
                 "pair": "bridge_reverse_client_side"
             },
-            "next": "halfduplex_server"
+            "next": "$([ "$use_halfduplex" = true ] && echo "halfduplex_server" || echo "udpovertcp_server")"
         },
+EOF
+            if [ "$use_halfduplex" = true ]; then
+                cat << EOF >> "${config_name}.json"
         {
             "name": "halfduplex_server",
             "type": "HalfDuplexServer",
             "settings": {},
             "next": "udpovertcp_server"
         },
+EOF
+            fi
+            cat << EOF >> "${config_name}.json"
         {
             "name": "bridge_reverse_client_side",
             "type": "Bridge",
@@ -452,7 +549,7 @@ VAREOF
             "name": "reverse_client",
             "type": "ReverseClient",
             "settings": {
-                "minimum-unused": \$min_held_connections\$
+                "minimum-unused": \$min_held_connections\$${reverse_extra_settings:+, ${reverse_extra_settings}}
             },
             "next": "reality-client"
         },
@@ -466,8 +563,11 @@ VAREOF
                 "algorithm": "chacha20-poly1305",
                 "kdf-iterations": 12000
             },
-            "next": "fisher_client"
+            "next": "$([ "$use_fisher" = true ] && echo "fisher_client" || echo "tcp_to_iran")"
         },
+EOF
+            if [ "$use_fisher" = true ]; then
+                cat << EOF >> "${config_name}.json"
         {
             "name": "fisher_client",
             "type": "ConnectionFisherClient",
@@ -476,6 +576,9 @@ VAREOF
             },
             "next": "tcp_to_iran"
         },
+EOF
+            fi
+            cat << EOF >> "${config_name}.json"
         {
             "name": "tcp_to_iran",
             "type": "TcpConnector",
@@ -544,10 +647,17 @@ handle_reverse_reality_config() {
     local white_ip_or_final_port="${8}"
 
     if [ -z "$white_ip_or_final_port" ]; then
-        echo "Usage: $0 reverse-reality <tcp|udp> <iran|kharej> <config_name> <iran_ip> <kharej_ip> <port> <domain> <white_ip_or_final_port> [password] [min_held_connections] [--proxy-protocol] [--tls <cert> <key>] [--float <ip1> ...]"
+        echo "Usage: $0 reverse-reality <tcp|udp> <iran|kharej> <config_name> <iran_ip> <kharej_ip> <port> <domain> <white_ip_or_final_port> [password] [min_held_connections] [--proxy-protocol] [--tls <cert> <key>] [--halfduplex] [--fisher] [--reverse-secret-length <n>] [--reverse-secret <secret>] [--float <ip1> ...]"
         echo "Example (Iran):   $0 reverse-reality tcp iran rev-iran 1.1.1.1 2.2.2.2 443 live.telewebion.ir 185.112.32.68 mypass --proxy-protocol"
         echo "Example (Iran+TLS): $0 reverse-reality tcp iran rev-iran 1.1.1.1 2.2.2.2 443 live.telewebion.ir 185.112.32.68 mypass --tls /etc/ssl/cert.crt /etc/ssl/key.key"
         echo "Example (Kharej): $0 reverse-reality tcp kharej rev-kharej 1.1.1.1 2.2.2.2 443 live.telewebion.ir 8081 mypass 8 --float 2.2.2.3 2.2.2.4"
+        echo "Example (UDP + HalfDuplex + Fisher): $0 reverse-reality udp iran rev-iran 1.1.1.1 2.2.2.2 443 live.telewebion.ir 185.112.32.68 mypass 8 --halfduplex --fisher"
+        echo "Example (Reverse handshake secret): $0 reverse-reality tcp kharej rev-kharej 1.1.1.1 2.2.2.2 443 live.telewebion.ir 8081 mypass 8 --reverse-secret-length 900 --reverse-secret mysecret"
+        echo ""
+        echo "  --halfduplex             Split each logical line into separate upload/download transport lines (HalfDuplexClient/Server)."
+        echo "  --fisher                 Race multiple candidate outbound lines and keep the first that proves it reached the peer (ConnectionFisherClient/Server)."
+        echo "  --reverse-secret-length  Length in bytes of the ReverseClient/ReverseServer handshake. Must be 1-1024 (default 640)."
+        echo "  --reverse-secret         ASCII secret that XORs the reverse-link handshake. Must match on both iran and kharej."
         exit 1
     fi
 
@@ -557,6 +667,10 @@ handle_reverse_reality_config() {
     local use_proxy_protocol=false
     local cert_path=""
     local key_path=""
+    local use_halfduplex=false
+    local use_fisher=false
+    local reverse_secret_length=""
+    local reverse_secret=""
     local float_ips=()
 
     if [ "$#" -gt 0 ] && [[ ! "$1" =~ ^- ]]; then
@@ -580,6 +694,28 @@ handle_reverse_reality_config() {
                 key_path="$2"
                 shift 2
                 ;;
+            --halfduplex)
+                use_halfduplex=true
+                shift 1
+                ;;
+            --fisher)
+                use_fisher=true
+                shift 1
+                ;;
+            --reverse-secret-length)
+                shift 1
+                reverse_secret_length="$1"
+                if ! [[ "$reverse_secret_length" =~ ^[0-9]+$ ]] || [ "$reverse_secret_length" -lt 1 ] || [ "$reverse_secret_length" -gt 1024 ]; then
+                    print_error "--reverse-secret-length must be an integer between 1 and 1024"
+                    exit 1
+                fi
+                shift 1
+                ;;
+            --reverse-secret)
+                shift 1
+                reverse_secret="$1"
+                shift 1
+                ;;
             --float)
                 shift 1
                 while [ "$#" -gt 0 ] && [[ ! "$1" =~ ^-- ]]; do
@@ -593,5 +729,5 @@ handle_reverse_reality_config() {
         esac
     done
 
-    create_reverse_reality_config "$protocol" "$side" "$config_name" "$iran_ip" "$kharej_ip" "$port" "$domain" "$white_ip_or_final_port" "$password" "$min_held" "$use_proxy_protocol" "$cert_path" "$key_path" "${float_ips[@]}"
+    create_reverse_reality_config "$protocol" "$side" "$config_name" "$iran_ip" "$kharej_ip" "$port" "$domain" "$white_ip_or_final_port" "$password" "$min_held" "$use_proxy_protocol" "$cert_path" "$key_path" "$use_halfduplex" "$use_fisher" "$reverse_secret_length" "$reverse_secret" "${float_ips[@]}"
 }

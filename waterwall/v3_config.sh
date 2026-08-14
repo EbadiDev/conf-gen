@@ -33,8 +33,6 @@ create_v3_server_config() {
     local protoswap_udp=""
     if [ -n "$custom_udp" ] && [[ "$custom_udp" =~ ^[0-9]+$ ]]; then
         protoswap_udp="$custom_udp"
-    elif [ -n "$protoswap_tcp" ] && [[ "$protoswap_tcp" =~ ^[0-9]+$ ]]; then
-        protoswap_udp=$((protoswap_tcp + 1))
     fi
 
     if [ -n "$protoswap_tcp" ] && [ -n "$protoswap_udp" ] && [ "$protoswap_tcp" -eq "$protoswap_udp" ]; then
@@ -316,8 +314,6 @@ create_v3_client_config() {
     local protoswap_udp=""
     if [ -n "$custom_udp" ] && [[ "$custom_udp" =~ ^[0-9]+$ ]]; then
         protoswap_udp="$custom_udp"
-    elif [ -n "$protoswap_tcp" ] && [[ "$protoswap_tcp" =~ ^[0-9]+$ ]]; then
-        protoswap_udp=$((protoswap_tcp + 1))
     fi
 
     if [ -n "$protoswap_tcp" ] && [ -n "$protoswap_udp" ] && [ "$protoswap_tcp" -eq "$protoswap_udp" ]; then

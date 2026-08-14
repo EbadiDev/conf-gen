@@ -26,6 +26,8 @@
     "libs-path": "libs/"
   },
   "configs": [
-    "test-bitswap-custom-priv.json"
+    "test-bitswap-custom-priv.json",
+    "test_iran.json",
+    "test_kharej.json"
   ]
 }

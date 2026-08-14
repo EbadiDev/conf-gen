@@ -864,7 +864,7 @@ handle_bitswap_config() {
         echo "  --proxy-protocol          Enable Proxy Protocol header (HeaderClient node on Iran side)"
         echo "  --tls <cert> <key>        Enable TLS termination (Iran side TCP)"
         echo "  --final-ip <ip>           Final target IP for Kharej side (default: 127.0.0.1)"
-        echo "  --xor-key <N>             XOR key for obfuscator (default: 90)"
+        echo "  --xor-key <N>                  XOR key for obfuscator (default: 90)"
         echo "  --private-ip <ip>         Base internal private IP subnet (e.g. 10.10.0.1 for TCP, 10.30.0.1 for UDP)"
         echo "  --float <ip1> [ip2...]    Floating IPs for Kharej server (multi mode)"
         exit 1

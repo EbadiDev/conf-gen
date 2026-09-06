@@ -646,43 +646,66 @@ For creating advanced protocol swapping (`IpManipulator`) TUN configurations wit
 
 ### Bitswap Configuration (`bitswap`)
 
-For creating bit-swapping MUX configurations supporting TCP/UDP, single or multiple floating IPs, native Proxy Protocol, and optional TLS termination:
+For creating bit-swapping MUX configurations supporting single or multiple floating IPs, native Proxy Protocol, optional TLS termination, and **multi-service port-preserving TCP multiplexing + UDP-over-TCP**:
 
 #### Command Syntax:
 ```bash
+# Multi-Service Hybrid Mode (Recommended for multi-port setups)
+./main.sh bitswap hybrid <single|multi> <iran|kharej> <config_name> <iran_ip> <kharej_ip> [options]
+
+# Interactive Service Wizard
+./main.sh bitswap hybrid <single|multi> <iran|kharej> <config_name> <iran_ip> <kharej_ip> -i
+
+# Legacy Single-Port Mode
 ./main.sh bitswap <tcp|udp> <single|multi> <iran|kharej> <config_name> <iran_ip> <kharej_ip> <listen_port> <fwd_or_final_port> [mux_count] [options]
 ```
 
 #### Parameters:
-- `tcp|udp` - Transport protocol for the tunnel
+- `tcp|udp|hybrid` - Transport mode:
+  - `tcp`: Single TCP service port forwarding
+  - `udp`: Single UDP-over-TCP service port forwarding
+  - `hybrid`: Multi-service forwarding (multiplexes multiple TCP service ports with port preservation and separate UDP-over-TCP streams)
 - `single|multi` - IP mode (`single` for 1-to-1 IP, `multi` when foreign server uses floating IPs)
 - `iran|kharej` - Server role in the tunnel setup
 - `config_name` - Output JSON filename and TUN device interface name
 - `iran_ip` - Public IPv4 address of the Iran server
 - `kharej_ip` - Primary public IPv4 address of the foreign (Kharej) server
-- `listen_port` - Port on which users connect (Iran) or inbound tunnel listens (Kharej)
-- `fwd_or_final_port` - Port to forward traffic to on Kharej server (Iran) or final panel/service port (Kharej)
+- `listen_port` / `fwd_or_final_port` - In legacy mode: listen and forward ports; in hybrid mode: optional overrides for TCP and UDP tunnel transport ports (defaults: `8443` and `8444`)
 - `mux_count` - Number of multiplexed connection streams per worker (default: `8`)
 
-#### Options:
-- `--proxy-protocol` - Enable native Proxy Protocol header (`HeaderClient` node on Iran server)
-- `--tls "<cert_path>" "<key_path>"` - Enable TLS termination on Iran TCP server (note: wrap paths in double quotes `""`)
-- `--final-ip <ip>` - Final target destination IP for Kharej server (default: `127.0.0.1`)
-- `--xor-key <N>` - XOR key for obfuscator (default: `90`)
-- `--float <ip1> [ip2...]` - Additional floating IP addresses for Kharej server (multi mode)
+#### Multi-Service Options:
+- `--tcp <port1,port2,...>` - Comma-separated list of TCP service ports (e.g. `--tcp 2087,9444`). Uses `HeaderClient` (`src_context->port`) and `HeaderServer` (`dest_context->port`) to preserve destination ports over a single tunnel port.
+- `--udp <port1,port2,...>` - Comma-separated list of UDP service ports (e.g. `--udp 27015`). Forwarded via dedicated UDP-over-TCP chains.
+- `--services <spec>` - Composite service definition (e.g. `--services 2087:tcp,9444:tcp,27015:udp`).
+- `--service <port>:<proto>` - Add individual service (can be repeated, e.g. `--service 2087:tcp --service 27015:udp`).
+- `--tcp-tunnel-port <port>` - Transport port for TCP multiplexed traffic across the tunnel (default: `8443`).
+- `--udp-tunnel-port <port>` - Transport port for UDP-over-TCP traffic across the tunnel (default: `8444`).
+- `-i`, `--interactive` - Interactive wizard prompting for each service port and asking whether it is TCP or UDP.
+- `--private-ip <ip>` - Base internal private IP subnet (default: `10.10.0.1`).
+- `--private-ip-2 <ip>` - Secondary private IP for Kharej `tun2` (default: second octet + 10).
+- `--proxy-protocol` - Enable native Proxy Protocol header (`HeaderClient` node on Iran server).
+- `--tls "<cert_path>" "<key_path>"` - Enable TLS termination on Iran TCP server (note: wrap paths in double quotes `""`).
+- `--final-ip <ip>` - Final target destination IP for Kharej server (default: `127.0.0.1`).
+- `--xor-key <N>` - XOR key for obfuscator (default: `90`).
+- `--float <ip1> [ip2...]` - Additional floating IP addresses for Kharej server (multi mode).
 
 #### Examples:
 ```bash
-# TCP Single Mode (Iran Server with Native Proxy Protocol)
+# 1. Multi-Service (Iran Server: TCP 2087, 9444 + UDP 27015 with Floating IP)
+./main.sh bitswap hybrid multi iran fin-bit 109.94.164.214 65.109.219.10 \
+    --tcp 2087,9444 --udp 27015 --float 212.87.199.206
+
+# 2. Multi-Service (Kharej Server: TCP 2087, 9444 + UDP 27015 with Floating IP)
+./main.sh bitswap hybrid multi kharej mobi1-bit 109.94.164.214 65.109.219.10 \
+    --tcp 2087,9444 --udp 27015 --float 212.87.199.206
+
+# 3. Interactive Service Wizard
+./main.sh bitswap hybrid multi iran fin-bit 109.94.164.214 65.109.219.10 -i
+
+# 4. Legacy Single TCP Port (Iran Server with Native Proxy Protocol)
 ./main.sh bitswap tcp single iran bitswap_iran 37.152.190.24 91.107.187.253 443 443 8 --proxy-protocol
 
-# TCP Single Mode (Iran Server with TLS Termination)
-./main.sh bitswap tcp single iran bitswap_tls 37.152.190.24 91.107.187.253 443 443 8 --tls "/etc/ssl/cert.pem" "/etc/ssl/key.pem"
-
-# TCP Multi Mode (Kharej Server with Floating IPs)
-./main.sh bitswap tcp multi kharej bitswap_kharej 37.152.190.24 91.107.187.253 443 2053 8 --float 91.107.187.254 91.107.187.255
-
-# UDP Single Mode (Iran Server)
+# 5. Legacy Single UDP Port (Iran Server)
 ./main.sh bitswap udp single iran bitswap_udp_iran 37.152.190.24 91.107.187.253 8443 8443 16
 ```
 

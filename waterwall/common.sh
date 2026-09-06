@@ -239,6 +239,7 @@ Configuration Types:
   simple          - Direct port-to-port forwarding
   half            - Reality/gRPC tunneling
   v2              - Advanced TUN device with IP manipulation
+  bitswap         - Bit-swapping MUX multi-service tunnel (TCP/UDP)
 
 Proxy Integration:
     Add 'haproxy', 'caddy', or 'gost' flags with supported types:
@@ -312,6 +313,38 @@ Parameters:
 Examples:
   $0 client myconfig 14000 14999 192.168.1.100 13787
   $0 haproxy client tcp myconfig 14000 14999 192.168.1.100 13787 15000
+EOF
+            ;;
+        "bitswap")
+            cat << EOF
+BitSwap Configuration Help
+
+Creates a bit-swapping MUX tunnel supporting single/multi floating IPs, port-preserving TCP multiplexing, and UDP-over-TCP streams.
+
+Usage:
+  # Multi-Service (Hybrid TCP + UDP)
+  $0 bitswap hybrid <single|multi> <iran|kharej> <config_name> <iran_ip> <kharej_ip> --tcp <ports> --udp <ports> [options]
+
+  # Interactive Wizard
+  $0 bitswap hybrid <single|multi> <iran|kharej> <config_name> <iran_ip> <kharej_ip> -i
+
+  # Legacy Single-Port
+  $0 bitswap <tcp|udp> <single|multi> <iran|kharej> <config_name> <iran_ip> <kharej_ip> <listen_port> <fwd_port> [options]
+
+Options:
+  --tcp <ports>             Comma-separated TCP ports (e.g. 2087,9444)
+  --udp <ports>             Comma-separated UDP ports (e.g. 27015)
+  --services <spec>         Composite services (e.g. 2087:tcp,9444:tcp,27015:udp)
+  --tcp-tunnel-port <port>  Tunnel transport port for TCP (default: 8443)
+  --udp-tunnel-port <port>  Tunnel transport port for UDP (default: 8444)
+  -i, --interactive         Prompt interactively for service ports and protocols
+  --float <ips...>          Floating IPs for Kharej server (multi mode)
+  --private-ip <ip>         Base internal private IP subnet (e.g. 10.10.0.1)
+  --private-ip-2 <ip>       Secondary private IP for Kharej tun2
+  --proxy-protocol          Enable Proxy Protocol header injection on Iran side
+  --tls <cert> <key>        Enable TLS termination on Iran side
+  --final-ip <ip>           Final target IP on Kharej side (default: 127.0.0.1)
+  --xor-key <N>             XOR key for obfuscator (default: 90)
 EOF
             ;;
         *)

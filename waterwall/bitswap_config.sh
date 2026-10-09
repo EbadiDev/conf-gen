@@ -236,8 +236,8 @@ EOF
             "name": "ip-manipulator",
             "type": "IpManipulator",
             "settings": {
-                "dw-tcp-bit-psh": "packet->rst",
-                "dw-tcp-bit-rst": "packet->psh"
+                "dw-tcp-bit-psh": "packet->cwr",
+                "dw-tcp-bit-cwr": "packet->psh"
             },
             "next": "rd2"
         },
@@ -309,7 +309,9 @@ EOF
             "settings": {
                 "address": "0.0.0.0",
                 "port": \$port_to_listen\$,
-                "nodelay": true
+                "nodelay": true,
+                "initial-idle-timeout-ms": 3600000,
+                "active-idle-timeout-ms": 3600000
             },
             "next": "mux-s"
         },
@@ -452,8 +454,8 @@ EOF
             "name": "ip-manipulator",
             "type": "IpManipulator",
             "settings": {
-                "up-tcp-bit-psh": "packet->rst",
-                "up-tcp-bit-rst": "packet->psh"
+                "up-tcp-bit-psh": "packet->cwr",
+                "up-tcp-bit-cwr": "packet->psh"
             },
             "next": "rd"
         },
@@ -609,8 +611,8 @@ EOF
             "name": "ip-manipulator",
             "type": "IpManipulator",
             "settings": {
-                "dw-tcp-bit-psh": "packet->rst",
-                "dw-tcp-bit-rst": "packet->psh"
+                "dw-tcp-bit-psh": "packet->cwr",
+                "dw-tcp-bit-cwr": "packet->psh"
             },
             "next": "rd2"
         },
@@ -674,7 +676,9 @@ EOF
             "settings": {
                 "address": "0.0.0.0",
                 "port": \$port_to_listen\$,
-                "nodelay": true
+                "nodelay": true,
+                "initial-idle-timeout-ms": 3600000,
+                "active-idle-timeout-ms": 3600000
             },
             "next": "mux-s"
         },
@@ -822,8 +826,8 @@ EOF
             "name": "ip-manipulator",
             "type": "IpManipulator",
             "settings": {
-                "up-tcp-bit-psh": "packet->rst",
-                "up-tcp-bit-rst": "packet->psh"
+                "up-tcp-bit-psh": "packet->cwr",
+                "up-tcp-bit-cwr": "packet->psh"
             },
             "next": "rd"
         },
@@ -1258,8 +1262,8 @@ EOF
             "name": "ip-manipulator",
             "type": "IpManipulator",
             "settings": {
-                "dw-tcp-bit-psh": "packet->rst",
-                "dw-tcp-bit-rst": "packet->psh"
+                "dw-tcp-bit-psh": "packet->cwr",
+                "dw-tcp-bit-cwr": "packet->psh"
             },
             "next": "rd2"
         },
@@ -1362,7 +1366,9 @@ EOF
             "settings": {
                 "address": "0.0.0.0",
                 "port": \$port_to_listen\$,
-                "nodelay": true
+                "nodelay": true,
+                "initial-idle-timeout-ms": 3600000,
+                "active-idle-timeout-ms": 3600000
             },
             "next": "mux-s"
         },
@@ -1422,7 +1428,9 @@ EOF
             "settings": {
                 "address": "0.0.0.0",
                 "port": ${u_listen_var},
-                "nodelay": true
+                "nodelay": true,
+                "initial-idle-timeout-ms": 3600000,
+                "active-idle-timeout-ms": 3600000
             },
             "next": "${u_mux_name}"
         },
@@ -1576,8 +1584,8 @@ EOF
             "name": "ip-manipulator",
             "type": "IpManipulator",
             "settings": {
-                "up-tcp-bit-psh": "packet->rst",
-                "up-tcp-bit-rst": "packet->psh"
+                "up-tcp-bit-psh": "packet->cwr",
+                "up-tcp-bit-cwr": "packet->psh"
             },
             "next": "rd"
         },

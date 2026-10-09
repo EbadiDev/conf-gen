@@ -26,6 +26,8 @@
     "libs-path": "libs/"
   },
   "configs": [
+    "france-bit.json",
+    "mobi1-bit.json",
     "mobione.json",
     "sweden.json",
     "test-bitswap-custom-priv.json",

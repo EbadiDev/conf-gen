@@ -22,6 +22,7 @@ This repository contains configuration generators for various tunneling and load
 - **`waterwall/reverse_reality_config.sh`** - Reverse tunneling with Reality encryption
 - **`waterwall/tls_reverse_config.sh`** - Reverse TLS tunneling with multi-kharej IP whitelist
 - **`waterwall/udp_reverse_config.sh`** - Reverse UDP tunneling with RawSockets and XOR obfuscation
+- **`waterwall/xray_reverse_config.sh`** - Xray VLESS Reverse tunneling (WS / WS+TLS)
 - **`waterwall/haproxy.sh`** - HAProxy integration module
 - **`waterwall/common.sh`** - Shared utilities and functions
 
@@ -921,6 +922,40 @@ The script includes comprehensive validation for:
 - Required parameters for all configuration types
 - Valid configuration type validation
 - Firewall system detection and fallback
+
+## Xray Reverse Tunnel Generator
+
+Generates high-performance VLESS Reverse tunnel configurations using WebSocket (`ws`) or WebSocket + TLS (`tls`), supporting multiple TCP and UDP port forwards.
+
+### Usage
+
+```bash
+# Iran Server (Portal):
+./main.sh xray-reverse iran <config_name> <listen_port> [--tcp <ports>] [--udp <ports>] [options]
+
+# Kharej Server (Bridge):
+./main.sh xray-reverse kharej <config_name> <iran_ip> <connect_port> [options]
+```
+
+### Examples
+
+#### Plain WebSocket Mode:
+```bash
+# On Iran:
+./main.sh xray-reverse iran /root/xray/config 8443 --tcp 8085,8086 --udp 8087 --path /api/v3/live
+
+# On Kharej:
+./main.sh xray-reverse kharej /root/xray/config 109.94.164.214 8443 --path /api/v3/live
+```
+
+#### WebSocket + TLS Mode:
+```bash
+# On Iran:
+./main.sh xray-reverse iran /root/xray/config 8443 --tcp 8085,8086 --tls /etc/xray/cert/fullchain.pem /etc/xray/cert/privkey.pem
+
+# On Kharej:
+./main.sh xray-reverse kharej /root/xray/config 109.94.164.214 8443 --tls france.archlix.com
+```
 
 ## Migration Guide
 

@@ -38,10 +38,10 @@ add_to_core_json() {
 {
     "log": {
         "path": "log/",
-        "internal": { "loglevel": "DEBUG", "console": true },
-        "core": { "loglevel": "DEBUG", "console": true },
-        "network": { "loglevel": "DEBUG", "console": true },
-        "dns": { "loglevel": "DEBUG", "console": false }
+        "internal": { "loglevel": "WARN", "console": false },
+        "core": { "loglevel": "WARN", "console": false },
+        "network": { "loglevel": "WARN", "console": false },
+        "dns": { "loglevel": "WARN", "console": false }
     },
     "dns": {},
     "misc": {
@@ -240,6 +240,10 @@ Configuration Types:
   half            - Reality/gRPC tunneling
   v2              - Advanced TUN device with IP manipulation
   bitswap         - Bit-swapping MUX multi-service tunnel (TCP/UDP)
+  reverse-reality - Reverse tunneling with Reality encryption
+  tls-reverse     - Reverse TLS tunneling with multi-kharej IP whitelist
+  udp-reverse     - Reverse UDP tunneling with RawSockets and XOR obfuscation
+  xray-reverse    - Xray VLESS Reverse tunnel (WS / WS+TLS)
 
 Proxy Integration:
     Add 'haproxy', 'caddy', or 'gost' flags with supported types:
@@ -345,6 +349,40 @@ Options:
   --tls <cert> <key>        Enable TLS termination on Iran side
   --final-ip <ip>           Final target IP on Kharej side (default: 127.0.0.1)
   --xor-key <N>             XOR key for obfuscator (default: 90)
+EOF
+            ;;
+        "xray-reverse")
+            cat << EOF
+Xray Reverse Tunnel Configuration Help
+
+Generates Xray VLESS Reverse configurations for Iran (Portal) and Kharej (Bridge).
+Supports plain WebSocket (WS) or WebSocket + TLS, with multi-port TCP & UDP tunneling.
+
+Usage:
+  # Iran (Portal):
+  $0 xray-reverse iran <config_name> <listen_port> [--tcp <ports>] [--udp <ports>] [options]
+
+  # Kharej (Bridge):
+  $0 xray-reverse kharej <config_name> <iran_ip> <connect_port> [options]
+
+Options:
+  --tcp <ports>             Comma-separated TCP ports to forward (default: 8085,8086)
+  --udp <ports>             Comma-separated UDP ports to forward
+  --uuid <uuid>             VLESS user UUID (default: e3b0c442-98fc-1c14-9afb-f4c8996fb924)
+  --path <path>             WebSocket path (default: /api/v3/live)
+  --ed <threshold>          Early data length threshold (default: 2560 on client)
+  --tls <cert> <key>        (Iran) Enable TLS with certificate and key paths
+  --tls, --sni <domain>     (Kharej) Enable TLS with SNI / Host header
+  -o, --output <file>       Custom output file (default: <config_name>.json)
+
+Examples:
+  # Plain WebSocket:
+  $0 xray-reverse iran xray-iran 8443 --tcp 8085,8086 --udp 8087
+  $0 xray-reverse kharej xray-kharej 109.94.164.214 8443
+
+  # WebSocket + TLS:
+  $0 xray-reverse iran xray-iran 8443 --tcp 8085,8086 --tls /etc/xray/cert/fullchain.pem /etc/xray/cert/privkey.pem
+  $0 xray-reverse kharej xray-kharej 109.94.164.214 8443 --tls france.archlix.com
 EOF
             ;;
         *)

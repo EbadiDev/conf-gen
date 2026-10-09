@@ -83,6 +83,40 @@ bash <(curl -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/main.sh
 
 ---
 
+## 🇮🇷 Iran Xray Reverse (`109.94.164.214`) ↔ 🇫🇷 France (`107.161.160.8`)
+
+### Configured Tunnels & Targets
+
+| Proto | Config Name | Target Kharej Server | Kharej Main IP | Tunnel Port | WS Path | Target Dest / Ports | Transport |
+|-------|-------------|----------------------|----------------|-------------|---------|---------------------|-----------|
+| TCP/UDP | `xray-iran` ↔ `xray-kharej` | **France** (`france.archlix.com`) | `107.161.160.8` | `8443` | `/api/v3/live` | `127.0.0.1` / `8085`, `8086`, `8087` | VLESS WS (Optional TLS) |
+
+### Deployment Commands
+
+#### Plain WebSocket (High throughput):
+```bash
+# On Iran (109.94.164.214):
+bash <(curl -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/main.sh) \
+  xray-reverse iran /root/xray/config 8443 --tcp 8085,8086 --udp 8087 --path /api/v3/live
+
+# On France (107.161.160.8):
+bash <(curl -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/main.sh) \
+  xray-reverse kharej /root/xray/config 109.94.164.214 8443 --path /api/v3/live
+```
+
+#### WebSocket + TLS:
+```bash
+# On Iran (109.94.164.214):
+bash <(curl -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/main.sh) \
+  xray-reverse iran /root/xray/config 8443 --tcp 8085,8086 --tls /etc/xray/cert/fullchain.pem /etc/xray/cert/privkey.pem
+
+# On France (107.161.160.8):
+bash <(curl -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/main.sh) \
+  xray-reverse kharej /root/xray/config 109.94.164.214 8443 --tls france.archlix.com
+```
+
+---
+
 ## 💡 How Floating IPs Work in Reverse Reality
 When running with `--float <ip1> <ip2>`:
 - **Iran side**: Automatically adds the main Kharej IP and all floating IPs to the `TcpListener` whitelist.

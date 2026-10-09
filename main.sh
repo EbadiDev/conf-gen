@@ -44,6 +44,7 @@ download_modules() {
         "haproxy.sh"
     "caddy.sh"
     "gost.sh"
+        "xray_reverse_config.sh"
     )
     
     local total=${#modules[@]}
@@ -253,6 +254,10 @@ main() {
             source "$WATERWALL_DIR/udp_reverse_config.sh"
             handle_udp_reverse_config "$@"
             ;;
+        "xray-reverse")
+            source "$WATERWALL_DIR/xray_reverse_config.sh"
+            handle_xray_reverse_config "$@"
+            ;;
         "haproxy")
             # HAProxy-enabled configurations
             local sub_type="$2"
@@ -293,7 +298,7 @@ main() {
             ;;
         *)
             print_error "Unknown configuration type: $config_type"
-            print_info "Supported types: server, client, simple, half, v2, v3, bitswap, bitswap-balancer, reverse-reality, tls-reverse, udp-reverse"
+            print_info "Supported types: server, client, simple, half, v2, v3, bitswap, bitswap-balancer, reverse-reality, tls-reverse, udp-reverse, xray-reverse"
             print_info "For HAProxy integration: haproxy <type> <protocol> ..."
             print_info "For Caddy integration: caddy <type> <protocol> ..."
             show_help

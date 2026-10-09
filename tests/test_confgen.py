@@ -418,6 +418,23 @@ class TestCLIFlags(unittest.TestCase):
             self.assertTrue(os.path.exists(os.path.join(suite_dir, "iran_bitswap.json")))
             self.assertTrue(os.path.exists(os.path.join(suite_dir, "run_benchmark.py")))
 
+    def test_cli_core(self):
+        from confgen.cli import main
+        import tempfile
+        import os
+        import json
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            core_file = os.path.join(tmpdir, "core.json")
+            ret = main(["waterwall", "core", "tun1.json", "tun2.json", "-o", core_file])
+            self.assertEqual(ret, 0)
+            self.assertTrue(os.path.exists(core_file))
+            with open(core_file) as f:
+                data = json.load(f)
+            self.assertEqual(data["configs"], ["tun1.json", "tun2.json"])
+            self.assertIn("log", data)
+            self.assertIn("misc", data)
+
 
 if __name__ == "__main__":
     unittest.main()

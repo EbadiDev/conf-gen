@@ -29,6 +29,7 @@ from .benchmark import (
     generate_speedtest_client_config,
     generate_benchmark_suite,
 )
+from .core import generate_core_config
 from .simple import generate_simple_config
 
 __all__ = [
@@ -49,5 +50,6 @@ __all__ = [
     "generate_speedtest_server_config",
     "generate_speedtest_client_config",
     "generate_benchmark_suite",
+    "generate_core_config",
     "generate_simple_config",
 ]

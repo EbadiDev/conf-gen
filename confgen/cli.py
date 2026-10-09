@@ -43,6 +43,7 @@ from confgen.generators.waterwall.benchmark import (
     generate_speedtest_client_config,
     generate_benchmark_suite,
 )
+from confgen.generators.waterwall.core import generate_core_config
 from confgen.generators.waterwall.simple import generate_simple_config
 
 
@@ -503,6 +504,21 @@ def create_parser() -> argparse.ArgumentParser:
     ww_s.add_argument("-dp", "--dest-port", type=int, required=True, help="Destination target port")
     ww_s.add_argument("-o", "--output", help="Output file path")
 
+    # 2.8 waterwall core
+    ww_core = ww_sub.add_parser(
+        "core",
+        help="Generate WaterWall core.json settings wrapper",
+        formatter_class=CustomFormatter,
+        epilog="""Examples:
+  ./confgen.py waterwall core kharej_tun.json speed_srv.json -o core.json
+""",
+    )
+    ww_core.add_argument("configs", nargs="*", default=[], help="Configuration JSON filenames to load")
+    ww_core.add_argument("--loglevel", default="WARN", choices=["DEBUG", "INFO", "WARN", "ERROR"], help="Log level")
+    ww_core.add_argument("--workers", type=int, default=0, help="Worker threads (0 = auto)")
+    ww_core.add_argument("--mtu", type=int, default=1400, help="MTU size")
+    ww_core.add_argument("-o", "--output", default="core.json", help="Output file path (default: core.json)")
+
     return parser
 
 
@@ -897,6 +913,18 @@ def main(argv: Optional[List[str]] = None) -> int:
                     destination_port=args.dest_port,
                 )
                 out_path = args.output or f"{args.name}.json"
+                write_json(cfg, out_path)
+                return 0
+
+            elif args.subcommand == "core":
+                cfg = generate_core_config(
+                    config_paths=args.configs,
+                    loglevel=args.loglevel,
+                    console=True,
+                    workers=args.workers,
+                    mtu=args.mtu,
+                )
+                out_path = args.output or "core.json"
                 write_json(cfg, out_path)
                 return 0
 

@@ -13,6 +13,7 @@ from confgen.generators.waterwall.bitswap import (
     generate_bitswap_iran,
     generate_bitswap_kharej,
 )
+from confgen.generators.waterwall.core import generate_core_config
 from confgen.generators.waterwall.protoswap import (
     generate_protoswap_iran,
     generate_protoswap_kharej,
@@ -198,6 +199,11 @@ def generate_benchmark_suite(
         report_interval_ms=1000,
         json_summary=True,
     )
+    suite["kharej_core.json"] = generate_core_config(
+        config_paths=["kharej_speedtest_server.json"],
+        loglevel="WARN",
+        console=True,
+    )
 
     # 2. Iran Benchmark Clients (dials local tunnel entry)
     suite["client_test_tcp.json"] = generate_speedtest_client_config(
@@ -342,8 +348,27 @@ def find_waterwall():
 
 WW_BIN = find_waterwall()
 
+def make_core(conf_path):
+    core_path = f"_core_{conf_path}"
+    core = {
+        "log": {
+            "path": "log/",
+            "internal": {"loglevel": "WARN", "console": False},
+            "core": {"loglevel": "WARN", "console": False},
+            "network": {"loglevel": "WARN", "console": False},
+            "dns": {"loglevel": "WARN", "console": False},
+        },
+        "dns": {},
+        "misc": {"workers": 0, "ram-profile": "server", "mtu": 1400, "libs-path": "libs/"},
+        "configs": [conf_path],
+    }
+    with open(core_path, "w") as f:
+        json.dump(core, f)
+    return core_path
+
 def run_test_client(config_file):
-    cmd = [WW_BIN, f"-c:{config_file}"]
+    core_file = make_core(config_file)
+    cmd = [WW_BIN, f"-c:{core_file}"]
     try:
         proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=35)
         out = proc.stdout + proc.stderr
@@ -379,7 +404,8 @@ def main():
             continue
 
         # 1. Start Iran Tunnel
-        tun_proc = subprocess.Popen([WW_BIN, f"-c:{iran_conf}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        iran_core = make_core(iran_conf)
+        tun_proc = subprocess.Popen([WW_BIN, f"-c:{iran_core}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         time.sleep(2)
 
         # 2. Test TCP

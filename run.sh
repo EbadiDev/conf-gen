@@ -5,15 +5,29 @@ set -e
 
 BRANCH="${CONFGEN_BRANCH:-feat/confgen-python-protoswap-benchmark}"
 REPO="EbadiDev/conf-gen"
-ARCHIVE_URL="https://github.com/${REPO}/archive/refs/heads/${BRANCH}.tar.gz"
-
 WORKDIR="/tmp/confgen_${UID:-0}"
 mkdir -p "$WORKDIR"
 
-# Fetch latest archive from GitHub
-curl -sSL "$ARCHIVE_URL" | tar -xz -C "$WORKDIR"
-EXTRACTED=$(find "$WORKDIR" -maxdepth 1 -type d -name "conf-gen-*" | head -n 1)
-rm -rf "$WORKDIR/pkg"
-mv "$EXTRACTED" "$WORKDIR/pkg"
+# Primary: Download ultra-lightweight standalone bundle (31KB) from raw.githubusercontent.com
+# (Same CDN domain that successfully served this runner script)
+ZIP_URL="https://raw.githubusercontent.com/${REPO}/${BRANCH}/confgen.zip"
+if curl -fsSL --connect-timeout 8 --max-time 30 --retry 3 "$ZIP_URL" -o "$WORKDIR/confgen.zip" 2>/dev/null && [ -s "$WORKDIR/confgen.zip" ]; then
+    exec python3 "$WORKDIR/confgen.zip" "$@"
+fi
 
-exec python3 "$WORKDIR/pkg/confgen.py" "$@"
+# Fallback 1: Codeload endpoint
+TAR_URL="https://codeload.github.com/${REPO}/tar.gz/refs/heads/${BRANCH}"
+if curl -fsSL --connect-timeout 8 --max-time 60 --retry 3 "$TAR_URL" -o "$WORKDIR/confgen.tar.gz" 2>/dev/null && [ -s "$WORKDIR/confgen.tar.gz" ]; then
+    rm -rf "$WORKDIR/pkg"
+    mkdir -p "$WORKDIR/pkg"
+    tar -xzf "$WORKDIR/confgen.tar.gz" -C "$WORKDIR/pkg" --strip-components=1
+    exec python3 "$WORKDIR/pkg/confgen.py" "$@"
+fi
+
+# Fallback 2: Cached bundle from prior run
+if [ -s "$WORKDIR/confgen.zip" ]; then
+    exec python3 "$WORKDIR/confgen.zip" "$@"
+fi
+
+echo "[ERROR] Failed to fetch ConfGen package from GitHub. Please check network/DNS connectivity." >&2
+exit 1

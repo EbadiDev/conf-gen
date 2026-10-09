@@ -10,6 +10,7 @@ Supports:
 
 from typing import Any, Dict, List, Optional
 from confgen.core.validator import validate_ip, validate_port
+from confgen.core.utils import resolve_variables
 
 
 def validate_protocol_number(proto_num: int, field_name: str) -> int:
@@ -505,11 +506,11 @@ def generate_protoswap_iran(
         ]
     )
 
-    return {
+    return resolve_variables({
         "name": config_name,
         "variables": variables,
         "nodes": nodes,
-    }
+    })
 
 
 def generate_protoswap_kharej(
@@ -915,8 +916,8 @@ def generate_protoswap_kharej(
         ]
     )
 
-    return {
+    return resolve_variables({
         "name": config_name,
         "variables": variables,
         "nodes": nodes,
-    }
+    })

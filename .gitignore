@@ -13,3 +13,4 @@ venv/
 bench_suite/
 *.json
 !core.json
+log/

@@ -8,6 +8,7 @@ Unified generator supporting:
 
 from typing import Any, Dict, List, Optional
 from confgen.core.validator import validate_ip, validate_port
+from confgen.core.utils import resolve_variables
 
 
 def generate_bitswap_iran(
@@ -474,11 +475,11 @@ def generate_bitswap_iran(
         ]
     )
 
-    return {
+    return resolve_variables({
         "name": config_name,
         "variables": variables,
         "nodes": nodes,
-    }
+    })
 
 
 def generate_bitswap_kharej(
@@ -871,11 +872,11 @@ def generate_bitswap_kharej(
         ]
     )
 
-    return {
+    return resolve_variables({
         "name": config_name,
         "variables": variables,
         "nodes": nodes,
-    }
+    })
 
 
 # Backwards compatibility wrappers

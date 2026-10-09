@@ -177,7 +177,7 @@ class TestWaterwallGenerators(unittest.TestCase):
         self.assertEqual(single_i["nodes"][1]["type"], "MuxClient")
         manipulator_nodes = [n for n in single_i["nodes"] if n["type"] == "IpManipulator"]
         self.assertEqual(single_i["variables"]["protoswap_tcp_to_number"], 253)
-        self.assertEqual(manipulator_nodes[0]["settings"]["protoswap-tcp"], "$protoswap_tcp_to_number$")
+        self.assertEqual(manipulator_nodes[0]["settings"]["protoswap-tcp"], 253)
 
         # 2. Multi-TCP: auto-detected as multiple (with HeaderClient)
         multi_i = generate_protoswap_iran(
@@ -436,5 +436,46 @@ class TestCLIFlags(unittest.TestCase):
             self.assertIn("misc", data)
 
 
+    def test_waterwall_resolved_node_settings(self):
+        """Verify that all node settings in BitSwap and ProtoSwap have resolved types without $variable$."""
+        from confgen.generators.waterwall.protoswap import generate_protoswap_kharej, generate_protoswap_iran
+        from confgen.generators.waterwall.bitswap import generate_bitswap_kharej, generate_bitswap_iran
+
+        cfgs = [
+            generate_protoswap_kharej("pk", "198.51.100.1", "203.0.113.1", tcp_ports=[9000], udp_ports=[9001]),
+            generate_protoswap_iran("pi", "198.51.100.1", "203.0.113.1", tcp_ports=[9000], udp_ports=[9001]),
+            generate_bitswap_kharej("bk", "198.51.100.1", "203.0.113.1", tcp_ports=[9000], udp_ports=[9001]),
+            generate_bitswap_iran("bi", "198.51.100.1", "203.0.113.1", tcp_ports=[9000], udp_ports=[9001]),
+        ]
+
+        def check_no_dollars(obj, path=""):
+            if isinstance(obj, dict):
+                for k, v in obj.items():
+                    check_no_dollars(v, f"{path}.{k}")
+            elif isinstance(obj, list):
+                for i, v in enumerate(obj):
+                    check_no_dollars(v, f"{path}[{i}]")
+            elif isinstance(obj, str):
+                self.assertFalse(
+                    obj.startswith("$") and obj.endswith("$") and obj.count("$") == 2,
+                    f"Unresolved variable placeholder found at {path}: {obj}"
+                )
+
+        for cfg in cfgs:
+            # Check nodes
+            check_no_dollars(cfg["nodes"], f"{cfg['name']}.nodes")
+            # Specific checks for UdpConnector port
+            for node in cfg["nodes"]:
+                if node["type"] == "UdpConnector":
+                    port_val = node["settings"]["port"]
+                    self.assertIsInstance(port_val, int, f"UdpConnector port must be int, got {type(port_val)}")
+                elif node["type"] == "IpManipulator":
+                    if "protoswap-tcp" in node["settings"]:
+                        self.assertIsInstance(node["settings"]["protoswap-tcp"], int)
+                    if "protoswap-udp" in node["settings"]:
+                        self.assertIsInstance(node["settings"]["protoswap-udp"], int)
+
+
 if __name__ == "__main__":
     unittest.main()
+

@@ -29,8 +29,45 @@ def print_error(msg: str) -> None:
     print(f"{RED}[ERROR]{NC} {msg}")
 
 
+def resolve_variables(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Resolve $variable$ tokens within node settings using config['variables'].
+
+    Preserves the top-level 'variables' dictionary for documentation, but
+    ensures all node settings contain concrete data types (integers, strings, lists)
+    as required by WaterWall's native C++ JSON schema parser.
+    """
+    vars_map = config.get("variables", {})
+    if not vars_map or "nodes" not in config:
+        return config
+
+    def _resolve(val: Any) -> Any:
+        if isinstance(val, dict):
+            return {k: _resolve(v) for k, v in val.items()}
+        elif isinstance(val, list):
+            return [_resolve(v) for v in val]
+        elif isinstance(val, str):
+            if val.startswith("$") and val.endswith("$") and val.count("$") == 2:
+                var_key = val[1:-1]
+                if var_key in vars_map:
+                    return vars_map[var_key]
+            elif "$" in val:
+                for k, v in vars_map.items():
+                    token = f"${k}$"
+                    if token in val:
+                        val = val.replace(token, str(v))
+                return val
+            return val
+        return val
+
+    config["nodes"] = _resolve(config["nodes"])
+    return config
+
+
 def write_json(data: Dict[str, Any], filepath: str | Path, indent: int = 2) -> Path:
     """Safely write JSON configuration to a destination file."""
+    if "variables" in data and "nodes" in data:
+        data = resolve_variables(data)
+
     p = Path(filepath)
     if not p.suffix:
         p = p.with_suffix(".json")

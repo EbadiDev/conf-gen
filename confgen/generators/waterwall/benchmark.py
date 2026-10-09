@@ -333,8 +333,17 @@ CANDIDATES = [
     ("protoswap_combo", "ProtoSwap 253 + BitSwap Combo"),
 ]
 
+def find_waterwall():
+    for bin_name in ["waterwall", "Waterwall", "./waterwall", "./Waterwall"]:
+        import shutil
+        if os.path.exists(bin_name) or shutil.which(bin_name):
+            return bin_name
+    return "waterwall"
+
+WW_BIN = find_waterwall()
+
 def run_test_client(config_file):
-    cmd = ["waterwall", "-c", config_file]
+    cmd = [WW_BIN, f"-c:{config_file}"]
     try:
         proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=35)
         out = proc.stdout + proc.stderr
@@ -370,7 +379,7 @@ def main():
             continue
 
         # 1. Start Iran Tunnel
-        tun_proc = subprocess.Popen(["waterwall", "-c", iran_conf], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        tun_proc = subprocess.Popen([WW_BIN, f"-c:{iran_conf}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         time.sleep(2)
 
         # 2. Test TCP

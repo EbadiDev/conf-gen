@@ -75,23 +75,50 @@ CANDIDATES_PRESETS: Dict[str, List[Dict[str, Any]]] = {
 }
 
 
+def get_waterwall_launch_info() -> Tuple[str, str]:
+    """Find the WaterWall executable and its working directory.
+
+    WaterWall requires its 'libs/' directory in its working directory, so cwd
+    must point to the directory containing the binary (usually /root/waterwall).
+    Returns (executable_path, working_directory).
+    """
+    search_dirs = [
+        "/root/waterwall",
+        os.path.expanduser("~/waterwall"),
+        os.getcwd(),
+        "/usr/local/bin",
+        "/usr/bin",
+    ]
+    binary_names = ["Waterwall", "waterwall"]
+
+    for d in search_dirs:
+        if not os.path.isdir(d):
+            continue
+        for b_name in binary_names:
+            full_path = os.path.join(d, b_name)
+            if os.path.isfile(full_path) and os.access(full_path, os.X_OK):
+                return os.path.abspath(full_path), os.path.abspath(d)
+
+    for b_name in binary_names:
+        w = shutil.which(b_name)
+        if w:
+            abs_w = os.path.abspath(w)
+            return abs_w, os.path.dirname(abs_w)
+
+    default_dir = "/root/waterwall" if os.path.isdir("/root/waterwall") else os.getcwd()
+    for b_name in binary_names:
+        cand = os.path.join(default_dir, b_name)
+        if os.path.exists(cand):
+            return cand, default_dir
+
+    return os.path.join(default_dir, "Waterwall"), default_dir
+
+
 def find_waterwall_binary() -> Optional[str]:
     """Locate the WaterWall binary on the host."""
-    candidates = [
-        "waterwall",
-        "Waterwall",
-        "./waterwall",
-        "./Waterwall",
-        "/root/waterwall/waterwall",
-        "/usr/local/bin/waterwall",
-        "/usr/bin/waterwall",
-    ]
-    for c in candidates:
-        if os.path.isfile(c) and os.access(c, os.X_OK):
-            return os.path.abspath(c)
-        w = shutil.which(c)
-        if w:
-            return w
+    bin_path, _ = get_waterwall_launch_info()
+    if os.path.isfile(bin_path) and os.access(bin_path, os.X_OK):
+        return bin_path
     return None
 
 
@@ -213,13 +240,18 @@ class FinderHTTPHandler(BaseHTTPRequestHandler):
         p_tcp = int(req["protoswap_tcp"])
         p_udp = int(req["protoswap_udp"])
 
-        # 1. Clean TUN device if lingering
+        # 1. Clean TUN devices if lingering
         try:
             subprocess.run(["ip", "link", "delete", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception:
             pass
+        try:
+            subprocess.run(["ip", "link", "delete", f"{name}2"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
 
-        # 2. Generate Kharej configuration
+        # 2. Generate Kharej configuration inside WaterWall directory
+        ww_bin, ww_cwd = get_waterwall_launch_info()
         cfg = generate_protoswap_kharej(
             config_name=name,
             iran_ip=iran_ip,
@@ -229,23 +261,28 @@ class FinderHTTPHandler(BaseHTTPRequestHandler):
             protoswap_udp=p_udp,
             final_ip="127.0.0.1",
         )
-        conf_file = Path(f"_tmp_{name}.json")
-        core_file = Path(f"_core_{name}.json")
+        conf_file = Path(ww_cwd) / f"_tmp_{name}.json"
+        core_file = Path(ww_cwd) / f"_core_{name}.json"
         write_json(cfg, conf_file)
         core_cfg = generate_core_config(config_paths=[str(conf_file)], loglevel="WARN", console=False)
         write_json(core_cfg, core_file)
 
-        # 3. Launch WaterWall
-        ww_bin = find_waterwall_binary() or "waterwall"
+        # 3. Launch WaterWall in its native directory with libs/
         cmd_ww = [ww_bin, f"-c:{core_file}"]
         try:
             FinderAgentState.ww_proc = subprocess.Popen(
                 cmd_ww,
+                cwd=ww_cwd,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
         except Exception as e:
-            self._send_json(500, {"error": f"Failed to start WaterWall: {e}"})
+            self._send_json(500, {"error": f"Failed to start WaterWall ({ww_bin}): {e}"})
+            return
+
+        time.sleep(0.3)
+        if FinderAgentState.ww_proc.poll() is not None:
+            self._send_json(500, {"error": f"WaterWall exited immediately with code {FinderAgentState.ww_proc.returncode}"})
             return
 
         # 4. Launch iperf3 server on tcp_port
@@ -266,14 +303,19 @@ class FinderHTTPHandler(BaseHTTPRequestHandler):
     def _handle_teardown(self, req: Dict[str, Any]) -> None:
         self._kill_active_processes()
         name = req.get("name", "finder-kharej")
-        for f in (f"_tmp_{name}.json", f"_core_{name}.json"):
-            if os.path.exists(f):
+        _, ww_cwd = get_waterwall_launch_info()
+        for f in (Path(ww_cwd) / f"_tmp_{name}.json", Path(ww_cwd) / f"_core_{name}.json"):
+            if f.exists():
                 try:
-                    os.remove(f)
+                    f.unlink()
                 except Exception:
                     pass
         try:
             subprocess.run(["ip", "link", "delete", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+        try:
+            subprocess.run(["ip", "link", "delete", f"{name}2"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception:
             pass
         self._send_json(200, {"status": "stopped"})
@@ -281,6 +323,7 @@ class FinderHTTPHandler(BaseHTTPRequestHandler):
     def _handle_apply_winner(self, req: Dict[str, Any]) -> None:
         self._kill_active_processes()
         name = req.get("name", "parspack-nl")
+        _, ww_cwd = get_waterwall_launch_info()
         iran_ip = req["iran_ip"]
         kharej_ip = req["kharej_ip"]
         tcp_port = int(req.get("tcp_port", 9000))
@@ -296,7 +339,9 @@ class FinderHTTPHandler(BaseHTTPRequestHandler):
             protoswap_udp=p_udp,
             final_ip="127.0.0.1",
         )
-        saved = save_waterwall_config(cfg, name=name, auto_core=True)
+        filepath = Path(ww_cwd) / f"{name}.json"
+        core_path = Path(ww_cwd) / "core.json"
+        saved = save_waterwall_config(cfg, filepath=filepath, name=name, auto_core=True, core_path=core_path)
         self._send_json(200, {"status": "applied", "file": str(saved)})
 
 
@@ -437,7 +482,8 @@ def run_finder_client(
     total = len(candidates)
     print_info(f"Testing {total} protocol candidates ({preset} preset)...\n")
 
-    ww_bin = find_waterwall_binary() or "waterwall"
+    ww_bin, ww_cwd = get_waterwall_launch_info()
+    print_info(f"Using WaterWall binary: {ww_bin} (working dir: {ww_cwd})")
     results: List[Dict[str, Any]] = []
 
     # 3. Execution Sweep Loop
@@ -475,6 +521,10 @@ def run_finder_client(
             subprocess.run(["ip", "link", "delete", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception:
             pass
+        try:
+            subprocess.run(["ip", "link", "delete", f"{name}2"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
 
         # B. Generate Iran configuration and start local WaterWall
         cfg_iran = generate_protoswap_iran(
@@ -485,16 +535,26 @@ def run_finder_client(
             protoswap_tcp=p_tcp,
             protoswap_udp=p_udp,
         )
-        conf_file = Path(f"_tmp_{name}.json")
-        core_file = Path(f"_core_{name}.json")
+        conf_file = Path(ww_cwd) / f"_tmp_{name}.json"
+        core_file = Path(ww_cwd) / f"_core_{name}.json"
         write_json(cfg_iran, conf_file)
         core_cfg = generate_core_config(config_paths=[str(conf_file)], loglevel="WARN", console=False)
         write_json(core_cfg, core_file)
 
         local_ww = None
         try:
-            local_ww = subprocess.Popen([ww_bin, f"-c:{core_file}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            time.sleep(2.0)  # Wait for tunnel initialization
+            local_ww = subprocess.Popen(
+                [ww_bin, f"-c:{core_file}"],
+                cwd=ww_cwd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            time.sleep(0.3)
+            if local_ww.poll() is not None:
+                print_error(f"    WaterWall on Iran exited prematurely (code {local_ww.returncode})! Check {ww_bin}")
+                continue
+
+            time.sleep(1.7)  # Wait for tunnel initialization
 
             # C. Run Bandwidth Probes
             # Test 1: Upload (Iran -> Kharej)
@@ -533,6 +593,10 @@ def run_finder_client(
                 pass
             try:
                 subprocess.run(["ip", "link", "delete", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except Exception:
+                pass
+            try:
+                subprocess.run(["ip", "link", "delete", f"{name}2"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             except Exception:
                 pass
 
@@ -592,8 +656,10 @@ def run_finder_client(
             protoswap_tcp=best_cand["tcp"],
             protoswap_udp=best_cand["udp"],
         )
-        saved_iran = save_waterwall_config(best_cfg_iran, name=name, auto_core=True)
-        print_success(f"Activated on Iran: {saved_iran} (synced to core.json)")
+        filepath = Path(ww_cwd) / f"{name}.json"
+        core_path = Path(ww_cwd) / "core.json"
+        saved_iran = save_waterwall_config(best_cfg_iran, filepath=filepath, name=name, auto_core=True, core_path=core_path)
+        print_success(f"Activated on Iran: {saved_iran} (synced to {core_path})")
 
         # Signal Kharej to apply permanently
         try:

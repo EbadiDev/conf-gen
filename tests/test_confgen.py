@@ -862,6 +862,19 @@ class TestFinder(unittest.TestCase):
                 self.assertEqual(mbps, 0.0)
                 self.assertEqual(loss, 100.0)
 
+    def test_iperf_tcp_probe_timeout(self):
+        """Verify iperf3 TCP helper handles timeout cleanly and sets timed_out=True."""
+        import subprocess
+        from unittest.mock import patch
+        from confgen.core.finder import _run_iperf_test
+
+        with patch("shutil.which", return_value="/usr/bin/iperf3"):
+            with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd=["iperf3"], timeout=13)):
+                mbps, retr, timed_out = _run_iperf_test(9001, duration=5)
+                self.assertEqual(mbps, 0.0)
+                self.assertEqual(retr, 0)
+                self.assertTrue(timed_out)
+
 
 if __name__ == "__main__":
     unittest.main()

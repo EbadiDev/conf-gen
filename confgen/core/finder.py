@@ -584,14 +584,14 @@ def _run_iperf_test(
     port: int,
     duration: int,
     reverse: bool = False,
-) -> Tuple[float, int]:
+) -> Tuple[float, int, bool]:
     """Run iperf3 client probe against local WaterWall listener (127.0.0.1:port).
     
-    Returns (throughput_mbps, retransmissions).
+    Returns (throughput_mbps, retransmissions, timed_out).
     """
     iperf_bin = find_iperf3_binary()
     if not iperf_bin:
-        return 0.0, 0
+        return 0.0, 0, False
 
     cmd = [iperf_bin, "-c", "127.0.0.1", "-p", str(port), "-t", str(duration), "-J"]
     if reverse:
@@ -604,7 +604,7 @@ def _run_iperf_test(
             if err:
                 first_line = err.splitlines()[0]
                 print_warning(f"iperf3 returned code {proc.returncode}: {first_line}")
-            return 0.0, 0
+            return 0.0, 0, False
         data = json.loads(proc.stdout)
         end = data.get("end", {})
         
@@ -624,10 +624,13 @@ def _run_iperf_test(
             retr = tx.get("retransmits", 0)
 
         mbps = round(bps / 1_000_000.0, 2)
-        return mbps, retr
+        return mbps, retr, False
+    except subprocess.TimeoutExpired:
+        # Expected behavior when a candidate protocol is blocked/dropped by DPI
+        return 0.0, 0, True
     except Exception as e:
         print_warning(f"iperf3 probe exception: {e}")
-        return 0.0, 0
+        return 0.0, 0, False
 
 
 def _run_iperf_udp_test(
@@ -684,6 +687,9 @@ def _run_iperf_udp_test(
         lost_pct = round(lost_pct, 1)
         jitter = round(jitter, 2)
         return mbps, lost_pct, jitter
+    except subprocess.TimeoutExpired:
+        # Expected behavior when a candidate protocol is blocked/dropped by DPI
+        return 0.0, 100.0, 0.0
     except Exception as e:
         print_warning(f"iperf3 UDP probe exception: {e}")
         return 0.0, 100.0, 0.0
@@ -875,22 +881,29 @@ def run_finder_client(
             # Step 4: Run Bandwidth Probes
             # Test 1: Upload (Iran -> Kharej)
             print_info(f"Running TCP upload probe (Iran -> Kharej, {duration}s)...")
-            up_mbps, retr = _run_iperf_test(clean_port, duration=duration, reverse=False)
+            up_mbps, retr, timed_out = _run_iperf_test(clean_port, duration=duration, reverse=False)
 
-            # Pause so iperf3 server can reset listener cleanly
-            time.sleep(1.0)
+            if timed_out:
+                print_info("    Control connection timed out (traffic blocked by DPI) -> candidate marked BLOCKED.")
+                down_mbps = 0.0
+                udp_mbps = 0.0
+                udp_loss = 100.0
+                udp_jitter = 0.0
+            else:
+                # Pause so iperf3 server can reset listener cleanly
+                time.sleep(1.0)
 
-            # Test 2: Download (Kharej -> Iran)
-            print_info(f"Running TCP download probe (Kharej -> Iran, {duration}s)...")
-            down_mbps, _ = _run_iperf_test(clean_port, duration=duration, reverse=True)
+                # Test 2: Download (Kharej -> Iran)
+                print_info(f"Running TCP download probe (Kharej -> Iran, {duration}s)...")
+                down_mbps, _, _ = _run_iperf_test(clean_port, duration=duration, reverse=True)
 
-            # Pause so iperf3 server can reset listener cleanly
-            time.sleep(1.0)
+                # Pause so iperf3 server can reset listener cleanly
+                time.sleep(1.0)
 
-            # Test 3: UDP Probe (Iran -> Kharej)
-            udp_dur = min(duration, 3)
-            print_info(f"Running UDP probe (Iran -> Kharej, {udp_dur}s)...")
-            udp_mbps, udp_loss, udp_jitter = _run_iperf_udp_test(clean_port, duration=udp_dur, target_bandwidth="0")
+                # Test 3: UDP Probe (Iran -> Kharej)
+                udp_dur = min(duration, 3)
+                print_info(f"Running UDP probe (Iran -> Kharej, {udp_dur}s)...")
+                udp_mbps, udp_loss, udp_jitter = _run_iperf_udp_test(clean_port, duration=udp_dur, target_bandwidth="0")
 
             score = round(up_mbps + down_mbps, 2)
             if up_mbps == 0 and down_mbps == 0 and udp_mbps == 0:

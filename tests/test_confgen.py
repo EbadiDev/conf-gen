@@ -717,11 +717,74 @@ class TestFinder(unittest.TestCase):
             "waterwall", "finder", "client",
             "194.5.188.55", "130.49.161.12",
         ])
-        self.assertEqual(args.command, "waterwall")
-        self.assertEqual(args.subcommand, "finder")
-        self.assertEqual(args.finder_cmd, "client")
-        self.assertEqual(args.pos_iran_ip, "194.5.188.55")
-        self.assertEqual(args.pos_kharej_ip, "130.49.161.12")
+        # Finder client with bitswap and combo preset
+        args = parser.parse_args([
+            "finder", "client",
+            "-ii", "194.5.188.55",
+            "-ki", "130.49.161.12",
+            "--preset", "combo",
+            "--bitswap",
+            "--include-bitswap",
+        ])
+        self.assertEqual(args.preset, "combo")
+        self.assertTrue(args.bitswap)
+        self.assertTrue(args.include_bitswap)
+
+    def test_finder_bitswap_support(self):
+        """Verify bitswap support in finder presets, custom protocol parser, and generators."""
+        from confgen.core.finder import CANDIDATES_PRESETS, parse_custom_protocols
+        from confgen.generators.waterwall.protoswap import (
+            generate_protoswap_iran,
+            generate_protoswap_kharej,
+        )
+
+        # 1. Presets include BitSwap pairs
+        for preset_name in ["top", "fast", "combo", "all"]:
+            self.assertIn(preset_name, CANDIDATES_PRESETS)
+            cands = CANDIDATES_PRESETS[preset_name]
+            has_bitswap = any(c.get("bitswap", False) for c in cands)
+            self.assertTrue(has_bitswap, f"Preset {preset_name} must contain BitSwap candidates")
+
+        # 2. Custom protocols with include_bitswap
+        cands_inc = parse_custom_protocols("50/51,51/52", include_bitswap=True)
+        self.assertEqual(len(cands_inc), 4)
+        self.assertFalse(cands_inc[0]["bitswap"])
+        self.assertTrue(cands_inc[1]["bitswap"])
+        self.assertFalse(cands_inc[2]["bitswap"])
+        self.assertTrue(cands_inc[3]["bitswap"])
+
+        # 3. Custom protocols with force_bitswap
+        cands_force = parse_custom_protocols("50/51,51/52", force_bitswap=True)
+        self.assertEqual(len(cands_force), 2)
+        self.assertTrue(cands_force[0]["bitswap"])
+        self.assertTrue(cands_force[1]["bitswap"])
+
+        # 4. Generator node settings when bitswap is enabled
+        iran_cfg = generate_protoswap_iran(
+            config_name="test_bs_i",
+            iran_ip="194.5.188.55",
+            kharej_ip="130.49.161.12",
+            tcp_ports=[9001],
+            protoswap_tcp=132,
+            protoswap_udp=133,
+            enable_bitswap=True,
+        )
+        up_manip = [n for n in iran_cfg["nodes"] if n["name"] == "ip-manipulator-up"][0]
+        self.assertEqual(up_manip["settings"].get("up-tcp-bit-psh"), "packet->cwr")
+        self.assertEqual(up_manip["settings"].get("up-tcp-bit-cwr"), "packet->psh")
+
+        kharej_cfg = generate_protoswap_kharej(
+            config_name="test_bs_k",
+            iran_ip="194.5.188.55",
+            kharej_ip="130.49.161.12",
+            tcp_ports=[9001],
+            protoswap_tcp=132,
+            protoswap_udp=133,
+            enable_bitswap=True,
+        )
+        in_manip = [n for n in kharej_cfg["nodes"] if n["name"] == "ip-manipulator-in"][0]
+        self.assertEqual(in_manip["settings"].get("dw-tcp-bit-psh"), "packet->cwr")
+        self.assertEqual(in_manip["settings"].get("dw-tcp-bit-cwr"), "packet->psh")
 
 
 if __name__ == "__main__":

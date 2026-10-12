@@ -254,8 +254,10 @@ def _add_finder_subparser(finder_p: argparse.ArgumentParser) -> None:
     f_cli.add_argument("-p", "--port", "--tcp-port", dest="port", type=int, default=9001, help="WaterWall tunnel benchmarking port (default: 9001)")
     f_cli.add_argument("-n", "--name", default="parspack-nl", help="Tunnel configuration name (default: parspack-nl)")
     f_cli.add_argument("-t", "-d", "--duration", type=int, default=5, help="Test duration in seconds per direction (default: 5)")
-    f_cli.add_argument("--preset", choices=["top", "fast", "all"], default="top", help="Candidate protocol preset (default: top)")
+    f_cli.add_argument("--preset", choices=["top", "fast", "combo", "all"], default="top", help="Candidate protocol preset (default: top)")
     f_cli.add_argument("--protocols", help="Custom comma-separated protocol pairs (e.g. 50/51,51/52,47/136)")
+    f_cli.add_argument("--bitswap", action="store_true", help="Force TCP BitSwap on all tested protocols")
+    f_cli.add_argument("--include-bitswap", action="store_true", help="Include BitSwap variants for custom protocols or preset")
     f_cli.add_argument("--no-apply", action="store_true", help="Do not automatically activate winner in core.json")
 
 
@@ -279,6 +281,8 @@ def _handle_finder(args: argparse.Namespace) -> int:
             duration=args.duration,
             preset=args.preset,
             custom_protocols=args.protocols,
+            bitswap=bool(getattr(args, "bitswap", False)),
+            include_bitswap=bool(getattr(args, "include_bitswap", False)),
             auto_apply=not args.no_apply,
         )
     else:

@@ -34,6 +34,10 @@ from confgen.core.utils import (
 )
 from confgen.core.validator import validate_ip, validate_port
 from confgen.generators.waterwall.core import generate_core_config
+from confgen.generators.waterwall.bitswap import (
+    generate_bitswap_iran,
+    generate_bitswap_kharej,
+)
 from confgen.generators.waterwall.protoswap import (
     generate_protoswap_iran,
     generate_protoswap_kharej,
@@ -42,56 +46,58 @@ from confgen.generators.waterwall.protoswap import (
 # Standard protocol sweep presets for DPI circumvention (ProtoSwap + BitSwap)
 CANDIDATES_PRESETS: Dict[str, List[Dict[str, Any]]] = {
     "top": [
-        {"id": "sctp_132_133", "name": "SCTP", "tcp": 132, "udp": 133, "bitswap": False},
-        {"id": "sctp_132_133_bit", "name": "SCTP + BitSwap", "tcp": 132, "udp": 133, "bitswap": True},
-        {"id": "custom_200_201", "name": "Custom Range 200", "tcp": 200, "udp": 201, "bitswap": False},
-        {"id": "custom_200_201_bit", "name": "Custom 200 + BitSwap", "tcp": 200, "udp": 201, "bitswap": True},
-        {"id": "ah_51_52", "name": "AH (IPsec)", "tcp": 51, "udp": 52, "bitswap": False},
-        {"id": "ah_51_52_bit", "name": "AH + BitSwap", "tcp": 51, "udp": 52, "bitswap": True},
-        {"id": "esp_50_51", "name": "ESP (IPsec)", "tcp": 50, "udp": 51, "bitswap": False},
-        {"id": "esp_50_51_bit", "name": "ESP + BitSwap", "tcp": 50, "udp": 51, "bitswap": True},
-        {"id": "custom_222_223", "name": "Custom Range 222", "tcp": 222, "udp": 223, "bitswap": False},
-        {"id": "custom_222_223_bit", "name": "Custom 222 + BitSwap", "tcp": 222, "udp": 223, "bitswap": True},
-        {"id": "gre_47_136", "name": "GRE / UDPLite", "tcp": 47, "udp": 136, "bitswap": False},
-        {"id": "gre_47_136_bit", "name": "GRE + BitSwap", "tcp": 47, "udp": 136, "bitswap": True},
+        {"id": "bitswap_pure", "name": "Pure BitSwap", "type": "bitswap", "tcp": 6, "udp": 17, "bitswap": True},
+        {"id": "ah_51_52_bit", "name": "AH + BitSwap", "type": "protoswap", "tcp": 51, "udp": 52, "bitswap": True},
+        {"id": "ah_51_52", "name": "AH (IPsec)", "type": "protoswap", "tcp": 51, "udp": 52, "bitswap": False},
+        {"id": "sctp_132_133", "name": "SCTP", "type": "protoswap", "tcp": 132, "udp": 133, "bitswap": False},
+        {"id": "sctp_132_133_bit", "name": "SCTP + BitSwap", "type": "protoswap", "tcp": 132, "udp": 133, "bitswap": True},
+        {"id": "custom_200_201", "name": "Custom Range 200", "type": "protoswap", "tcp": 200, "udp": 201, "bitswap": False},
+        {"id": "custom_200_201_bit", "name": "Custom 200 + BitSwap", "type": "protoswap", "tcp": 200, "udp": 201, "bitswap": True},
+        {"id": "custom_222_223", "name": "Custom Range 222", "type": "protoswap", "tcp": 222, "udp": 223, "bitswap": False},
+        {"id": "custom_222_223_bit", "name": "Custom 222 + BitSwap", "type": "protoswap", "tcp": 222, "udp": 223, "bitswap": True},
+        {"id": "esp_50_51", "name": "ESP (IPsec)", "type": "protoswap", "tcp": 50, "udp": 51, "bitswap": False},
+        {"id": "esp_50_51_bit", "name": "ESP + BitSwap", "type": "protoswap", "tcp": 50, "udp": 51, "bitswap": True},
+        {"id": "gre_47_136", "name": "GRE / UDPLite", "type": "protoswap", "tcp": 47, "udp": 136, "bitswap": False},
+        {"id": "gre_47_136_bit", "name": "GRE + BitSwap", "type": "protoswap", "tcp": 47, "udp": 136, "bitswap": True},
     ],
     "fast": [
-        {"id": "sctp_132_133", "name": "SCTP", "tcp": 132, "udp": 133, "bitswap": False},
-        {"id": "sctp_132_133_bit", "name": "SCTP + BitSwap", "tcp": 132, "udp": 133, "bitswap": True},
-        {"id": "custom_200_201", "name": "Custom Range 200", "tcp": 200, "udp": 201, "bitswap": False},
-        {"id": "custom_200_201_bit", "name": "Custom 200 + BitSwap", "tcp": 200, "udp": 201, "bitswap": True},
-        {"id": "ah_51_52", "name": "AH (IPsec)", "tcp": 51, "udp": 52, "bitswap": False},
-        {"id": "esp_50_51", "name": "ESP (IPsec)", "tcp": 50, "udp": 51, "bitswap": False},
+        {"id": "bitswap_pure", "name": "Pure BitSwap", "type": "bitswap", "tcp": 6, "udp": 17, "bitswap": True},
+        {"id": "ah_51_52_bit", "name": "AH + BitSwap", "type": "protoswap", "tcp": 51, "udp": 52, "bitswap": True},
+        {"id": "sctp_132_133", "name": "SCTP", "type": "protoswap", "tcp": 132, "udp": 133, "bitswap": False},
+        {"id": "custom_200_201", "name": "Custom Range 200", "type": "protoswap", "tcp": 200, "udp": 201, "bitswap": False},
+        {"id": "esp_50_51", "name": "ESP (IPsec)", "type": "protoswap", "tcp": 50, "udp": 51, "bitswap": False},
     ],
     "combo": [
-        {"id": "sctp_132_133_bit", "name": "SCTP + BitSwap", "tcp": 132, "udp": 133, "bitswap": True},
-        {"id": "custom_200_201_bit", "name": "Custom 200 + BitSwap", "tcp": 200, "udp": 201, "bitswap": True},
-        {"id": "ah_51_52_bit", "name": "AH + BitSwap", "tcp": 51, "udp": 52, "bitswap": True},
-        {"id": "esp_50_51_bit", "name": "ESP + BitSwap", "tcp": 50, "udp": 51, "bitswap": True},
-        {"id": "custom_222_223_bit", "name": "Custom 222 + BitSwap", "tcp": 222, "udp": 223, "bitswap": True},
-        {"id": "gre_47_136_bit", "name": "GRE + BitSwap", "tcp": 47, "udp": 136, "bitswap": True},
-        {"id": "rfc3692_253_252_bit", "name": "RFC 3692 + BitSwap", "tcp": 253, "udp": 252, "bitswap": True},
+        {"id": "bitswap_pure", "name": "Pure BitSwap", "type": "bitswap", "tcp": 6, "udp": 17, "bitswap": True},
+        {"id": "ah_51_52_bit", "name": "AH + BitSwap", "type": "protoswap", "tcp": 51, "udp": 52, "bitswap": True},
+        {"id": "sctp_132_133_bit", "name": "SCTP + BitSwap", "type": "protoswap", "tcp": 132, "udp": 133, "bitswap": True},
+        {"id": "custom_200_201_bit", "name": "Custom 200 + BitSwap", "type": "protoswap", "tcp": 200, "udp": 201, "bitswap": True},
+        {"id": "esp_50_51_bit", "name": "ESP + BitSwap", "type": "protoswap", "tcp": 50, "udp": 51, "bitswap": True},
+        {"id": "custom_222_223_bit", "name": "Custom 222 + BitSwap", "type": "protoswap", "tcp": 222, "udp": 223, "bitswap": True},
+        {"id": "gre_47_136_bit", "name": "GRE + BitSwap", "type": "protoswap", "tcp": 47, "udp": 136, "bitswap": True},
+        {"id": "rfc3692_253_252_bit", "name": "RFC 3692 + BitSwap", "type": "protoswap", "tcp": 253, "udp": 252, "bitswap": True},
     ],
     "all": [
-        {"id": "sctp_132_133", "name": "SCTP", "tcp": 132, "udp": 133, "bitswap": False},
-        {"id": "sctp_132_133_bit", "name": "SCTP + BitSwap", "tcp": 132, "udp": 133, "bitswap": True},
-        {"id": "custom_200_201", "name": "Custom Range 200", "tcp": 200, "udp": 201, "bitswap": False},
-        {"id": "custom_200_201_bit", "name": "Custom 200 + BitSwap", "tcp": 200, "udp": 201, "bitswap": True},
-        {"id": "ah_51_52", "name": "AH (IPsec)", "tcp": 51, "udp": 52, "bitswap": False},
-        {"id": "ah_51_52_bit", "name": "AH + BitSwap", "tcp": 51, "udp": 52, "bitswap": True},
-        {"id": "esp_50_51", "name": "ESP (IPsec)", "tcp": 50, "udp": 51, "bitswap": False},
-        {"id": "esp_50_51_bit", "name": "ESP + BitSwap", "tcp": 50, "udp": 51, "bitswap": True},
-        {"id": "custom_222_223", "name": "Custom Range 222", "tcp": 222, "udp": 223, "bitswap": False},
-        {"id": "custom_222_223_bit", "name": "Custom 222 + BitSwap", "tcp": 222, "udp": 223, "bitswap": True},
-        {"id": "gre_47_136", "name": "GRE / UDPLite", "tcp": 47, "udp": 136, "bitswap": False},
-        {"id": "gre_47_136_bit", "name": "GRE + BitSwap", "tcp": 47, "udp": 136, "bitswap": True},
-        {"id": "rfc3692_253_252", "name": "RFC 3692 Exp 1", "tcp": 253, "udp": 252, "bitswap": False},
-        {"id": "rfc3692_253_252_bit", "name": "RFC 3692 + BitSwap", "tcp": 253, "udp": 252, "bitswap": True},
-        {"id": "ipcomp_108_109", "name": "IPComp", "tcp": 108, "udp": 109, "bitswap": False},
-        {"id": "vrrp_112_113", "name": "VRRP", "tcp": 112, "udp": 113, "bitswap": False},
-        {"id": "l2tp_115_116", "name": "L2TP", "tcp": 115, "udp": 116, "bitswap": False},
-        {"id": "ospf_89_90", "name": "OSPF", "tcp": 89, "udp": 90, "bitswap": False},
-        {"id": "custom_240_241", "name": "Custom Range 240", "tcp": 240, "udp": 241, "bitswap": False},
+        {"id": "bitswap_pure", "name": "Pure BitSwap", "type": "bitswap", "tcp": 6, "udp": 17, "bitswap": True},
+        {"id": "ah_51_52_bit", "name": "AH + BitSwap", "type": "protoswap", "tcp": 51, "udp": 52, "bitswap": True},
+        {"id": "ah_51_52", "name": "AH (IPsec)", "type": "protoswap", "tcp": 51, "udp": 52, "bitswap": False},
+        {"id": "sctp_132_133", "name": "SCTP", "type": "protoswap", "tcp": 132, "udp": 133, "bitswap": False},
+        {"id": "sctp_132_133_bit", "name": "SCTP + BitSwap", "type": "protoswap", "tcp": 132, "udp": 133, "bitswap": True},
+        {"id": "custom_200_201", "name": "Custom Range 200", "type": "protoswap", "tcp": 200, "udp": 201, "bitswap": False},
+        {"id": "custom_200_201_bit", "name": "Custom 200 + BitSwap", "type": "protoswap", "tcp": 200, "udp": 201, "bitswap": True},
+        {"id": "custom_222_223", "name": "Custom Range 222", "type": "protoswap", "tcp": 222, "udp": 223, "bitswap": False},
+        {"id": "custom_222_223_bit", "name": "Custom 222 + BitSwap", "type": "protoswap", "tcp": 222, "udp": 223, "bitswap": True},
+        {"id": "esp_50_51", "name": "ESP (IPsec)", "type": "protoswap", "tcp": 50, "udp": 51, "bitswap": False},
+        {"id": "esp_50_51_bit", "name": "ESP + BitSwap", "type": "protoswap", "tcp": 50, "udp": 51, "bitswap": True},
+        {"id": "gre_47_136", "name": "GRE / UDPLite", "type": "protoswap", "tcp": 47, "udp": 136, "bitswap": False},
+        {"id": "gre_47_136_bit", "name": "GRE + BitSwap", "type": "protoswap", "tcp": 47, "udp": 136, "bitswap": True},
+        {"id": "rfc3692_253_252", "name": "RFC 3692 Exp 1", "type": "protoswap", "tcp": 253, "udp": 252, "bitswap": False},
+        {"id": "rfc3692_253_252_bit", "name": "RFC 3692 + BitSwap", "type": "protoswap", "tcp": 253, "udp": 252, "bitswap": True},
+        {"id": "ipcomp_108_109", "name": "IPComp", "type": "protoswap", "tcp": 108, "udp": 109, "bitswap": False},
+        {"id": "vrrp_112_113", "name": "VRRP", "type": "protoswap", "tcp": 112, "udp": 113, "bitswap": False},
+        {"id": "l2tp_115_116", "name": "L2TP", "type": "protoswap", "tcp": 115, "udp": 116, "bitswap": False},
+        {"id": "ospf_89_90", "name": "OSPF", "type": "protoswap", "tcp": 89, "udp": 90, "bitswap": False},
+        {"id": "custom_240_241", "name": "Custom Range 240", "type": "protoswap", "tcp": 240, "udp": 241, "bitswap": False},
     ],
 }
 
@@ -419,13 +425,14 @@ class FinderHTTPHandler(BaseHTTPRequestHandler):
         iran_ip = req["iran_ip"]
         kharej_ip = req["kharej_ip"]
         tcp_port = int(req.get("tcp_port", 9000))
-        p_tcp = int(req["protoswap_tcp"])
-        p_udp = int(req["protoswap_udp"])
+        p_tcp = int(req.get("protoswap_tcp", 6))
+        p_udp = int(req.get("protoswap_udp", 17))
         enable_bitswap = bool(req.get("bitswap", False))
+        cand_type = req.get("type", "protoswap")
         duration = int(req.get("duration", 5))
 
         ww_bin, ww_cwd = get_waterwall_launch_info()
-        print_info(f"[{time.strftime('%X')}] [Kharej Agent] Preparing candidate: {name} (TCP: {p_tcp}, UDP: {p_udp}, BitSwap: {enable_bitswap}, duration: {duration}s)...")
+        print_info(f"[{time.strftime('%X')}] [Kharej Agent] Preparing candidate: {name} (type: {cand_type}, TCP: {p_tcp}, UDP: {p_udp}, BitSwap: {enable_bitswap}, duration: {duration}s)...")
 
         # 1. Reset any active WaterWall & iperf processes
         FinderAgentState.kill_active_processes()
@@ -433,16 +440,25 @@ class FinderHTTPHandler(BaseHTTPRequestHandler):
 
         # 2. Generate Kharej configuration inside WaterWall directory
         Path(ww_cwd, "log").mkdir(parents=True, exist_ok=True)
-        cfg = generate_protoswap_kharej(
-            config_name=name,
-            iran_ip=iran_ip,
-            kharej_ip=kharej_ip,
-            tcp_ports=[tcp_port],
-            protoswap_tcp=p_tcp,
-            protoswap_udp=p_udp,
-            final_ip="127.0.0.1",
-            enable_bitswap=enable_bitswap,
-        )
+        if cand_type == "bitswap":
+            cfg = generate_bitswap_kharej(
+                config_name=name,
+                iran_ip=iran_ip,
+                kharej_ip=kharej_ip,
+                tcp_ports=[tcp_port],
+                final_ip="127.0.0.1",
+            )
+        else:
+            cfg = generate_protoswap_kharej(
+                config_name=name,
+                iran_ip=iran_ip,
+                kharej_ip=kharej_ip,
+                tcp_ports=[tcp_port],
+                protoswap_tcp=p_tcp,
+                protoswap_udp=p_udp,
+                final_ip="127.0.0.1",
+                enable_bitswap=enable_bitswap,
+            )
         conf_file = Path(ww_cwd) / f"{name}.json"
         core_file = Path(ww_cwd) / "core.json"
         write_json(cfg, conf_file)
@@ -479,20 +495,30 @@ class FinderHTTPHandler(BaseHTTPRequestHandler):
         iran_ip = req["iran_ip"]
         kharej_ip = req["kharej_ip"]
         tcp_port = int(req.get("tcp_port", 9000))
-        p_tcp = int(req["protoswap_tcp"])
-        p_udp = int(req["protoswap_udp"])
+        p_tcp = int(req.get("protoswap_tcp", 6))
+        p_udp = int(req.get("protoswap_udp", 17))
         enable_bitswap = bool(req.get("bitswap", False))
+        cand_type = req.get("type", "protoswap")
 
-        cfg = generate_protoswap_kharej(
-            config_name=name,
-            iran_ip=iran_ip,
-            kharej_ip=kharej_ip,
-            tcp_ports=[tcp_port],
-            protoswap_tcp=p_tcp,
-            protoswap_udp=p_udp,
-            final_ip="127.0.0.1",
-            enable_bitswap=enable_bitswap,
-        )
+        if cand_type == "bitswap":
+            cfg = generate_bitswap_kharej(
+                config_name=name,
+                iran_ip=iran_ip,
+                kharej_ip=kharej_ip,
+                tcp_ports=[tcp_port],
+                final_ip="127.0.0.1",
+            )
+        else:
+            cfg = generate_protoswap_kharej(
+                config_name=name,
+                iran_ip=iran_ip,
+                kharej_ip=kharej_ip,
+                tcp_ports=[tcp_port],
+                protoswap_tcp=p_tcp,
+                protoswap_udp=p_udp,
+                final_ip="127.0.0.1",
+                enable_bitswap=enable_bitswap,
+            )
         filepath = Path(ww_cwd) / f"{name}.json"
         core_path = Path(ww_cwd) / "core.json"
         saved = save_waterwall_config(cfg, filepath=filepath, name=name, auto_core=True, core_path=core_path)
@@ -692,10 +718,11 @@ def run_finder_client(
         p_tcp = cand["tcp"]
         p_udp = cand["udp"]
         cand_bitswap = bool(cand.get("bitswap", False))
+        cand_type = cand.get("type", "protoswap")
         bs_str = "YES" if cand_bitswap else "NO"
 
         print(f"\n{'=' * 76}")
-        print(f"[*] [{idx}/{total}] Testing {cname} (TCP: {p_tcp}, UDP: {p_udp}, BitSwap: {bs_str})...")
+        print(f"[*] [{idx}/{total}] Testing {cname} (type: {cand_type}, TCP: {p_tcp}, UDP: {p_udp}, BitSwap: {bs_str})...")
         print(f"{'=' * 76}")
 
         # Step 2: Ensure Kharej Agent is responsive before signaling /prepare
@@ -723,6 +750,7 @@ def run_finder_client(
                 "protoswap_tcp": p_tcp,
                 "protoswap_udp": p_udp,
                 "bitswap": cand_bitswap,
+                "type": cand_type,
                 "duration": duration,
             }, timeout=15.0)
             if prep.get("status") != "ready":
@@ -734,15 +762,23 @@ def run_finder_client(
 
         # Step 3: Generate Iran configuration and start local WaterWall SECOND
         Path(ww_cwd, "log").mkdir(parents=True, exist_ok=True)
-        cfg_iran = generate_protoswap_iran(
-            config_name=name,
-            iran_ip=clean_iran,
-            kharej_ip=clean_kharej,
-            tcp_ports=[clean_port],
-            protoswap_tcp=p_tcp,
-            protoswap_udp=p_udp,
-            enable_bitswap=cand_bitswap,
-        )
+        if cand_type == "bitswap":
+            cfg_iran = generate_bitswap_iran(
+                config_name=name,
+                iran_ip=clean_iran,
+                kharej_ip=clean_kharej,
+                tcp_ports=[clean_port],
+            )
+        else:
+            cfg_iran = generate_protoswap_iran(
+                config_name=name,
+                iran_ip=clean_iran,
+                kharej_ip=clean_kharej,
+                tcp_ports=[clean_port],
+                protoswap_tcp=p_tcp,
+                protoswap_udp=p_udp,
+                enable_bitswap=cand_bitswap,
+            )
         conf_file = Path(ww_cwd) / f"{name}.json"
         core_file = Path(ww_cwd) / "core.json"
         write_json(cfg_iran, conf_file)
@@ -843,21 +879,30 @@ def run_finder_client(
 
     best_cand = winner["cand"]
     best_cand_bitswap = bool(best_cand.get("bitswap", False))
+    best_cand_type = best_cand.get("type", "protoswap")
     print_success(f"Winner: {best_cand['name']} (TCP: {best_cand['tcp']}, UDP: {best_cand['udp']}, BitSwap: {'YES' if best_cand_bitswap else 'NO'}) with {winner['score']} Mbps combined!")
 
     # 5. Apply Winning Configuration
     if auto_apply:
         print_info(f"Applying winning configuration '{name}.json' to Iran and Kharej...")
         # Apply locally on Iran
-        best_cfg_iran = generate_protoswap_iran(
-            config_name=name,
-            iran_ip=clean_iran,
-            kharej_ip=clean_kharej,
-            tcp_ports=[clean_port],
-            protoswap_tcp=best_cand["tcp"],
-            protoswap_udp=best_cand["udp"],
-            enable_bitswap=best_cand_bitswap,
-        )
+        if best_cand_type == "bitswap":
+            best_cfg_iran = generate_bitswap_iran(
+                config_name=name,
+                iran_ip=clean_iran,
+                kharej_ip=clean_kharej,
+                tcp_ports=[clean_port],
+            )
+        else:
+            best_cfg_iran = generate_protoswap_iran(
+                config_name=name,
+                iran_ip=clean_iran,
+                kharej_ip=clean_kharej,
+                tcp_ports=[clean_port],
+                protoswap_tcp=best_cand["tcp"],
+                protoswap_udp=best_cand["udp"],
+                enable_bitswap=best_cand_bitswap,
+            )
         filepath = Path(ww_cwd) / f"{name}.json"
         core_path = Path(ww_cwd) / "core.json"
         saved_iran = save_waterwall_config(best_cfg_iran, filepath=filepath, name=name, auto_core=True, core_path=core_path)
@@ -873,6 +918,7 @@ def run_finder_client(
                 "protoswap_tcp": best_cand["tcp"],
                 "protoswap_udp": best_cand["udp"],
                 "bitswap": best_cand_bitswap,
+                "type": best_cand_type,
             })
             print_success(f"Activated on Kharej: {resp.get('file', name + '.json')} (synced to core.json)")
         except Exception as e:

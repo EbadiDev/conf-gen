@@ -549,15 +549,6 @@ def run_finder_client(
     print_info(f"Using WaterWall binary: {ww_bin} (working dir: {ww_cwd})")
     results: List[Dict[str, Any]] = []
 
-    # Reset any lingering local WaterWall / test state first
-    print_info("Resetting initial state on Iran (WaterWall & iperf3)...")
-    stop_waterwall_and_test(None, name, ww_cwd)
-    print_info("Resetting initial state on Kharej...")
-    try:
-        _post_json(f"{agent_url}/teardown", {"name": name}, timeout=10.0)
-    except Exception:
-        pass
-
     # 3. Execution Sweep Loop
     for idx, cand in enumerate(candidates, 1):
         cid = cand["id"]
@@ -568,9 +559,6 @@ def run_finder_client(
         print(f"\n{'=' * 76}")
         print(f"[*] [{idx}/{total}] Testing {cname} (TCP: {p_tcp}, UDP: {p_udp})...")
         print(f"{'=' * 76}")
-
-        # Step 1: Ensure local Iran WaterWall is stopped
-        stop_waterwall_and_test(None, name, ww_cwd)
 
         # Step 2: Signal Kharej Agent to prepare candidate FIRST (while Iran WaterWall is stopped)
         print_info(f"Signaling Kharej Agent to prepare candidate (TCP: {p_tcp}, UDP: {p_udp})...")

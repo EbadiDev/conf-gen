@@ -301,8 +301,8 @@ class FinderAgentState:
             except Exception as e:
                 print_warning(f"Failed to start iperf3: {e}")
 
-        # Arm auto-teardown timer
-        test_window = (duration * 2) + 3.5
+        # Arm auto-teardown timer (ensure both upload and download probes complete before reset)
+        test_window = (duration * 2) + 7.5
         with cls.lock:
             cls.auto_timer = threading.Timer(
                 test_window,
@@ -517,6 +517,10 @@ def _run_iperf_test(
     try:
         proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=duration + 8)
         if proc.returncode != 0:
+            err = (proc.stderr or proc.stdout or "").strip()
+            if err:
+                first_line = err.splitlines()[0]
+                print_warning(f"iperf3 returned code {proc.returncode}: {first_line}")
             return 0.0, 0
         data = json.loads(proc.stdout)
         end = data.get("end", {})
@@ -538,7 +542,8 @@ def _run_iperf_test(
 
         mbps = round(bps / 1_000_000.0, 2)
         return mbps, retr
-    except Exception:
+    except Exception as e:
+        print_warning(f"iperf3 probe exception: {e}")
         return 0.0, 0
 
 

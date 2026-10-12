@@ -572,7 +572,25 @@ def run_finder_client(
         # Step 1: Ensure local Iran WaterWall is stopped
         stop_waterwall_and_test(None, name, ww_cwd)
 
-        # Step 2: Generate Iran configuration and start local WaterWall FIRST
+        # Step 2: Signal Kharej Agent to prepare candidate FIRST (while Iran WaterWall is stopped)
+        print_info(f"Signaling Kharej Agent to prepare candidate (TCP: {p_tcp}, UDP: {p_udp})...")
+        try:
+            prep = _post_json(f"{agent_url}/prepare", {
+                "name": name,
+                "iran_ip": clean_iran,
+                "kharej_ip": clean_kharej,
+                "tcp_port": clean_port,
+                "protoswap_tcp": p_tcp,
+                "protoswap_udp": p_udp,
+            }, timeout=15.0)
+            if prep.get("status") != "ready":
+                print_warning(f"    Kharej failed to prepare: {prep}")
+                continue
+        except Exception as e:
+            print_error(f"    Failed to contact Kharej agent: {e}")
+            continue
+
+        # Step 3: Generate Iran configuration and start local WaterWall SECOND
         Path(ww_cwd, "log").mkdir(parents=True, exist_ok=True)
         cfg_iran = generate_protoswap_iran(
             config_name=name,
@@ -606,24 +624,6 @@ def run_finder_client(
             time.sleep(0.5)
             if local_ww.poll() is not None:
                 print_error(f"    WaterWall on Iran exited prematurely (code {local_ww.returncode})! Check {ww_bin}")
-                continue
-
-            # Step 3: Signal Kharej Agent to prepare candidate (Kharej restarts SECOND)
-            print_info(f"Signaling Kharej Agent to prepare candidate (TCP: {p_tcp}, UDP: {p_udp})...")
-            try:
-                prep = _post_json(f"{agent_url}/prepare", {
-                    "name": name,
-                    "iran_ip": clean_iran,
-                    "kharej_ip": clean_kharej,
-                    "tcp_port": clean_port,
-                    "protoswap_tcp": p_tcp,
-                    "protoswap_udp": p_udp,
-                }, timeout=15.0)
-                if prep.get("status") != "ready":
-                    print_warning(f"    Kharej failed to prepare: {prep}")
-                    continue
-            except Exception as e:
-                print_error(f"    Failed to contact Kharej agent: {e}")
                 continue
 
             time.sleep(1.5)  # Wait for tunnel initialization

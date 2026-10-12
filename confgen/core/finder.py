@@ -9,6 +9,7 @@ and automatically applies the winning configuration to both servers.
 import json
 import os
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -151,6 +152,70 @@ def parse_custom_protocols(proto_str: str) -> List[Dict[str, Any]]:
 
 
 # =============================================================================
+# TEARDOWN & CLEANUP HELPERS
+# =============================================================================
+
+def kill_waterwall_and_clean_tun(
+    proc: Optional[subprocess.Popen] = None,
+    name: Optional[str] = None,
+    ww_cwd: Optional[str] = None,
+) -> None:
+    """Deterministically terminate WaterWall and remove associated TUN devices."""
+    # 1. Kill process and its process group (PGID == PID via start_new_session)
+    if proc:
+        try:
+            pgid = os.getpgid(proc.pid)
+            os.killpg(pgid, signal.SIGKILL)
+        except Exception:
+            pass
+        try:
+            proc.kill()
+            proc.wait(timeout=1.0)
+        except Exception:
+            pass
+
+    # 2. System-wide reap of all Waterwall and test processes
+    for pat in ["Waterwall", "waterwall", "_core_"]:
+        try:
+            subprocess.run(["pkill", "-9", "-f", pat], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2.0)
+        except Exception:
+            pass
+
+    time.sleep(0.3)
+
+    # 3. Kernel TUN device teardown (down -> delete -> tuntap del)
+    devices_to_clean: List[str] = []
+    if name:
+        devices_to_clean.extend([name, f"{name}2"])
+    for dev in ["parspack-nl", "parspack-nl2", "finder-kharej", "finder-kharej2"]:
+        if dev not in devices_to_clean:
+            devices_to_clean.append(dev)
+
+    for dev in devices_to_clean:
+        try:
+            subprocess.run(["ip", "link", "set", "dev", dev, "down"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2.0)
+        except Exception:
+            pass
+        try:
+            subprocess.run(["ip", "link", "delete", dev], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2.0)
+        except Exception:
+            pass
+        try:
+            subprocess.run(["ip", "tuntap", "del", "dev", dev, "mode", "tun"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2.0)
+        except Exception:
+            pass
+
+    # 4. Clean temporary config files
+    if ww_cwd and name:
+        for f in (Path(ww_cwd) / f"_tmp_{name}.json", Path(ww_cwd) / f"_core_{name}.json"):
+            if f.exists():
+                try:
+                    f.unlink()
+                except Exception:
+                    pass
+
+
+# =============================================================================
 # KHAREJ AGENT SERVER (HTTP JSON CONTROL DAEMON)
 # =============================================================================
 
@@ -162,8 +227,8 @@ class FinderAgentState:
 
 class FinderHTTPHandler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: Any) -> None:
-        # Suppress routine HTTP request logging to keep CLI output clean
-        pass
+        sys.stderr.write(f"[{time.strftime('%X')}] [Kharej Agent] " + (format % args) + "\n")
+        sys.stderr.flush()
 
     def _send_json(self, status_code: int, data: Dict[str, Any]) -> None:
         payload = json.dumps(data).encode("utf-8")
@@ -195,43 +260,54 @@ class FinderHTTPHandler(BaseHTTPRequestHandler):
             self._send_json(400, {"error": "Invalid JSON"})
             return
 
-        if self.path == "/prepare":
-            self._handle_prepare(req)
-        elif self.path == "/teardown":
-            self._handle_teardown(req)
-        elif self.path == "/apply_winner":
-            self._handle_apply_winner(req)
-        else:
-            self._send_json(404, {"error": "Not found"})
+        try:
+            if self.path == "/prepare":
+                self._handle_prepare(req)
+            elif self.path == "/teardown":
+                self._handle_teardown(req)
+            elif self.path == "/apply_winner":
+                self._handle_apply_winner(req)
+            else:
+                self._send_json(404, {"error": "Not found"})
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            self._send_json(500, {"error": f"Internal agent error: {e}"})
 
     def _kill_active_processes(self) -> None:
         if FinderAgentState.iperf_proc:
             try:
+                pgid = os.getpgid(FinderAgentState.iperf_proc.pid)
+                os.killpg(pgid, signal.SIGKILL)
+            except Exception:
+                pass
+            try:
                 FinderAgentState.iperf_proc.kill()
+                FinderAgentState.iperf_proc.wait(timeout=1.0)
             except Exception:
                 pass
             FinderAgentState.iperf_proc = None
 
         if FinderAgentState.ww_proc:
             try:
+                pgid = os.getpgid(FinderAgentState.ww_proc.pid)
+                os.killpg(pgid, signal.SIGKILL)
+            except Exception:
+                pass
+            try:
                 FinderAgentState.ww_proc.kill()
+                FinderAgentState.ww_proc.wait(timeout=1.0)
             except Exception:
                 pass
             FinderAgentState.ww_proc = None
 
-        # Clean lingering iperf and test waterwall processes instantly
-        try:
-            subprocess.run(["pkill", "-9", "-f", "iperf3 -s"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except Exception:
-            pass
-        try:
-            subprocess.run(["pkill", "-9", "-f", "_core_"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except Exception:
-            pass
+        for pat in ["iperf3", "Waterwall", "waterwall", "_core_"]:
+            try:
+                subprocess.run(["pkill", "-9", "-f", pat], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2.0)
+            except Exception:
+                pass
 
     def _handle_prepare(self, req: Dict[str, Any]) -> None:
-        self._kill_active_processes()
-
         name = req.get("name", "finder-kharej")
         FinderAgentState.current_name = name
         iran_ip = req["iran_ip"]
@@ -240,18 +316,15 @@ class FinderHTTPHandler(BaseHTTPRequestHandler):
         p_tcp = int(req["protoswap_tcp"])
         p_udp = int(req["protoswap_udp"])
 
-        # 1. Clean TUN devices if lingering
-        try:
-            subprocess.run(["ip", "link", "delete", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except Exception:
-            pass
-        try:
-            subprocess.run(["ip", "link", "delete", f"{name}2"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except Exception:
-            pass
+        ww_bin, ww_cwd = get_waterwall_launch_info()
+        print_info(f"[{time.strftime('%X')}] [Kharej Agent] Preparing candidate: {name} (TCP: {p_tcp}, UDP: {p_udp})...")
+
+        # 1. Reset any active WaterWall & iperf processes and TUN devices
+        self._kill_active_processes()
+        kill_waterwall_and_clean_tun(None, name, ww_cwd)
 
         # 2. Generate Kharej configuration inside WaterWall directory
-        ww_bin, ww_cwd = get_waterwall_launch_info()
+        Path(ww_cwd, "log").mkdir(parents=True, exist_ok=True)
         cfg = generate_protoswap_kharej(
             config_name=name,
             iran_ip=iran_ip,
@@ -264,23 +337,30 @@ class FinderHTTPHandler(BaseHTTPRequestHandler):
         conf_file = Path(ww_cwd) / f"_tmp_{name}.json"
         core_file = Path(ww_cwd) / f"_core_{name}.json"
         write_json(cfg, conf_file)
-        core_cfg = generate_core_config(config_paths=[str(conf_file)], loglevel="WARN", console=False)
+        core_cfg = generate_core_config(
+            config_paths=[str(conf_file)],
+            loglevel="DEBUG",
+            console=True,
+            log_path=str(Path(ww_cwd) / "log/"),
+        )
         write_json(core_cfg, core_file)
 
-        # 3. Launch WaterWall in its native directory with libs/
+        # 3. Launch WaterWall in its native directory with live console logging
         cmd_ww = [ww_bin, f"-c:{core_file}"]
+        print_info(f"[{time.strftime('%X')}] [Kharej Agent] Starting WaterWall with DEBUG logging:")
         try:
             FinderAgentState.ww_proc = subprocess.Popen(
                 cmd_ww,
                 cwd=ww_cwd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+                stdout=None,
+                stderr=None,
             )
         except Exception as e:
             self._send_json(500, {"error": f"Failed to start WaterWall ({ww_bin}): {e}"})
             return
 
-        time.sleep(0.3)
+        time.sleep(0.5)
         if FinderAgentState.ww_proc.poll() is not None:
             self._send_json(500, {"error": f"WaterWall exited immediately with code {FinderAgentState.ww_proc.returncode}"})
             return
@@ -291,6 +371,7 @@ class FinderHTTPHandler(BaseHTTPRequestHandler):
             try:
                 FinderAgentState.iperf_proc = subprocess.Popen(
                     [iperf_bin, "-s", "-p", str(tcp_port)],
+                    start_new_session=True,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                 )
@@ -298,32 +379,25 @@ class FinderHTTPHandler(BaseHTTPRequestHandler):
                 print_warning(f"Failed to start iperf3: {e}")
 
         time.sleep(1.0)  # Allow WaterWall and iperf3 to bind
+        print_success(f"[{time.strftime('%X')}] [Kharej Agent] WaterWall (PID {FinderAgentState.ww_proc.pid}) & iperf3 ready on port {tcp_port}.")
         self._send_json(200, {"status": "ready", "tcp_port": tcp_port})
 
     def _handle_teardown(self, req: Dict[str, Any]) -> None:
-        self._kill_active_processes()
         name = req.get("name", "finder-kharej")
-        _, ww_cwd = get_waterwall_launch_info()
-        for f in (Path(ww_cwd) / f"_tmp_{name}.json", Path(ww_cwd) / f"_core_{name}.json"):
-            if f.exists():
-                try:
-                    f.unlink()
-                except Exception:
-                    pass
-        try:
-            subprocess.run(["ip", "link", "delete", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except Exception:
-            pass
-        try:
-            subprocess.run(["ip", "link", "delete", f"{name}2"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except Exception:
-            pass
+        ww_bin, ww_cwd = get_waterwall_launch_info()
+        print_info(f"[{time.strftime('%X')}] [Kharej Agent] Teardown requested for '{name}'. Resetting WaterWall & TUN...")
+        self._kill_active_processes()
+        kill_waterwall_and_clean_tun(None, name, ww_cwd)
+        print_success(f"[{time.strftime('%X')}] [Kharej Agent] Teardown complete for '{name}'.")
         self._send_json(200, {"status": "stopped"})
 
     def _handle_apply_winner(self, req: Dict[str, Any]) -> None:
-        self._kill_active_processes()
         name = req.get("name", "parspack-nl")
-        _, ww_cwd = get_waterwall_launch_info()
+        ww_bin, ww_cwd = get_waterwall_launch_info()
+        print_info(f"[{time.strftime('%X')}] [Kharej Agent] Applying winning config '{name}'...")
+        self._kill_active_processes()
+        kill_waterwall_and_clean_tun(None, name, ww_cwd)
+
         iran_ip = req["iran_ip"]
         kharej_ip = req["kharej_ip"]
         tcp_port = int(req.get("tcp_port", 9000))
@@ -342,21 +416,29 @@ class FinderHTTPHandler(BaseHTTPRequestHandler):
         filepath = Path(ww_cwd) / f"{name}.json"
         core_path = Path(ww_cwd) / "core.json"
         saved = save_waterwall_config(cfg, filepath=filepath, name=name, auto_core=True, core_path=core_path)
+        print_success(f"[{time.strftime('%X')}] [Kharej Agent] Saved {saved} and synced to core.json.")
         self._send_json(200, {"status": "applied", "file": str(saved)})
 
 
 def run_finder_server(port: int = 8088, host: str = "0.0.0.0") -> int:
     """Start the Kharej control agent daemon."""
     server_address = (host, port)
+    HttpServerClass.allow_reuse_address = True
     httpd = HttpServerClass(server_address, FinderHTTPHandler)
+    httpd.daemon_threads = True
     print_info(f"⚡ WaterWall Finder Agent active on http://{host}:{port}")
     print_info("Awaiting automated benchmark commands from Iran orchestrator... (Press Ctrl+C to stop)")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
         print_info("\nStopping Finder Agent...")
-        FinderAgentState.ww_proc and FinderAgentState.ww_proc.kill()
-        FinderAgentState.iperf_proc and FinderAgentState.iperf_proc.kill()
+        ww_bin, ww_cwd = get_waterwall_launch_info()
+        kill_waterwall_and_clean_tun(FinderAgentState.ww_proc, FinderAgentState.current_name, ww_cwd)
+        if FinderAgentState.iperf_proc:
+            try:
+                FinderAgentState.iperf_proc.kill()
+            except Exception:
+                pass
         httpd.server_close()
     return 0
 
@@ -486,6 +568,15 @@ def run_finder_client(
     print_info(f"Using WaterWall binary: {ww_bin} (working dir: {ww_cwd})")
     results: List[Dict[str, Any]] = []
 
+    # Reset any lingering local WaterWall / TUN state first
+    print_info("Resetting initial state on Iran (WaterWall & TUN)...")
+    kill_waterwall_and_clean_tun(None, name, ww_cwd)
+    print_info("Resetting initial state on Kharej...")
+    try:
+        _post_json(f"{agent_url}/teardown", {"name": name}, timeout=5.0)
+    except Exception:
+        pass
+
     # 3. Execution Sweep Loop
     for idx, cand in enumerate(candidates, 1):
         cid = cand["id"]
@@ -493,9 +584,15 @@ def run_finder_client(
         p_tcp = cand["tcp"]
         p_udp = cand["udp"]
 
+        print(f"\n{'=' * 76}")
         print(f"[*] [{idx}/{total}] Testing {cname} (TCP: {p_tcp}, UDP: {p_udp})...")
+        print(f"{'=' * 76}")
 
-        # A. Signal Kharej Agent to prepare candidate
+        # Step 1: Ensure local Iran WaterWall is stopped and TUN cleaned first
+        kill_waterwall_and_clean_tun(None, name, ww_cwd)
+
+        # Step 2: Signal Kharej Agent to prepare candidate (Kharej resets and starts first)
+        print_info(f"Signaling Kharej Agent to prepare candidate (TCP: {p_tcp}, UDP: {p_udp})...")
         try:
             prep = _post_json(f"{agent_url}/prepare", {
                 "name": name,
@@ -512,21 +609,8 @@ def run_finder_client(
             print_error(f"    Failed to contact Kharej agent: {e}")
             continue
 
-        # Clean local test state before launch
-        try:
-            subprocess.run(["pkill", "-9", "-f", "_core_"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except Exception:
-            pass
-        try:
-            subprocess.run(["ip", "link", "delete", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except Exception:
-            pass
-        try:
-            subprocess.run(["ip", "link", "delete", f"{name}2"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except Exception:
-            pass
-
-        # B. Generate Iran configuration and start local WaterWall
+        # Step 3: Generate Iran configuration and start local WaterWall
+        Path(ww_cwd, "log").mkdir(parents=True, exist_ok=True)
         cfg_iran = generate_protoswap_iran(
             config_name=name,
             iran_ip=clean_iran,
@@ -538,32 +622,41 @@ def run_finder_client(
         conf_file = Path(ww_cwd) / f"_tmp_{name}.json"
         core_file = Path(ww_cwd) / f"_core_{name}.json"
         write_json(cfg_iran, conf_file)
-        core_cfg = generate_core_config(config_paths=[str(conf_file)], loglevel="WARN", console=False)
+        core_cfg = generate_core_config(
+            config_paths=[str(conf_file)],
+            loglevel="DEBUG",
+            console=True,
+            log_path=str(Path(ww_cwd) / "log/"),
+        )
         write_json(core_cfg, core_file)
 
         local_ww = None
         try:
+            print_info(f"Starting WaterWall on Iran with DEBUG logging (live output below):")
             local_ww = subprocess.Popen(
                 [ww_bin, f"-c:{core_file}"],
                 cwd=ww_cwd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+                stdout=None,
+                stderr=None,
             )
-            time.sleep(0.3)
+            time.sleep(0.5)
             if local_ww.poll() is not None:
                 print_error(f"    WaterWall on Iran exited prematurely (code {local_ww.returncode})! Check {ww_bin}")
                 continue
 
-            time.sleep(1.7)  # Wait for tunnel initialization
+            time.sleep(1.5)  # Wait for tunnel initialization
 
-            # C. Run Bandwidth Probes
+            # Step 4: Run Bandwidth Probes
             # Test 1: Upload (Iran -> Kharej)
+            print_info(f"Running upload probe (Iran -> Kharej, {duration}s)...")
             up_mbps, retr = _run_iperf_test(clean_port, duration=duration, reverse=False)
 
             # Pause so iperf3 server can reset listener cleanly
             time.sleep(1.5)
 
             # Test 2: Download (Kharej -> Iran)
+            print_info(f"Running download probe (Kharej -> Iran, {duration}s)...")
             down_mbps, _ = _run_iperf_test(clean_port, duration=duration, reverse=True)
 
             score = round(up_mbps + down_mbps, 2)
@@ -578,37 +671,17 @@ def run_finder_client(
                 "status": status_label,
             })
 
-            print(f"    -> Up: {up_mbps:6.2f} Mbps | Down: {down_mbps:6.2f} Mbps | Retr: {retr} | {status_label}")
+            print(f"\n    -> Up: {up_mbps:6.2f} Mbps | Down: {down_mbps:6.2f} Mbps | Retr: {retr} | {status_label}")
 
         finally:
-            # D. Teardown local and remote
-            if local_ww:
-                try:
-                    local_ww.kill()
-                except Exception:
-                    pass
-            try:
-                subprocess.run(["pkill", "-9", "-f", "_core_"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            except Exception:
-                pass
-            try:
-                subprocess.run(["ip", "link", "delete", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            except Exception:
-                pass
-            try:
-                subprocess.run(["ip", "link", "delete", f"{name}2"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            except Exception:
-                pass
+            # Step 5: Teardown: First Iran, then Kharej
+            print_info(f"Resetting WaterWall on Iran...")
+            kill_waterwall_and_clean_tun(local_ww, name, ww_cwd)
+            local_ww = None
 
-            for f in (conf_file, core_file):
-                if f.exists():
-                    try:
-                        f.unlink()
-                    except Exception:
-                        pass
-
+            print_info(f"Resetting WaterWall on Kharej...")
             try:
-                _post_json(f"{agent_url}/teardown", {"name": name}, timeout=10.0)
+                _post_json(f"{agent_url}/teardown", {"name": name}, timeout=5.0)
             except Exception:
                 pass
 

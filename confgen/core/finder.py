@@ -160,33 +160,30 @@ def stop_waterwall_and_test(
     name: Optional[str] = None,
     ww_cwd: Optional[str] = None,
 ) -> None:
-    """Deterministically terminate WaterWall and test processes without touching TUN interfaces."""
+    """Deterministically terminate WaterWall and test processes."""
     # 1. Terminate provided process and its process group
     if proc:
         try:
             pgid = os.getpgid(proc.pid)
-            os.killpg(pgid, signal.SIGTERM)
+            os.killpg(pgid, signal.SIGKILL)
         except Exception:
             pass
         try:
-            proc.terminate()
+            proc.kill()
             proc.wait(timeout=0.5)
         except Exception:
-            try:
-                proc.kill()
-            except Exception:
-                pass
+            pass
 
-    # 2. System-wide reap of all WaterWall and test processes
-    for pat in ["Waterwall", "waterwall", "_core_", "iperf3"]:
+    # 2. Case-insensitive kill of all WaterWall instances (including memfd:waterwall) & iperf3
+    for pat in ["waterwall", "iperf3"]:
         try:
-            subprocess.run(["pkill", "-9", "-f", pat], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.0)
+            subprocess.run(["pkill", "-9", "-i", "-f", pat], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.0)
         except Exception:
             pass
 
-    time.sleep(0.2)
+    time.sleep(0.5)
 
-    # 3. Clean temporary config files
+    # 3. Clean temporary test config files
     if ww_cwd and name:
         for f in (Path(ww_cwd) / f"_tmp_{name}.json", Path(ww_cwd) / f"_core_{name}.json"):
             if f.exists():
@@ -318,20 +315,20 @@ class FinderHTTPHandler(BaseHTTPRequestHandler):
             protoswap_udp=p_udp,
             final_ip="127.0.0.1",
         )
-        conf_file = Path(ww_cwd) / f"_tmp_{name}.json"
-        core_file = Path(ww_cwd) / f"_core_{name}.json"
+        conf_file = Path(ww_cwd) / f"{name}.json"
+        core_file = Path(ww_cwd) / "core.json"
         write_json(cfg, conf_file)
         core_cfg = generate_core_config(
-            config_paths=[str(conf_file)],
+            config_paths=[f"{name}.json"],
             loglevel="DEBUG",
             console=True,
             log_path=str(Path(ww_cwd) / "log/"),
         )
         write_json(core_cfg, core_file)
 
-        # 3. Launch WaterWall in its native directory with live console logging
-        cmd_ww = [ww_bin, f"-c:{core_file}"]
-        print_info(f"[{time.strftime('%X')}] [Kharej Agent] Starting WaterWall with DEBUG logging:")
+        # 3. Launch WaterWall directly (binary automatically loads core.json from working dir)
+        cmd_ww = [ww_bin]
+        print_info(f"[{time.strftime('%X')}] [Kharej Agent] Starting WaterWall directly:")
         try:
             FinderAgentState.ww_proc = subprocess.Popen(
                 cmd_ww,
@@ -585,11 +582,11 @@ def run_finder_client(
             protoswap_tcp=p_tcp,
             protoswap_udp=p_udp,
         )
-        conf_file = Path(ww_cwd) / f"_tmp_{name}.json"
-        core_file = Path(ww_cwd) / f"_core_{name}.json"
+        conf_file = Path(ww_cwd) / f"{name}.json"
+        core_file = Path(ww_cwd) / "core.json"
         write_json(cfg_iran, conf_file)
         core_cfg = generate_core_config(
-            config_paths=[str(conf_file)],
+            config_paths=[f"{name}.json"],
             loglevel="DEBUG",
             console=True,
             log_path=str(Path(ww_cwd) / "log/"),
@@ -600,7 +597,7 @@ def run_finder_client(
         try:
             print_info(f"Starting WaterWall on Iran with DEBUG logging (live output below):")
             local_ww = subprocess.Popen(
-                [ww_bin, f"-c:{core_file}"],
+                [ww_bin],
                 cwd=ww_cwd,
                 start_new_session=True,
                 stdout=None,

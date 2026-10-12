@@ -13,6 +13,7 @@ import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
 try:
     from http.server import ThreadingHTTPServer as HttpServerClass
@@ -204,6 +205,61 @@ class FinderAgentState:
     ww_proc: Optional[subprocess.Popen] = None
     iperf_proc: Optional[subprocess.Popen] = None
     current_name: Optional[str] = None
+    auto_timer: Optional[threading.Timer] = None
+    lock = threading.Lock()
+
+    @classmethod
+    def cancel_timer(cls) -> None:
+        with cls.lock:
+            if cls.auto_timer:
+                try:
+                    cls.auto_timer.cancel()
+                except Exception:
+                    pass
+                cls.auto_timer = None
+
+    @classmethod
+    def kill_active_processes(cls) -> None:
+        with cls.lock:
+            cls.cancel_timer()
+            if cls.iperf_proc:
+                try:
+                    pgid = os.getpgid(cls.iperf_proc.pid)
+                    os.killpg(pgid, signal.SIGKILL)
+                except Exception:
+                    pass
+                try:
+                    cls.iperf_proc.kill()
+                    cls.iperf_proc.wait(timeout=1.0)
+                except Exception:
+                    pass
+                cls.iperf_proc = None
+
+            if cls.ww_proc:
+                try:
+                    pgid = os.getpgid(cls.ww_proc.pid)
+                    os.killpg(pgid, signal.SIGKILL)
+                except Exception:
+                    pass
+                try:
+                    cls.ww_proc.kill()
+                    cls.ww_proc.wait(timeout=1.0)
+                except Exception:
+                    pass
+                cls.ww_proc = None
+
+            for pat in ["iperf3", "Waterwall", "waterwall", "_core_"]:
+                try:
+                    subprocess.run(["pkill", "-9", "-f", pat], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2.0)
+                except Exception:
+                    pass
+
+    @classmethod
+    def auto_teardown(cls, name: str, ww_cwd: str) -> None:
+        print_info(f"[{time.strftime('%X')}] [Kharej Agent] Auto-teardown triggered for '{name}' after test window.")
+        cls.kill_active_processes()
+        stop_waterwall_and_test(None, name, ww_cwd)
+        print_success(f"[{time.strftime('%X')}] [Kharej Agent] Auto-teardown complete for '{name}'. WaterWall stopped, control channel restored.")
 
 
 class FinderHTTPHandler(BaseHTTPRequestHandler):
@@ -255,39 +311,6 @@ class FinderHTTPHandler(BaseHTTPRequestHandler):
             traceback.print_exc()
             self._send_json(500, {"error": f"Internal agent error: {e}"})
 
-    def _kill_active_processes(self) -> None:
-        if FinderAgentState.iperf_proc:
-            try:
-                pgid = os.getpgid(FinderAgentState.iperf_proc.pid)
-                os.killpg(pgid, signal.SIGKILL)
-            except Exception:
-                pass
-            try:
-                FinderAgentState.iperf_proc.kill()
-                FinderAgentState.iperf_proc.wait(timeout=1.0)
-            except Exception:
-                pass
-            FinderAgentState.iperf_proc = None
-
-        if FinderAgentState.ww_proc:
-            try:
-                pgid = os.getpgid(FinderAgentState.ww_proc.pid)
-                os.killpg(pgid, signal.SIGKILL)
-            except Exception:
-                pass
-            try:
-                FinderAgentState.ww_proc.kill()
-                FinderAgentState.ww_proc.wait(timeout=1.0)
-            except Exception:
-                pass
-            FinderAgentState.ww_proc = None
-
-        for pat in ["iperf3", "Waterwall", "waterwall", "_core_"]:
-            try:
-                subprocess.run(["pkill", "-9", "-f", pat], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2.0)
-            except Exception:
-                pass
-
     def _handle_prepare(self, req: Dict[str, Any]) -> None:
         name = req.get("name", "finder-kharej")
         FinderAgentState.current_name = name
@@ -296,12 +319,13 @@ class FinderHTTPHandler(BaseHTTPRequestHandler):
         tcp_port = int(req.get("tcp_port", 9000))
         p_tcp = int(req["protoswap_tcp"])
         p_udp = int(req["protoswap_udp"])
+        duration = int(req.get("duration", 5))
 
         ww_bin, ww_cwd = get_waterwall_launch_info()
-        print_info(f"[{time.strftime('%X')}] [Kharej Agent] Preparing candidate: {name} (TCP: {p_tcp}, UDP: {p_udp})...")
+        print_info(f"[{time.strftime('%X')}] [Kharej Agent] Preparing candidate: {name} (TCP: {p_tcp}, UDP: {p_udp}, duration: {duration}s)...")
 
         # 1. Reset any active WaterWall & iperf processes
-        self._kill_active_processes()
+        FinderAgentState.kill_active_processes()
         stop_waterwall_and_test(None, name, ww_cwd)
 
         # 2. Generate Kharej configuration inside WaterWall directory
@@ -359,15 +383,26 @@ class FinderHTTPHandler(BaseHTTPRequestHandler):
             except Exception as e:
                 print_warning(f"Failed to start iperf3: {e}")
 
+        # 5. Arm auto-teardown timer
+        test_window = (duration * 2) + 3.5
+        with FinderAgentState.lock:
+            FinderAgentState.auto_timer = threading.Timer(
+                test_window,
+                FinderAgentState.auto_teardown,
+                args=[name, ww_cwd],
+            )
+            FinderAgentState.auto_timer.daemon = True
+            FinderAgentState.auto_timer.start()
+
         time.sleep(1.0)  # Allow WaterWall and iperf3 to bind
-        print_success(f"[{time.strftime('%X')}] [Kharej Agent] WaterWall (PID {FinderAgentState.ww_proc.pid}) & iperf3 ready on port {tcp_port}.")
+        print_success(f"[{time.strftime('%X')}] [Kharej Agent] WaterWall (PID {FinderAgentState.ww_proc.pid}) & iperf3 ready on port {tcp_port}. Auto-teardown armed in {test_window:.1f}s.")
         self._send_json(200, {"status": "ready", "tcp_port": tcp_port})
 
     def _handle_teardown(self, req: Dict[str, Any]) -> None:
         name = req.get("name", "finder-kharej")
         ww_bin, ww_cwd = get_waterwall_launch_info()
         print_info(f"[{time.strftime('%X')}] [Kharej Agent] Teardown requested for '{name}'...")
-        self._kill_active_processes()
+        FinderAgentState.kill_active_processes()
         stop_waterwall_and_test(None, name, ww_cwd)
         print_success(f"[{time.strftime('%X')}] [Kharej Agent] Teardown complete for '{name}'.")
         self._send_json(200, {"status": "stopped"})
@@ -376,7 +411,7 @@ class FinderHTTPHandler(BaseHTTPRequestHandler):
         name = req.get("name", "parspack-nl")
         ww_bin, ww_cwd = get_waterwall_launch_info()
         print_info(f"[{time.strftime('%X')}] [Kharej Agent] Applying winning config '{name}'...")
-        self._kill_active_processes()
+        FinderAgentState.kill_active_processes()
         stop_waterwall_and_test(None, name, ww_cwd)
 
         iran_ip = req["iran_ip"]
@@ -414,12 +449,8 @@ def run_finder_server(port: int = 8088, host: str = "0.0.0.0") -> int:
     except KeyboardInterrupt:
         print_info("\nStopping Finder Agent...")
         ww_bin, ww_cwd = get_waterwall_launch_info()
-        stop_waterwall_and_test(FinderAgentState.ww_proc, FinderAgentState.current_name, ww_cwd)
-        if FinderAgentState.iperf_proc:
-            try:
-                FinderAgentState.iperf_proc.kill()
-            except Exception:
-                pass
+        FinderAgentState.kill_active_processes()
+        stop_waterwall_and_test(None, FinderAgentState.current_name, ww_cwd)
         httpd.server_close()
     return 0
 
@@ -560,7 +591,21 @@ def run_finder_client(
         print(f"[*] [{idx}/{total}] Testing {cname} (TCP: {p_tcp}, UDP: {p_udp})...")
         print(f"{'=' * 76}")
 
-        # Step 2: Signal Kharej Agent to prepare candidate FIRST (while Iran WaterWall is stopped)
+        # Step 2: Ensure Kharej Agent is responsive before signaling /prepare
+        kharej_ready = False
+        for wait_i in range(15):
+            try:
+                h = _get_json(f"{agent_url}/health", timeout=1.5)
+                if h.get("status") == "ready":
+                    kharej_ready = True
+                    break
+            except Exception:
+                time.sleep(1.0)
+
+        if not kharej_ready:
+            print_error(f"    Kharej agent not responding at {agent_url}/health after wait. Skipping candidate.")
+            continue
+
         print_info(f"Signaling Kharej Agent to prepare candidate (TCP: {p_tcp}, UDP: {p_udp})...")
         try:
             prep = _post_json(f"{agent_url}/prepare", {
@@ -570,6 +615,7 @@ def run_finder_client(
                 "tcp_port": clean_port,
                 "protoswap_tcp": p_tcp,
                 "protoswap_udp": p_udp,
+                "duration": duration,
             }, timeout=15.0)
             if prep.get("status") != "ready":
                 print_warning(f"    Kharej failed to prepare: {prep}")
@@ -622,7 +668,7 @@ def run_finder_client(
             up_mbps, retr = _run_iperf_test(clean_port, duration=duration, reverse=False)
 
             # Pause so iperf3 server can reset listener cleanly
-            time.sleep(1.5)
+            time.sleep(1.0)
 
             # Test 2: Download (Kharej -> Iran)
             print_info(f"Running download probe (Kharej -> Iran, {duration}s)...")
@@ -648,13 +694,15 @@ def run_finder_client(
             stop_waterwall_and_test(local_ww, name, ww_cwd)
             local_ww = None
 
-            print_info(f"Resetting WaterWall on Kharej...")
-            try:
-                _post_json(f"{agent_url}/teardown", {"name": name}, timeout=10.0)
-            except Exception:
-                pass
+            print_info(f"Awaiting Kharej reset and restoring control channel...")
+            for check_attempt in range(15):
+                try:
+                    _post_json(f"{agent_url}/teardown", {"name": name}, timeout=1.5)
+                    break
+                except Exception:
+                    time.sleep(1.0)
 
-        time.sleep(1.0)
+        time.sleep(0.5)
 
     # 4. Results & Leaderboard
     if not results:

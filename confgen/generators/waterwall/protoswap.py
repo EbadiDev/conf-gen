@@ -98,7 +98,10 @@ def generate_protoswap_iran(
     else:
         # Multiple / Hybrid
         if clean_tcp:
-            variables["ports_to_listen"] = clean_tcp
+            if len(clean_tcp) == 1:
+                variables["port_to_listen"] = clean_tcp[0]
+            else:
+                variables["ports_to_listen"] = clean_tcp
             variables["port_to_forward_to_kharej"] = tcp_tunnel_port
         if clean_udp:
             if len(clean_udp) == 1:
@@ -239,84 +242,156 @@ def generate_protoswap_iran(
     else:
         # Multiple / Hybrid services
         if clean_tcp:
-            entry_next = "header-client"
-            if use_tls:
-                entry_next = "tls_server_user_side_tls_termination"
-            elif use_proxy_protocol:
-                entry_next = "proxy-header"
+            if len(clean_tcp) == 1:
+                entry_next = "mux-client"
+                if use_proxy_protocol:
+                    entry_next = "proxy-header"
+                if use_tls:
+                    entry_next = "tls_server_user_side_tls_termination"
 
-            nodes.append(
-                {
-                    "name": "users_inbound",
-                    "type": "TcpListener",
-                    "settings": {
-                        "address": "0.0.0.0",
-                        "port": "$ports_to_listen$",
-                        "nodelay": True,
-                    },
-                    "next": entry_next,
-                }
-            )
-            if use_tls:
                 nodes.append(
                     {
-                        "name": "tls_server_user_side_tls_termination",
-                        "type": "TlsServer",
+                        "name": "users_inbound",
+                        "type": "TcpListener",
                         "settings": {
-                            "cert-file": "$certificate_path$",
-                            "key-file": "$key_path$",
-                            "min-version": "TLSv1.2",
-                            "max-version": "TLSv1.3",
-                            "ciphers": "HIGH:!aNULL:!MD5",
-                            "session-cache": "none",
-                            "session-tickets": True,
-                            "verbose": False,
-                        },
-                        "next": "proxy-header" if use_proxy_protocol else "header-client",
-                    }
-                )
-            if use_proxy_protocol:
-                nodes.append(
-                    {
-                        "name": "proxy-header",
-                        "type": "HeaderClient",
-                        "settings": {
-                            "data": "proxy-protocol",
-                            "frontend-ipv4": "$ip_server_iran$",
-                        },
-                        "next": "header-client",
-                    }
-                )
-            nodes.extend(
-                [
-                    {
-                        "name": "header-client",
-                        "type": "HeaderClient",
-                        "settings": {
-                            "data": "src_context->port",
-                        },
-                        "next": "mux-client",
-                    },
-                    {
-                        "name": "mux-client",
-                        "type": "MuxClient",
-                        "settings": {
-                            "mode": "fixed-connections-count",
-                            "per-worker-connections-count": "$each_worker_mux_connections_count$",
-                        },
-                        "next": "tcp-out",
-                    },
-                    {
-                        "name": "tcp-out",
-                        "type": "TcpConnector",
-                        "settings": {
-                            "address": "$tun_ip_2$",
-                            "port": "$port_to_forward_to_kharej$",
+                            "address": "0.0.0.0",
+                            "port": "$port_to_listen$",
                             "nodelay": True,
                         },
-                    },
-                ]
-            )
+                        "next": entry_next,
+                    }
+                )
+                if use_tls:
+                    nodes.append(
+                        {
+                            "name": "tls_server_user_side_tls_termination",
+                            "type": "TlsServer",
+                            "settings": {
+                                "cert-file": "$certificate_path$",
+                                "key-file": "$key_path$",
+                                "min-version": "TLSv1.2",
+                                "max-version": "TLSv1.3",
+                                "ciphers": "HIGH:!aNULL:!MD5",
+                                "session-cache": "none",
+                                "session-tickets": True,
+                                "verbose": False,
+                            },
+                            "next": "proxy-header" if use_proxy_protocol else "mux-client",
+                        }
+                    )
+                if use_proxy_protocol:
+                    nodes.append(
+                        {
+                            "name": "proxy-header",
+                            "type": "HeaderClient",
+                            "settings": {
+                                "data": "proxy-protocol",
+                                "frontend-ipv4": "$ip_server_iran$",
+                            },
+                            "next": "mux-client",
+                        }
+                    )
+                nodes.extend(
+                    [
+                        {
+                            "name": "mux-client",
+                            "type": "MuxClient",
+                            "settings": {
+                                "mode": "fixed-connections-count",
+                                "per-worker-connections-count": "$each_worker_mux_connections_count$",
+                            },
+                            "next": "tcp-out",
+                        },
+                        {
+                            "name": "tcp-out",
+                            "type": "TcpConnector",
+                            "settings": {
+                                "address": "$tun_ip_2$",
+                                "port": "$port_to_forward_to_kharej$",
+                                "nodelay": True,
+                            },
+                        },
+                    ]
+                )
+            else:
+                entry_next = "header-client"
+                if use_tls:
+                    entry_next = "tls_server_user_side_tls_termination"
+                elif use_proxy_protocol:
+                    entry_next = "proxy-header"
+
+                nodes.append(
+                    {
+                        "name": "users_inbound",
+                        "type": "TcpListener",
+                        "settings": {
+                            "address": "0.0.0.0",
+                            "port": "$ports_to_listen$",
+                            "nodelay": True,
+                        },
+                        "next": entry_next,
+                    }
+                )
+                if use_tls:
+                    nodes.append(
+                        {
+                            "name": "tls_server_user_side_tls_termination",
+                            "type": "TlsServer",
+                            "settings": {
+                                "cert-file": "$certificate_path$",
+                                "key-file": "$key_path$",
+                                "min-version": "TLSv1.2",
+                                "max-version": "TLSv1.3",
+                                "ciphers": "HIGH:!aNULL:!MD5",
+                                "session-cache": "none",
+                                "session-tickets": True,
+                                "verbose": False,
+                            },
+                            "next": "proxy-header" if use_proxy_protocol else "header-client",
+                        }
+                    )
+                if use_proxy_protocol:
+                    nodes.append(
+                        {
+                            "name": "proxy-header",
+                            "type": "HeaderClient",
+                            "settings": {
+                                "data": "proxy-protocol",
+                                "frontend-ipv4": "$ip_server_iran$",
+                            },
+                            "next": "header-client",
+                        }
+                    )
+                nodes.extend(
+                    [
+                        {
+                            "name": "header-client",
+                            "type": "HeaderClient",
+                            "settings": {
+                                "data": "src_context->port",
+                            },
+                            "next": "mux-client",
+                        },
+                        {
+                            "name": "mux-client",
+                            "type": "MuxClient",
+                            "settings": {
+                                "mode": "fixed-connections-count",
+                                "per-worker-connections-count": "$each_worker_mux_connections_count$",
+                            },
+                            "next": "tcp-out",
+                        },
+                        {
+                            "name": "tcp-out",
+                            "type": "TcpConnector",
+                            "settings": {
+                                "address": "$tun_ip_2$",
+                                "port": "$port_to_forward_to_kharej$",
+                                "nodelay": True,
+                            },
+                        },
+                    ]
+                )
 
         if clean_udp:
             if len(clean_udp) == 1:
@@ -677,45 +752,78 @@ def generate_protoswap_kharej(
     else:
         # Multiple / Hybrid
         if clean_tcp:
-            nodes.extend(
-                [
-                    {
-                        "name": "users_inbound",
-                        "type": "TcpListener",
-                        "settings": {
-                            "address": "0.0.0.0",
-                            "port": "$port_to_listen$",
-                            "nodelay": True,
-                            "initial-idle-timeout-ms": 3600000,
-                            "active-idle-timeout-ms": 3600000,
+            if len(clean_tcp) == 1:
+                nodes.extend(
+                    [
+                        {
+                            "name": "users_inbound",
+                            "type": "TcpListener",
+                            "settings": {
+                                "address": "0.0.0.0",
+                                "port": "$port_to_listen$",
+                                "nodelay": True,
+                                "initial-idle-timeout-ms": 3600000,
+                                "active-idle-timeout-ms": 3600000,
+                            },
+                            "next": "mux-s",
                         },
-                        "next": "mux-s",
-                    },
-                    {
-                        "name": "mux-s",
-                        "type": "MuxServer",
-                        "settings": {},
-                        "next": "header-server",
-                    },
-                    {
-                        "name": "header-server",
-                        "type": "HeaderServer",
-                        "settings": {
-                            "override": "dest_context->port",
+                        {
+                            "name": "mux-s",
+                            "type": "MuxServer",
+                            "settings": {},
+                            "next": "tcp-out",
                         },
-                        "next": "tcp-out",
-                    },
-                    {
-                        "name": "tcp-out",
-                        "type": "TcpConnector",
-                        "settings": {
-                            "address": "$final_ip$",
-                            "port": "dest_context->port",
-                            "nodelay": True,
+                        {
+                            "name": "tcp-out",
+                            "type": "TcpConnector",
+                            "settings": {
+                                "address": "$final_ip$",
+                                "port": "$final_port$",
+                                "nodelay": True,
+                            },
                         },
-                    },
-                ]
-            )
+                    ]
+                )
+            else:
+                nodes.extend(
+                    [
+                        {
+                            "name": "users_inbound",
+                            "type": "TcpListener",
+                            "settings": {
+                                "address": "0.0.0.0",
+                                "port": "$port_to_listen$",
+                                "nodelay": True,
+                                "initial-idle-timeout-ms": 3600000,
+                                "active-idle-timeout-ms": 3600000,
+                            },
+                            "next": "mux-s",
+                        },
+                        {
+                            "name": "mux-s",
+                            "type": "MuxServer",
+                            "settings": {},
+                            "next": "header-server",
+                        },
+                        {
+                            "name": "header-server",
+                            "type": "HeaderServer",
+                            "settings": {
+                                "override": "dest_context->port",
+                            },
+                            "next": "tcp-out",
+                        },
+                        {
+                            "name": "tcp-out",
+                            "type": "TcpConnector",
+                            "settings": {
+                                "address": "$final_ip$",
+                                "port": "dest_context->port",
+                                "nodelay": True,
+                            },
+                        },
+                    ]
+                )
 
         if clean_udp:
             if len(clean_udp) == 1:

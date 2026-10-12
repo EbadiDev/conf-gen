@@ -356,8 +356,8 @@ class FinderAgentState:
             except Exception as e:
                 print_warning(f"Failed to start iperf3: {e}")
 
-        # Arm auto-teardown timer (ensure both upload and download probes complete before reset)
-        test_window = (duration * 2) + 7.5
+        # Arm auto-teardown timer (ensure upload, download, and UDP probes complete before reset)
+        test_window = (duration * 2) + 12.0
         with cls.lock:
             cls.auto_timer = threading.Timer(
                 test_window,
@@ -446,6 +446,7 @@ class FinderHTTPHandler(BaseHTTPRequestHandler):
                 iran_ip=iran_ip,
                 kharej_ip=kharej_ip,
                 tcp_ports=[tcp_port],
+                udp_ports=[tcp_port],
                 final_ip="127.0.0.1",
             )
         else:
@@ -454,6 +455,7 @@ class FinderHTTPHandler(BaseHTTPRequestHandler):
                 iran_ip=iran_ip,
                 kharej_ip=kharej_ip,
                 tcp_ports=[tcp_port],
+                udp_ports=[tcp_port],
                 protoswap_tcp=p_tcp,
                 protoswap_udp=p_udp,
                 final_ip="127.0.0.1",
@@ -506,6 +508,7 @@ class FinderHTTPHandler(BaseHTTPRequestHandler):
                 iran_ip=iran_ip,
                 kharej_ip=kharej_ip,
                 tcp_ports=[tcp_port],
+                udp_ports=[tcp_port],
                 final_ip="127.0.0.1",
             )
         else:
@@ -514,6 +517,7 @@ class FinderHTTPHandler(BaseHTTPRequestHandler):
                 iran_ip=iran_ip,
                 kharej_ip=kharej_ip,
                 tcp_ports=[tcp_port],
+                udp_ports=[tcp_port],
                 protoswap_tcp=p_tcp,
                 protoswap_udp=p_udp,
                 final_ip="127.0.0.1",
@@ -624,6 +628,65 @@ def _run_iperf_test(
     except Exception as e:
         print_warning(f"iperf3 probe exception: {e}")
         return 0.0, 0
+
+
+def _run_iperf_udp_test(
+    port: int,
+    duration: int = 3,
+    target_bandwidth: str = "0",
+) -> Tuple[float, float, float]:
+    """Run iperf3 UDP client probe against local WaterWall listener (127.0.0.1:port).
+    
+    Returns (throughput_mbps, lost_percent, jitter_ms).
+    """
+    iperf_bin = find_iperf3_binary()
+    if not iperf_bin:
+        return 0.0, 100.0, 0.0
+
+    cmd = [
+        iperf_bin,
+        "-c", "127.0.0.1",
+        "-p", str(port),
+        "-u",
+        "-b", str(target_bandwidth),
+        "-t", str(duration),
+        "-J",
+    ]
+
+    try:
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=duration + 8)
+        if proc.returncode != 0:
+            err = (proc.stderr or proc.stdout or "").strip()
+            if err:
+                first_line = err.splitlines()[0]
+                print_warning(f"iperf3 UDP returned code {proc.returncode}: {first_line}")
+            return 0.0, 100.0, 0.0
+        data = json.loads(proc.stdout)
+        end = data.get("end", {})
+        
+        sum_data = end.get("sum", {})
+        bps = sum_data.get("bits_per_second", 0.0)
+        lost_pct = sum_data.get("lost_percent", 0.0)
+        jitter = sum_data.get("jitter_ms", 0.0)
+
+        if not bps and "streams" in end and len(end["streams"]) > 0:
+            stream_udp = end["streams"][0].get("udp", {})
+            bps = stream_udp.get("bits_per_second", 0.0)
+            lost_pct = stream_udp.get("lost_percent", 0.0)
+            jitter = stream_udp.get("jitter_ms", 0.0)
+
+        # If 100% loss or no packets arrived, throughput received is 0.0
+        if lost_pct >= 99.9:
+            mbps = 0.0
+        else:
+            mbps = round(bps / 1_000_000.0, 2)
+
+        lost_pct = round(lost_pct, 1)
+        jitter = round(jitter, 2)
+        return mbps, lost_pct, jitter
+    except Exception as e:
+        print_warning(f"iperf3 UDP probe exception: {e}")
+        return 0.0, 100.0, 0.0
 
 
 def run_finder_client(
@@ -768,6 +831,7 @@ def run_finder_client(
                 iran_ip=clean_iran,
                 kharej_ip=clean_kharej,
                 tcp_ports=[clean_port],
+                udp_ports=[clean_port],
             )
         else:
             cfg_iran = generate_protoswap_iran(
@@ -775,6 +839,7 @@ def run_finder_client(
                 iran_ip=clean_iran,
                 kharej_ip=clean_kharej,
                 tcp_ports=[clean_port],
+                udp_ports=[clean_port],
                 protoswap_tcp=p_tcp,
                 protoswap_udp=p_udp,
                 enable_bitswap=cand_bitswap,
@@ -809,29 +874,47 @@ def run_finder_client(
 
             # Step 4: Run Bandwidth Probes
             # Test 1: Upload (Iran -> Kharej)
-            print_info(f"Running upload probe (Iran -> Kharej, {duration}s)...")
+            print_info(f"Running TCP upload probe (Iran -> Kharej, {duration}s)...")
             up_mbps, retr = _run_iperf_test(clean_port, duration=duration, reverse=False)
 
             # Pause so iperf3 server can reset listener cleanly
             time.sleep(1.0)
 
             # Test 2: Download (Kharej -> Iran)
-            print_info(f"Running download probe (Kharej -> Iran, {duration}s)...")
+            print_info(f"Running TCP download probe (Kharej -> Iran, {duration}s)...")
             down_mbps, _ = _run_iperf_test(clean_port, duration=duration, reverse=True)
 
+            # Pause so iperf3 server can reset listener cleanly
+            time.sleep(1.0)
+
+            # Test 3: UDP Probe (Iran -> Kharej)
+            udp_dur = min(duration, 3)
+            print_info(f"Running UDP probe (Iran -> Kharej, {udp_dur}s)...")
+            udp_mbps, udp_loss, udp_jitter = _run_iperf_udp_test(clean_port, duration=udp_dur, target_bandwidth="0")
+
             score = round(up_mbps + down_mbps, 2)
-            status_label = "BLOCKED ❌" if (up_mbps == 0 and down_mbps == 0) else ("ACTIVE ✅" if retr == 0 else "DEGRADED ⚠️")
+            if up_mbps == 0 and down_mbps == 0 and udp_mbps == 0:
+                status_label = "BLOCKED ❌"
+            elif udp_loss >= 99.0 and (up_mbps > 0 or down_mbps > 0):
+                status_label = "TCP ONLY ⚠️"
+            elif retr > 0 or udp_loss > 10.0:
+                status_label = "DEGRADED ⚠️"
+            else:
+                status_label = "ACTIVE ✅"
 
             results.append({
                 "cand": cand,
                 "upload": up_mbps,
                 "download": down_mbps,
+                "udp": udp_mbps,
+                "udp_loss": udp_loss,
+                "udp_jitter": udp_jitter,
                 "retr": retr,
                 "score": score,
                 "status": status_label,
             })
 
-            print(f"\n    -> Up: {up_mbps:6.2f} Mbps | Down: {down_mbps:6.2f} Mbps | Retr: {retr} | {status_label}")
+            print(f"\n    -> TCP Up: {up_mbps:6.2f} Mbps | TCP Down: {down_mbps:6.2f} Mbps | UDP: {udp_mbps:6.2f} Mbps (Loss: {udp_loss:4.1f}%) | {status_label}")
 
         finally:
             # Step 5: Teardown: First Iran, then Kharej
@@ -857,20 +940,20 @@ def run_finder_client(
     # Sort descending by combined throughput score
     results.sort(key=lambda r: r["score"], reverse=True)
 
-    print("\n" + "=" * 88)
+    print("\n" + "=" * 105)
     print("🏆 PROTOSWAP PROTOCOL BENCHMARK LEADERBOARD")
-    print("=" * 88)
-    print(f"{'Rank':<5} | {'Candidate':<22} | {'TCP/UDP':<9} | {'BitSwap':<7} | {'Upload':<11} | {'Download':<11} | {'Status'}")
-    print("-" * 88)
+    print("=" * 105)
+    print(f"{'Rank':<5} | {'Candidate':<22} | {'TCP/UDP':<9} | {'BitSwap':<7} | {'TCP Up':<11} | {'TCP Down':<11} | {'UDP Up':<11} | {'Loss':<6} | {'Status'}")
+    print("-" * 105)
 
     for i, r in enumerate(results, 1):
         c = r["cand"]
         proto_str = f"{c['tcp']}/{c['udp']}"
         bs_str = "YES" if c.get("bitswap") else "NO"
         badge = "BEST ⭐" if i == 1 and r["score"] > 0 else r["status"]
-        print(f"#{i:<4} | {c['name']:<22} | {proto_str:<9} | {bs_str:<7} | {r['upload']:>6.2f} Mbps | {r['download']:>6.2f} Mbps | {badge}")
+        print(f"#{i:<4} | {c['name']:<22} | {proto_str:<9} | {bs_str:<7} | {r['upload']:>6.2f} Mbps | {r['download']:>6.2f} Mbps | {r['udp']:>6.2f} Mbps | {r['udp_loss']:>5.1f}% | {badge}")
 
-    print("=" * 88)
+    print("=" * 105)
 
     winner = results[0]
     if winner["score"] == 0:
@@ -892,6 +975,7 @@ def run_finder_client(
                 iran_ip=clean_iran,
                 kharej_ip=clean_kharej,
                 tcp_ports=[clean_port],
+                udp_ports=[clean_port],
             )
         else:
             best_cfg_iran = generate_protoswap_iran(
@@ -899,6 +983,7 @@ def run_finder_client(
                 iran_ip=clean_iran,
                 kharej_ip=clean_kharej,
                 tcp_ports=[clean_port],
+                udp_ports=[clean_port],
                 protoswap_tcp=best_cand["tcp"],
                 protoswap_udp=best_cand["udp"],
                 enable_bitswap=best_cand_bitswap,

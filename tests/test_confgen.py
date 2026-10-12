@@ -786,8 +786,85 @@ class TestFinder(unittest.TestCase):
         self.assertEqual(in_manip["settings"].get("dw-tcp-bit-psh"), "packet->cwr")
         self.assertEqual(in_manip["settings"].get("dw-tcp-bit-cwr"), "packet->psh")
 
+    def test_hybrid_single_port_direct_routing(self):
+        """Ensure single-port hybrid mode (1 TCP, 1 UDP) bypasses HeaderClient/HeaderServer overhead."""
+        from confgen.generators.waterwall.protoswap import (
+            generate_protoswap_iran,
+            generate_protoswap_kharej,
+        )
+        from confgen.generators.waterwall.bitswap import (
+            generate_bitswap_iran,
+            generate_bitswap_kharej,
+        )
+
+        # ProtoSwap Single-Port Hybrid
+        p_i = generate_protoswap_iran("p_hyb_i", "1.1.1.1", "2.2.2.2", tcp_ports=[9001], udp_ports=[9001])
+        p_k = generate_protoswap_kharej("p_hyb_k", "1.1.1.1", "2.2.2.2", tcp_ports=[9001], udp_ports=[9001])
+        
+        self.assertEqual(p_i["variables"]["port_to_listen"], 9001)
+        self.assertEqual(p_k["variables"]["final_port"], 9001)
+        # Ensure no header-client or header-server nodes
+        self.assertFalse(any(n["name"] == "header-client" for n in p_i["nodes"]))
+        self.assertFalse(any(n["name"] == "header-server" for n in p_k["nodes"]))
+
+        # BitSwap Single-Port Hybrid
+        b_i = generate_bitswap_iran("b_hyb_i", "1.1.1.1", "2.2.2.2", tcp_ports=[9001], udp_ports=[9001])
+        b_k = generate_bitswap_kharej("b_hyb_k", "1.1.1.1", "2.2.2.2", tcp_ports=[9001], udp_ports=[9001])
+        
+        self.assertEqual(b_i["variables"]["port_to_listen"], 9001)
+        self.assertEqual(b_k["variables"]["final_port"], 9001)
+        self.assertFalse(any(n["name"] == "header-client" for n in b_i["nodes"]))
+        self.assertFalse(any(n["name"] == "header-server" for n in b_k["nodes"]))
+
+        # Multi-TCP Hybrid still uses HeaderClient/HeaderServer
+        multi_i = generate_protoswap_iran("m_i", "1.1.1.1", "2.2.2.2", tcp_ports=[9001, 9002], udp_ports=[9001])
+        multi_k = generate_protoswap_kharej("m_k", "1.1.1.1", "2.2.2.2", tcp_ports=[9001, 9002], udp_ports=[9001])
+        self.assertTrue(any(n["name"] == "header-client" for n in multi_i["nodes"]))
+        self.assertTrue(any(n["name"] == "header-server" for n in multi_k["nodes"]))
+
+    def test_iperf_udp_probe_parsing(self):
+        """Verify iperf3 UDP helper correctly parses JSON output."""
+        from unittest.mock import patch, MagicMock
+        from confgen.core.finder import _run_iperf_udp_test
+        import json
+
+        fake_json = {
+            "end": {
+                "sum": {
+                    "bits_per_second": 250000000.0,
+                    "lost_percent": 0.4,
+                    "jitter_ms": 1.25,
+                }
+            }
+        }
+        with patch("shutil.which", return_value="/usr/bin/iperf3"):
+            with patch("subprocess.run") as mock_run:
+                mock_run.return_value = MagicMock(returncode=0, stdout=json.dumps(fake_json), stderr="")
+                mbps, loss, jitter = _run_iperf_udp_test(9001, duration=3)
+                self.assertEqual(mbps, 250.0)
+                self.assertEqual(loss, 0.4)
+                self.assertEqual(jitter, 1.25)
+
+        # 100% loss caps mbps at 0.0
+        fake_loss_json = {
+            "end": {
+                "sum": {
+                    "bits_per_second": 300000000.0,
+                    "lost_percent": 100.0,
+                    "jitter_ms": 0.0,
+                }
+            }
+        }
+        with patch("shutil.which", return_value="/usr/bin/iperf3"):
+            with patch("subprocess.run") as mock_run:
+                mock_run.return_value = MagicMock(returncode=0, stdout=json.dumps(fake_loss_json), stderr="")
+                mbps, loss, jitter = _run_iperf_udp_test(9001, duration=3)
+                self.assertEqual(mbps, 0.0)
+                self.assertEqual(loss, 100.0)
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
 

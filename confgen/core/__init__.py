@@ -7,6 +7,7 @@ from .utils import (
     print_error,
     write_json,
     update_core_json,
+    save_waterwall_config,
 )
 from .validator import (
     validate_port,
@@ -22,6 +23,7 @@ __all__ = [
     "print_error",
     "write_json",
     "update_core_json",
+    "save_waterwall_config",
     "validate_port",
     "validate_ports_list",
     "validate_ip",

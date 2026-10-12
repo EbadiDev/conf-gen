@@ -6,7 +6,14 @@ import sys
 from typing import Any, List, Optional
 
 from confgen import __version__
-from confgen.core.utils import print_error, print_info, print_success, write_json
+from confgen.core.utils import (
+    print_error,
+    print_info,
+    print_success,
+    save_waterwall_config,
+    update_core_json,
+    write_json,
+)
 from confgen.core.validator import validate_ports_list
 from confgen.generators.xray import (
     DEFAULT_UUID,
@@ -75,6 +82,138 @@ class CustomFormatter(argparse.RawDescriptionHelpFormatter, argparse.ArgumentDef
     pass
 
 
+def _add_v3_subparser(v3_p: argparse.ArgumentParser) -> None:
+    v3_sub = v3_p.add_subparsers(dest="v3_side", help="V3 mode (server | client)")
+
+    # v3 server (Iran side)
+    v3_s = v3_sub.add_parser(
+        "server",
+        help="V3 Server configuration (Iran side)",
+        formatter_class=CustomFormatter,
+        epilog="""Examples:
+  # Bash syntax:
+  ./confgen.py v3 server atlanta 109.94.164.71 162.247.153.90 30.6.0.1 50 -l 8080 -f 8085 --mux 8 --tls /path/cert.pem /path/key.pem
+""",
+    )
+    v3_s.add_argument("pos_name", nargs="?", help="Tunnel configuration name (e.g. atlanta)")
+    v3_s.add_argument("pos_non_iran_ip", nargs="?", help="Kharej server IP")
+    v3_s.add_argument("pos_iran_ip", nargs="?", help="Iran server IP")
+    v3_s.add_argument("pos_private_ip", nargs="?", help="Private network IP (e.g. 30.6.0.1)")
+    v3_s.add_argument("pos_protocol", nargs="?", type=int, help="Protoswap TCP protocol number")
+    v3_s.add_argument("pos_udp_protocol", nargs="?", type=int, help="Protoswap UDP protocol number")
+
+    v3_s.add_argument("-n", "--name", help="Configuration name")
+    v3_s.add_argument("-ki", "--kharej-ip", help="Kharej server public IP")
+    v3_s.add_argument("-ii", "--iran-ip", help="Iran server public IP")
+    v3_s.add_argument("--private-ip", help="Private network IP")
+    v3_s.add_argument("--protoswap-tcp", type=int, help="Replacement protocol number for TCP")
+    v3_s.add_argument("--protoswap-udp", type=int, help="Replacement protocol number for UDP")
+    v3_s.add_argument("-l", "-p", "--listen-port", "--listen", type=int, default=443, help="Listen port on Iran side (default: 443)")
+    v3_s.add_argument("-f", "-t", "--target-port", "--forward", type=int, default=443, help="Target/forward port on Kharej side (default: 443)")
+    v3_s.add_argument("--mux", nargs="?", const=8, type=int, default=0, help="Enable Mux multiplexing (default count: 8)")
+    v3_s.add_argument("--tls", nargs=2, metavar=("CERT", "KEY"), help="TLS certificate and key paths")
+    v3_s.add_argument("--proxy-protocol", action="store_true", help="Enable Proxy Protocol header")
+    v3_s.add_argument("--xor-key", type=int, default=90, help="XOR obfuscation key (default: 90)")
+    v3_s.add_argument("--no-core", action="store_true", help="Do not automatically add to core.json")
+
+    # v3 client (Kharej side)
+    v3_c = v3_sub.add_parser(
+        "client",
+        help="V3 Client configuration (Kharej side)",
+        formatter_class=CustomFormatter,
+        epilog="""Examples:
+  # Bash syntax:
+  ./confgen.py v3 client atlanta 109.94.164.71 162.247.153.90 30.6.0.1 50 -l 8085 -f 8080 --mux 8
+""",
+    )
+    v3_c.add_argument("pos_name", nargs="?", help="Tunnel configuration name (e.g. atlanta)")
+    v3_c.add_argument("pos_non_iran_ip", nargs="?", help="Kharej server IP")
+    v3_c.add_argument("pos_iran_ip", nargs="?", help="Iran server IP")
+    v3_c.add_argument("pos_private_ip", nargs="?", help="Private network IP (e.g. 30.6.0.1)")
+    v3_c.add_argument("pos_protocol", nargs="?", type=int, help="Protoswap TCP protocol number")
+    v3_c.add_argument("pos_udp_protocol", nargs="?", type=int, help="Protoswap UDP protocol number")
+
+    v3_c.add_argument("-n", "--name", help="Configuration name")
+    v3_c.add_argument("-ki", "--kharej-ip", help="Kharej server public IP")
+    v3_c.add_argument("-ii", "--iran-ip", help="Iran server public IP")
+    v3_c.add_argument("--private-ip", help="Private network IP")
+    v3_c.add_argument("--protoswap-tcp", type=int, help="Replacement protocol number for TCP")
+    v3_c.add_argument("--protoswap-udp", type=int, help="Replacement protocol number for UDP")
+    v3_c.add_argument("-l", "-p", "--listen-port", "--listen", type=int, default=443, help="Listen transport port on Kharej side (default: 443)")
+    v3_c.add_argument("-f", "-t", "--target-port", "--forward", type=int, default=443, help="Final destination service port on Kharej side (default: 443)")
+    v3_c.add_argument("--final-ip", default="127.0.0.1", help="Final destination service IP (default: 127.0.0.1)")
+    v3_c.add_argument("--mux", nargs="?", const=8, type=int, default=0, help="Enable Mux multiplexing (default count: 8)")
+    v3_c.add_argument("--proxy-protocol", action="store_true", help="Enable Proxy Protocol header")
+    v3_c.add_argument("--xor-key", type=int, default=90, help="XOR obfuscation key (default: 90)")
+    v3_c.add_argument("--no-core", action="store_true", help="Do not automatically add to core.json")
+
+
+def _handle_v3(args: argparse.Namespace) -> int:
+    side = getattr(args, "v3_side", None) or getattr(args, "side", None)
+    name = args.name or args.pos_name
+    kharej_ip = args.kharej_ip or args.pos_non_iran_ip
+    iran_ip = args.iran_ip or args.pos_iran_ip
+    private_ip = args.private_ip or args.pos_private_ip
+    proto_tcp = args.protoswap_tcp if args.protoswap_tcp is not None else args.pos_protocol
+    proto_udp = args.protoswap_udp if args.protoswap_udp is not None else args.pos_udp_protocol
+
+    if not name or not kharej_ip or not iran_ip or not private_ip or proto_tcp is None:
+        print_error("Missing required parameters for v3 (<config_name> <non_iran_ip> <iran_ip> <private_ip> <protocol>)")
+        return 1
+
+    if proto_udp is None:
+        proto_udp = proto_tcp + 1
+
+    use_mux = bool(args.mux and args.mux > 0)
+    mux_count = args.mux if use_mux else 8
+    xor_key = getattr(args, "xor_key", 90) or 90
+
+    if side in ("server", "iran"):
+        cert_path = args.tls[0] if getattr(args, "tls", None) else None
+        key_path = args.tls[1] if getattr(args, "tls", None) else None
+        use_tls = bool(cert_path and key_path)
+
+        cfg = generate_protoswap_iran(
+            config_name=name,
+            iran_ip=iran_ip,
+            kharej_ip=kharej_ip,
+            tcp_ports=[args.listen_port],
+            tcp_tunnel_port=args.target_port,
+            protoswap_tcp=proto_tcp,
+            protoswap_udp=proto_udp,
+            custom_private_ip=private_ip,
+            mux_count=mux_count,
+            use_proxy_protocol=args.proxy_protocol,
+            use_tls=use_tls,
+            cert_path=cert_path,
+            key_path=key_path,
+            xor_key=xor_key,
+        )
+        save_waterwall_config(cfg, name=name, auto_core=not args.no_core)
+        return 0
+
+    elif side in ("client", "kharej"):
+        final_ip = getattr(args, "final_ip", "127.0.0.1") or "127.0.0.1"
+        cfg = generate_protoswap_kharej(
+            config_name=name,
+            iran_ip=iran_ip,
+            kharej_ip=kharej_ip,
+            tcp_ports=[args.target_port],
+            tcp_tunnel_port=args.listen_port,
+            final_ip=final_ip,
+            protoswap_tcp=proto_tcp,
+            protoswap_udp=proto_udp,
+            custom_private_ip=private_ip,
+            xor_key=xor_key,
+        )
+        save_waterwall_config(cfg, name=name, auto_core=not args.no_core)
+        return 0
+
+    else:
+        print_error("Invalid v3 mode. Must be 'server' or 'client'.")
+        return 1
+
+
 def create_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="confgen",
@@ -83,6 +222,16 @@ def create_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("-v", "--version", action="version", version=f"%(prog)s {__version__}")
     subparsers = parser.add_subparsers(dest="command", help="Target tunneling subsystem")
+
+    # =========================================================================
+    # 0. V3 (Top-level alias matching bash syntax)
+    # =========================================================================
+    v3_top_p = subparsers.add_parser(
+        "v3",
+        help="WaterWall V3 Protoswap tunnel configuration (bash-compatible syntax)",
+        formatter_class=CustomFormatter,
+    )
+    _add_v3_subparser(v3_top_p)
 
     # =========================================================================
     # 1. XRAY
@@ -184,7 +333,7 @@ def create_parser() -> argparse.ArgumentParser:
     w_rr_i.add_argument("--fisher", action="store_true", help="Enable ConnectionFisher server")
     w_rr_i.add_argument("--tls-cert", help="TLS certificate path for local termination")
     w_rr_i.add_argument("--tls-key", help="TLS key path for local termination")
-    w_rr_i.add_argument("-o", "--output", help="Output file path")
+    w_rr_i.add_argument("--no-core", action="store_true", help="Do not automatically add to core.json")
 
     # ww rr kharej
     w_rr_k = ww_rr_sub.add_parser(
@@ -212,7 +361,7 @@ def create_parser() -> argparse.ArgumentParser:
     w_rr_k.add_argument("--float", nargs="*", default=[], help="Kharej floating IPs")
     w_rr_k.add_argument("--halfduplex", action="store_true", help="Enable HalfDuplex server")
     w_rr_k.add_argument("--fisher", action="store_true", help="Enable ConnectionFisher client")
-    w_rr_k.add_argument("-o", "--output", help="Output file path")
+    w_rr_k.add_argument("--no-core", action="store_true", help="Do not automatically add to core.json")
 
     # 2.2 waterwall tls-reverse
     ww_tls = ww_sub.add_parser("tls-reverse", help="TLS Reverse tunnel", formatter_class=CustomFormatter)
@@ -226,7 +375,7 @@ def create_parser() -> argparse.ArgumentParser:
     w_tls_i.add_argument("--key", required=True, help="Path to TLS key")
     w_tls_i.add_argument("-ki", "--kharej-ips", nargs="+", required=True, help="Whitelisted Kharej IP(s)")
     w_tls_i.add_argument("--proxy-protocol", action="store_true", help="Enable Proxy Protocol")
-    w_tls_i.add_argument("-o", "--output", help="Output file path")
+    w_tls_i.add_argument("--no-core", action="store_true", help="Do not automatically add to core.json")
 
     w_tls_k = ww_tls_sub.add_parser("kharej", help="Kharej server configuration", formatter_class=CustomFormatter)
     w_tls_k.add_argument("-n", "--name", required=True, help="Configuration name")
@@ -235,7 +384,7 @@ def create_parser() -> argparse.ArgumentParser:
     w_tls_k.add_argument("-d", "--sni", required=True, help="SNI domain")
     w_tls_k.add_argument("-fp", "--final-port", type=int, required=True, help="Target application port")
     w_tls_k.add_argument("--final-ip", default="127.0.0.1", help="Target application IP")
-    w_tls_k.add_argument("-o", "--output", help="Output file path")
+    w_tls_k.add_argument("--no-core", action="store_true", help="Do not automatically add to core.json")
 
     # 2.3 waterwall udp-reverse
     ww_udp = ww_sub.add_parser("udp-reverse", help="UDP Reverse tunnel (RawSocket+XOR)", formatter_class=CustomFormatter)
@@ -251,7 +400,7 @@ def create_parser() -> argparse.ArgumentParser:
     w_udp_i.add_argument("--tun-kharej", default="10.20.1.2", help="TUN interface IP for Kharej")
     w_udp_i.add_argument("--xor-key", type=int, default=153, help="XOR encryption key")
     w_udp_i.add_argument("--secret", default="begapour", help="Reverse handshake secret")
-    w_udp_i.add_argument("-o", "--output", help="Output file path")
+    w_udp_i.add_argument("--no-core", action="store_true", help="Do not automatically add to core.json")
 
     w_udp_k = ww_udp_sub.add_parser("kharej", help="Kharej server configuration", formatter_class=CustomFormatter)
     w_udp_k.add_argument("-n", "--name", required=True, help="Configuration name")
@@ -263,7 +412,7 @@ def create_parser() -> argparse.ArgumentParser:
     w_udp_k.add_argument("--tun-kharej", default="10.20.1.2", help="TUN interface IP for Kharej")
     w_udp_k.add_argument("--xor-key", type=int, default=153, help="XOR encryption key")
     w_udp_k.add_argument("--secret", default="begapour", help="Reverse handshake secret")
-    w_udp_k.add_argument("-o", "--output", help="Output file path")
+    w_udp_k.add_argument("--no-core", action="store_true", help="Do not automatically add to core.json")
 
     # 2.4 waterwall bitswap
     ww_bit = ww_sub.add_parser(
@@ -308,7 +457,7 @@ def create_parser() -> argparse.ArgumentParser:
     w_bit_i.add_argument("--xor-key", type=int, default=90, help="XOR obfuscation key (default: 90)")
     w_bit_i.add_argument("--private-ip", help="Custom base private IP subnet (e.g. 10.10.0.1)")
     w_bit_i.add_argument("--private-ip-2", help="Secondary internal private IP subnet")
-    w_bit_i.add_argument("-o", "--output", help="Output file path")
+    w_bit_i.add_argument("--no-core", action="store_true", help="Do not automatically add to core.json")
 
     w_bit_k = ww_bit_sub.add_parser(
         "kharej",
@@ -340,7 +489,7 @@ def create_parser() -> argparse.ArgumentParser:
     w_bit_k.add_argument("--xor-key", type=int, default=90, help="XOR obfuscation key (default: 90)")
     w_bit_k.add_argument("--private-ip", help="Custom base private IP subnet (e.g. 10.10.0.1)")
     w_bit_k.add_argument("--private-ip-2", help="Secondary internal private IP subnet")
-    w_bit_k.add_argument("-o", "--output", help="Output file path")
+    w_bit_k.add_argument("--no-core", action="store_true", help="Do not automatically add to core.json")
 
     # 2.5 waterwall protoswap
     ww_proto = ww_sub.add_parser(
@@ -387,7 +536,7 @@ def create_parser() -> argparse.ArgumentParser:
     w_proto_i.add_argument("--private-ip", help="Custom base private IP subnet (e.g. 10.10.0.1)")
     w_proto_i.add_argument("--private-ip-2", help="Secondary internal private IP subnet")
     w_proto_i.add_argument("--bitswap", action="store_true", help="Also enable TCP bit-swapping alongside protoswap")
-    w_proto_i.add_argument("-o", "--output", help="Output file path")
+    w_proto_i.add_argument("--no-core", action="store_true", help="Do not automatically add to core.json")
 
     w_proto_k = ww_proto_sub.add_parser(
         "kharej",
@@ -422,7 +571,7 @@ def create_parser() -> argparse.ArgumentParser:
     w_proto_k.add_argument("--private-ip", help="Custom base private IP subnet (e.g. 10.10.0.1)")
     w_proto_k.add_argument("--private-ip-2", help="Secondary internal private IP subnet")
     w_proto_k.add_argument("--bitswap", action="store_true", help="Also enable TCP bit-swapping alongside protoswap")
-    w_proto_k.add_argument("-o", "--output", help="Output file path")
+    w_proto_k.add_argument("--no-core", action="store_true", help="Do not automatically add to core.json")
 
     # 2.6 waterwall benchmark
     ww_bench = ww_sub.add_parser(
@@ -502,7 +651,7 @@ def create_parser() -> argparse.ArgumentParser:
     ww_s.add_argument("-ep", "--end-port", type=int, required=True, help="Ending port of range")
     ww_s.add_argument("-di", "--dest-ip", required=True, help="Destination IP address")
     ww_s.add_argument("-dp", "--dest-port", type=int, required=True, help="Destination target port")
-    ww_s.add_argument("-o", "--output", help="Output file path")
+    ww_s.add_argument("--no-core", action="store_true", help="Do not automatically add to core.json")
 
     # 2.8 waterwall core
     ww_core = ww_sub.add_parser(
@@ -519,6 +668,14 @@ def create_parser() -> argparse.ArgumentParser:
     ww_core.add_argument("--mtu", type=int, default=1400, help="MTU size")
     ww_core.add_argument("-o", "--output", default="core.json", help="Output file path (default: core.json)")
 
+    # 2.9 waterwall v3
+    ww_v3 = ww_sub.add_parser(
+        "v3",
+        help="WaterWall V3 Protoswap tunnel configuration (bash-compatible syntax)",
+        formatter_class=CustomFormatter,
+    )
+    _add_v3_subparser(ww_v3)
+
     return parser
 
 
@@ -531,8 +688,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 1
 
     try:
+        # Route V3 top-level alias
+        if args.command == "v3":
+            return _handle_v3(args)
+
         # Route Xray
-        if args.command == "xray":
+        elif args.command == "xray":
             if args.subcommand == "reverse":
                 if args.side == "iran":
                     name = args.name or args.pos_name or "xray-iran"
@@ -573,7 +734,10 @@ def main(argv: Optional[List[str]] = None) -> int:
 
         # Route Waterwall
         elif args.command == "waterwall":
-            if args.subcommand == "reverse-reality":
+            if args.subcommand == "v3":
+                return _handle_v3(args)
+
+            elif args.subcommand == "reverse-reality":
                 if args.side == "iran":
                     name = args.name or args.pos_name
                     iran_ip = args.iran_ip or args.pos_iran_ip
@@ -601,8 +765,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                         cert_path=args.tls_cert,
                         key_path=args.tls_key,
                     )
-                    out_path = args.output or f"{name}.json"
-                    write_json(cfg, out_path)
+                    save_waterwall_config(cfg, name=name, auto_core=not args.no_core)
                     return 0
 
                 elif args.side == "kharej":
@@ -630,8 +793,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                         use_halfduplex=args.halfduplex,
                         use_fisher=args.fisher,
                     )
-                    out_path = args.output or f"{name}.json"
-                    write_json(cfg, out_path)
+                    save_waterwall_config(cfg, name=name, auto_core=not args.no_core)
                     return 0
 
             elif args.subcommand == "tls-reverse":
@@ -645,8 +807,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                         kharej_ips=args.kharej_ips,
                         use_proxy_protocol=args.proxy_protocol,
                     )
-                    out_path = args.output or f"{args.name}.json"
-                    write_json(cfg, out_path)
+                    save_waterwall_config(cfg, name=args.name, auto_core=not args.no_core)
                     return 0
 
                 elif args.side == "kharej":
@@ -658,8 +819,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                         final_port=args.final_port,
                         final_ip=args.final_ip,
                     )
-                    out_path = args.output or f"{args.name}.json"
-                    write_json(cfg, out_path)
+                    save_waterwall_config(cfg, name=args.name, auto_core=not args.no_core)
                     return 0
 
             elif args.subcommand == "udp-reverse":
@@ -675,8 +835,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                         xor_key=args.xor_key,
                         reverse_secret=args.secret,
                     )
-                    out_path = args.output or f"{args.name}.json"
-                    write_json(cfg, out_path)
+                    save_waterwall_config(cfg, name=args.name, auto_core=not args.no_core)
                     return 0
 
                 elif args.side == "kharej":
@@ -691,8 +850,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                         xor_key=args.xor_key,
                         reverse_secret=args.secret,
                     )
-                    out_path = args.output or f"{args.name}.json"
-                    write_json(cfg, out_path)
+                    save_waterwall_config(cfg, name=args.name, auto_core=not args.no_core)
                     return 0
 
             elif args.subcommand == "bitswap":
@@ -735,8 +893,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                         custom_private_ip=args.private_ip,
                         custom_private_ip_2=args.private_ip_2,
                     )
-                    out_path = args.output or f"{name}.json"
-                    write_json(cfg, out_path)
+                    save_waterwall_config(cfg, name=name, auto_core=not args.no_core)
                     return 0
 
                 elif args.side == "kharej":
@@ -758,8 +915,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                         custom_private_ip=args.private_ip,
                         custom_private_ip_2=args.private_ip_2,
                     )
-                    out_path = args.output or f"{name}.json"
-                    write_json(cfg, out_path)
+                    save_waterwall_config(cfg, name=name, auto_core=not args.no_core)
                     return 0
 
             elif args.subcommand == "protoswap":
@@ -805,8 +961,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                         custom_private_ip_2=args.private_ip_2,
                         enable_bitswap=args.bitswap,
                     )
-                    out_path = args.output or f"{name}.json"
-                    write_json(cfg, out_path)
+                    save_waterwall_config(cfg, name=name, auto_core=not args.no_core)
                     return 0
 
                 elif args.side == "kharej":
@@ -831,8 +986,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                         custom_private_ip_2=args.private_ip_2,
                         enable_bitswap=args.bitswap,
                     )
-                    out_path = args.output or f"{name}.json"
-                    write_json(cfg, out_path)
+                    save_waterwall_config(cfg, name=name, auto_core=not args.no_core)
                     return 0
 
             elif args.subcommand == "benchmark":
@@ -912,8 +1066,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                     destination_ip=args.dest_ip,
                     destination_port=args.dest_port,
                 )
-                out_path = args.output or f"{args.name}.json"
-                write_json(cfg, out_path)
+                save_waterwall_config(cfg, name=args.name, auto_core=not args.no_core)
                 return 0
 
             elif args.subcommand == "core":

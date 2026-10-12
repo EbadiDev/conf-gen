@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional, Union
 
 
 # ANSI Color Codes
@@ -81,10 +81,12 @@ def write_json(data: Dict[str, Any], filepath: str | Path, indent: int = 2) -> P
     return p
 
 
-def update_core_json(config_name: str, core_path: str | Path = "core.json") -> None:
-    """Add generated config to core.json if present."""
+def update_core_json(config_name: str | Path, core_path: str | Path = "core.json") -> None:
+    """Add generated config to core.json (creating core.json if not present)."""
     cp = Path(core_path)
-    cfg_filename = f"{config_name}.json" if not config_name.endswith(".json") else config_name
+    cfg_filename = Path(config_name).name
+    if not cfg_filename.endswith(".json"):
+        cfg_filename = f"{cfg_filename}.json"
     
     if not cp.exists():
         initial_data = {
@@ -104,9 +106,11 @@ def update_core_json(config_name: str, core_path: str | Path = "core.json") -> N
             },
             "configs": [cfg_filename],
         }
+        cp.parent.mkdir(parents=True, exist_ok=True)
         with open(cp, "w", encoding="utf-8") as f:
             json.dump(initial_data, f, indent=4)
-        print_info(f"Created core.json with {cfg_filename}")
+            f.write("\n")
+        print_info(f"Created core.json at {cp} with {cfg_filename}")
         return
 
     try:
@@ -114,11 +118,44 @@ def update_core_json(config_name: str, core_path: str | Path = "core.json") -> N
             data = json.load(f)
         
         configs = data.get("configs", [])
+        if not isinstance(configs, list):
+            configs = []
         if cfg_filename not in configs:
             configs.append(cfg_filename)
             data["configs"] = configs
             with open(cp, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=4)
+                f.write("\n")
             print_info(f"Added {cfg_filename} to {cp}")
+        else:
+            print_info(f"Configuration {cfg_filename} already exists in {cp}")
     except Exception as e:
         print_warning(f"Failed to update {cp}: {e}")
+
+
+def save_waterwall_config(
+    data: Dict[str, Any],
+    filepath: Optional[Union[str, Path]] = None,
+    name: Optional[str] = None,
+    auto_core: bool = True,
+    core_path: Optional[Union[str, Path]] = None,
+) -> Path:
+    """Write WaterWall config and automatically synchronize with core.json."""
+    if filepath:
+        target = Path(filepath)
+    elif name:
+        target = Path(f"{name}.json")
+    else:
+        target = Path("config.json")
+
+    if not target.suffix:
+        target = target.with_suffix(".json")
+
+    written_path = write_json(data, target)
+
+    if auto_core:
+        c_path = Path(core_path) if core_path else (target.parent / "core.json")
+        update_core_json(target.name, core_path=c_path)
+
+    return written_path
+

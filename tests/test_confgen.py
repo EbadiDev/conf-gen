@@ -300,30 +300,37 @@ class TestCLIFlags(unittest.TestCase):
         import json
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            out_file = os.path.join(tmpdir, "test-bitswap.json")
-            # Testing unified user command format without -m or --proto
-            cmd = [
-                "waterwall", "bitswap", "iran",
-                "nuremberg-bit", "198.51.100.10", "203.0.113.20",
-                "--tcp", "6443,2059",
-                "--udp", "27015",
-                "--private-ip", "10.50.0.1",
-                "--tcp-tunnel-port", "8445",
-                "--udp-tunnel-port", "8446",
-                "--proxy-protocol",
-                "--float", "203.0.113.21",
-                "--tls", "/tmp/cert.pem", "/tmp/key.pem",
-                "-o", out_file,
-            ]
-            ret = main(cmd)
-            self.assertEqual(ret, 0)
-            self.assertTrue(os.path.exists(out_file))
-            with open(out_file) as f:
-                data = json.load(f)
-            self.assertEqual(data["variables"]["ip_server_kharej_main"], "203.0.113.20")
-            self.assertEqual(data["variables"]["ip_server_kharej_float_1"], "203.0.113.21")
-            self.assertEqual(data["variables"]["ports_to_listen"], [6443, 2059])
-            self.assertEqual(data["variables"]["udp_port_to_listen"], 27015)
+            old_cwd = os.getcwd()
+            try:
+                os.chdir(tmpdir)
+                cmd = [
+                    "waterwall", "bitswap", "iran",
+                    "nuremberg-bit", "198.51.100.10", "203.0.113.20",
+                    "--tcp", "6443,2059",
+                    "--udp", "27015",
+                    "--private-ip", "10.50.0.1",
+                    "--tcp-tunnel-port", "8445",
+                    "--udp-tunnel-port", "8446",
+                    "--proxy-protocol",
+                    "--float", "203.0.113.21",
+                    "--tls", "/tmp/cert.pem", "/tmp/key.pem",
+                ]
+                ret = main(cmd)
+                self.assertEqual(ret, 0)
+                self.assertTrue(os.path.exists("nuremberg-bit.json"))
+                with open("nuremberg-bit.json") as f:
+                    data = json.load(f)
+                self.assertEqual(data["variables"]["ip_server_kharej_main"], "203.0.113.20")
+                self.assertEqual(data["variables"]["ip_server_kharej_float_1"], "203.0.113.21")
+                self.assertEqual(data["variables"]["ports_to_listen"], [6443, 2059])
+                self.assertEqual(data["variables"]["udp_port_to_listen"], 27015)
+
+                self.assertTrue(os.path.exists("core.json"))
+                with open("core.json") as f:
+                    core_data = json.load(f)
+                self.assertIn("nuremberg-bit.json", core_data["configs"])
+            finally:
+                os.chdir(old_cwd)
 
     def test_cli_protoswap_unified(self):
         from confgen.cli import main
@@ -332,55 +339,61 @@ class TestCLIFlags(unittest.TestCase):
         import json
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            out_i = os.path.join(tmpdir, "test-protoswap-i.json")
-            out_k = os.path.join(tmpdir, "test-protoswap-k.json")
-            cmd_i = [
-                "waterwall", "protoswap", "iran",
-                "nuremberg-proto", "198.51.100.10", "203.0.113.20",
-                "--tcp", "6443,2059",
-                "--udp", "27015",
-                "--protoswap-tcp", "253",
-                "--protoswap-udp", "252",
-                "--tcp-tunnel-port", "8445",
-                "--udp-tunnel-port", "8446",
-                "--proxy-protocol",
-                "--float", "203.0.113.21",
-                "--tls", "/tmp/cert.pem", "/tmp/key.pem",
-                "-o", out_i,
-            ]
-            ret_i = main(cmd_i)
-            self.assertEqual(ret_i, 0)
-            self.assertTrue(os.path.exists(out_i))
-            with open(out_i) as f:
-                data_i = json.load(f)
-            self.assertEqual(data_i["variables"]["ip_server_kharej_main"], "203.0.113.20")
-            self.assertEqual(data_i["variables"]["ip_server_kharej_float_1"], "203.0.113.21")
-            self.assertEqual(data_i["variables"]["ports_to_listen"], [6443, 2059])
-            self.assertEqual(data_i["variables"]["udp_port_to_listen"], 27015)
+            old_cwd = os.getcwd()
+            try:
+                os.chdir(tmpdir)
+                cmd_i = [
+                    "waterwall", "protoswap", "iran",
+                    "nuremberg-proto-i", "198.51.100.10", "203.0.113.20",
+                    "--tcp", "6443,2059",
+                    "--udp", "27015",
+                    "--protoswap-tcp", "253",
+                    "--protoswap-udp", "252",
+                    "--tcp-tunnel-port", "8445",
+                    "--udp-tunnel-port", "8446",
+                    "--proxy-protocol",
+                    "--float", "203.0.113.21",
+                    "--tls", "/tmp/cert.pem", "/tmp/key.pem",
+                ]
+                ret_i = main(cmd_i)
+                self.assertEqual(ret_i, 0)
+                self.assertTrue(os.path.exists("nuremberg-proto-i.json"))
+                with open("nuremberg-proto-i.json") as f:
+                    data_i = json.load(f)
+                self.assertEqual(data_i["variables"]["ip_server_kharej_main"], "203.0.113.20")
+                self.assertEqual(data_i["variables"]["ip_server_kharej_float_1"], "203.0.113.21")
+                self.assertEqual(data_i["variables"]["ports_to_listen"], [6443, 2059])
+                self.assertEqual(data_i["variables"]["udp_port_to_listen"], 27015)
 
-            cmd_k = [
-                "waterwall", "protoswap", "kharej",
-                "nuremberg-proto", "198.51.100.10", "203.0.113.20",
-                "--tcp", "6443,2059",
-                "--udp", "27015",
-                "--protoswap-tcp", "253",
-                "--protoswap-udp", "252",
-                "--tcp-tunnel-port", "8445",
-                "--udp-tunnel-port", "8446",
-                "--float", "203.0.113.21",
-                "-o", out_k,
-            ]
-            ret_k = main(cmd_k)
-            self.assertEqual(ret_k, 0)
-            self.assertTrue(os.path.exists(out_k))
-            with open(out_k) as f:
-                data_k = json.load(f)
-            self.assertEqual(data_k["variables"]["ip_server_kharej_main"], "203.0.113.20")
-            self.assertEqual(data_k["variables"]["port_to_listen"], 8445)
-            self.assertEqual(data_k["variables"]["udp_port_to_listen"], 8446)
-            self.assertEqual(data_k["variables"]["udp_final_port"], 27015)
-            k_node_names = [n["name"] for n in data_k["nodes"]]
-            self.assertIn("header-server", k_node_names)
+                cmd_k = [
+                    "waterwall", "protoswap", "kharej",
+                    "nuremberg-proto-k", "198.51.100.10", "203.0.113.20",
+                    "--tcp", "6443,2059",
+                    "--udp", "27015",
+                    "--protoswap-tcp", "253",
+                    "--protoswap-udp", "252",
+                    "--tcp-tunnel-port", "8445",
+                    "--udp-tunnel-port", "8446",
+                    "--float", "203.0.113.21",
+                ]
+                ret_k = main(cmd_k)
+                self.assertEqual(ret_k, 0)
+                self.assertTrue(os.path.exists("nuremberg-proto-k.json"))
+                with open("nuremberg-proto-k.json") as f:
+                    data_k = json.load(f)
+                self.assertEqual(data_k["variables"]["ip_server_kharej_main"], "203.0.113.20")
+                self.assertEqual(data_k["variables"]["port_to_listen"], 8445)
+                self.assertEqual(data_k["variables"]["udp_port_to_listen"], 8446)
+                self.assertEqual(data_k["variables"]["udp_final_port"], 27015)
+                k_node_names = [n["name"] for n in data_k["nodes"]]
+                self.assertIn("header-server", k_node_names)
+
+                self.assertTrue(os.path.exists("core.json"))
+                with open("core.json") as f:
+                    core_data = json.load(f)
+                self.assertEqual(core_data["configs"], ["nuremberg-proto-i.json", "nuremberg-proto-k.json"])
+            finally:
+                os.chdir(old_cwd)
 
     def test_cli_benchmark(self):
         from confgen.cli import main
@@ -476,6 +489,173 @@ class TestCLIFlags(unittest.TestCase):
                         self.assertIsInstance(node["settings"]["protoswap-udp"], int)
 
 
+    def test_cli_protoswap_auto_name_and_core_json(self):
+        """Verify protoswap automatically generates <name>.json and adds to core.json without -o."""
+        from confgen.cli import main
+        import tempfile
+        import os
+        import json
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            old_cwd = os.getcwd()
+            try:
+                os.chdir(tmpdir)
+                cmd_i = [
+                    "waterwall", "protoswap", "iran",
+                    "-n", "proto",
+                    "-ii", "212.23.201.246",
+                    "-ki", "130.49.161.12",
+                    "--tcp", "9000",
+                    "--protoswap-tcp", "51",
+                    "--protoswap-udp", "52",
+                ]
+                ret_i = main(cmd_i)
+                self.assertEqual(ret_i, 0)
+                
+                # Check proto.json was created
+                self.assertTrue(os.path.exists("proto.json"))
+                with open("proto.json") as f:
+                    proto_data = json.load(f)
+                self.assertEqual(proto_data["name"], "proto")
+                self.assertEqual(proto_data["variables"]["protoswap_tcp_to_number"], 51)
+                self.assertEqual(proto_data["variables"]["protoswap_udp_to_number"], 52)
+                
+                # Check core.json was created and contains proto.json
+                self.assertTrue(os.path.exists("core.json"))
+                with open("core.json") as f:
+                    core_data = json.load(f)
+                self.assertEqual(core_data["configs"], ["proto.json"])
+
+                # Run another tunnel generation with a different name, e.g. atlanta
+                cmd_k = [
+                    "waterwall", "protoswap", "kharej",
+                    "-n", "atlanta",
+                    "-ii", "212.23.201.246",
+                    "-ki", "130.49.161.12",
+                    "--tcp", "9000",
+                    "--protoswap-tcp", "51",
+                    "--protoswap-udp", "52",
+                ]
+                ret_k = main(cmd_k)
+                self.assertEqual(ret_k, 0)
+                self.assertTrue(os.path.exists("atlanta.json"))
+                
+                # Check core.json now contains both proto.json and atlanta.json
+                with open("core.json") as f:
+                    core_data_2 = json.load(f)
+                self.assertEqual(core_data_2["configs"], ["proto.json", "atlanta.json"])
+            finally:
+                os.chdir(old_cwd)
+
+    def test_cli_v3_server_and_client_bash_parity(self):
+        """Verify v3 server and client commands match bash syntax, output <name>.json, and auto-sync core.json."""
+        from confgen.cli import main
+        import tempfile
+        import os
+        import json
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            old_cwd = os.getcwd()
+            try:
+                os.chdir(tmpdir)
+                cert_file = os.path.join(tmpdir, "cert.pem")
+                key_file = os.path.join(tmpdir, "key.pem")
+                with open(cert_file, "w") as f:
+                    f.write("DUMMY_CERT")
+                with open(key_file, "w") as f:
+                    f.write("DUMMY_KEY")
+
+                # Run v3 server positional syntax
+                cmd_server = [
+                    "v3", "server", "atlanta",
+                    "109.94.164.71", "162.247.153.90", "30.6.0.1", "50",
+                    "-l", "8080", "-f", "8085",
+                    "--mux", "8",
+                    "--tls", cert_file, key_file,
+                ]
+                ret_s = main(cmd_server)
+                self.assertEqual(ret_s, 0)
+
+                self.assertTrue(os.path.exists("atlanta.json"))
+                with open("atlanta.json") as f:
+                    data_s = json.load(f)
+                self.assertEqual(data_s["name"], "atlanta")
+                self.assertEqual(data_s["variables"]["ip_server_iran"], "162.247.153.90")
+                self.assertEqual(data_s["variables"]["ip_server_kharej"], "109.94.164.71")
+                self.assertEqual(data_s["variables"]["protoswap_tcp_to_number"], 50)
+                self.assertEqual(data_s["variables"]["protoswap_udp_to_number"], 51)
+                self.assertEqual(data_s["variables"]["port_to_listen"], 8080)
+                self.assertEqual(data_s["variables"]["port_to_forward_to_kharej"], 8085)
+
+                # Check core.json was created
+                self.assertTrue(os.path.exists("core.json"))
+                with open("core.json") as f:
+                    core_data = json.load(f)
+                self.assertEqual(core_data["configs"], ["atlanta.json"])
+
+                # Run v3 client positional syntax with another name
+                cmd_client = [
+                    "v3", "client", "sweden",
+                    "109.94.164.71", "162.247.153.90", "30.6.0.1", "50",
+                    "-l", "8085", "-f", "8080",
+                    "--mux", "8",
+                ]
+                ret_c = main(cmd_client)
+                self.assertEqual(ret_c, 0)
+                self.assertTrue(os.path.exists("sweden.json"))
+                with open("sweden.json") as f:
+                    data_c = json.load(f)
+                self.assertEqual(data_c["name"], "sweden")
+                self.assertEqual(data_c["variables"]["port_to_listen"], 8085)
+                self.assertEqual(data_c["variables"]["final_port"], 8080)
+
+                # Check core.json updated
+                with open("core.json") as f:
+                    core_data = json.load(f)
+                self.assertEqual(core_data["configs"], ["atlanta.json", "sweden.json"])
+
+                # Test waterwall v3 nested syntax
+                cmd_ww_v3 = [
+                    "waterwall", "v3", "server", "frankfurt",
+                    "109.94.164.71", "162.247.153.90", "30.6.0.1", "52",
+                    "-l", "9000", "-f", "9005",
+                ]
+                ret_ww = main(cmd_ww_v3)
+                self.assertEqual(ret_ww, 0)
+                self.assertTrue(os.path.exists("frankfurt.json"))
+                with open("core.json") as f:
+                    core_data = json.load(f)
+                self.assertEqual(core_data["configs"], ["atlanta.json", "sweden.json", "frankfurt.json"])
+            finally:
+                os.chdir(old_cwd)
+
+    def test_cli_no_core_flag(self):
+        """Verify --no-core avoids creating or updating core.json."""
+        from confgen.cli import main
+        import tempfile
+        import os
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            old_cwd = os.getcwd()
+            try:
+                os.chdir(tmpdir)
+                cmd = [
+                    "waterwall", "protoswap", "iran",
+                    "-n", "standalone",
+                    "-ii", "212.23.201.246",
+                    "-ki", "130.49.161.12",
+                    "--tcp", "9000",
+                    "--no-core",
+                ]
+                ret = main(cmd)
+                self.assertEqual(ret, 0)
+                self.assertTrue(os.path.exists("standalone.json"))
+                self.assertFalse(os.path.exists("core.json"))
+            finally:
+                os.chdir(old_cwd)
+
+
 if __name__ == "__main__":
     unittest.main()
+
 

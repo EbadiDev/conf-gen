@@ -14,19 +14,19 @@ NC = "\033[0m"
 
 
 def print_info(msg: str) -> None:
-    print(f"{BLUE}[INFO]{NC} {msg}")
+    print(f"{BLUE}[INFO]{NC} {msg}", flush=True)
 
 
 def print_success(msg: str) -> None:
-    print(f"{GREEN}[SUCCESS]{NC} {msg}")
+    print(f"{GREEN}[SUCCESS]{NC} {msg}", flush=True)
 
 
 def print_warning(msg: str) -> None:
-    print(f"{YELLOW}[WARNING]{NC} {msg}")
+    print(f"{YELLOW}[WARNING]{NC} {msg}", flush=True)
 
 
 def print_error(msg: str) -> None:
-    print(f"{RED}[ERROR]{NC} {msg}")
+    print(f"{RED}[ERROR]{NC} {msg}", flush=True)
 
 
 def resolve_variables(config: Dict[str, Any]) -> Dict[str, Any]:

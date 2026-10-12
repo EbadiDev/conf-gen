@@ -182,7 +182,7 @@ def stop_waterwall_and_test(
         except Exception:
             pass
 
-    time.sleep(0.5)
+    time.sleep(0.2)
 
     # 3. Clean temporary test config files
     if ww_cwd and name:
@@ -210,13 +210,12 @@ class FinderAgentState:
 
     @classmethod
     def cancel_timer(cls) -> None:
-        with cls.lock:
-            if cls.auto_timer:
-                try:
-                    cls.auto_timer.cancel()
-                except Exception:
-                    pass
-                cls.auto_timer = None
+        if cls.auto_timer:
+            try:
+                cls.auto_timer.cancel()
+            except Exception:
+                pass
+            cls.auto_timer = None
 
     @classmethod
     def kill_active_processes(cls) -> None:
@@ -230,7 +229,7 @@ class FinderAgentState:
                     pass
                 try:
                     cls.iperf_proc.kill()
-                    cls.iperf_proc.wait(timeout=1.0)
+                    cls.iperf_proc.wait(timeout=0.5)
                 except Exception:
                     pass
                 cls.iperf_proc = None
@@ -243,14 +242,14 @@ class FinderAgentState:
                     pass
                 try:
                     cls.ww_proc.kill()
-                    cls.ww_proc.wait(timeout=1.0)
+                    cls.ww_proc.wait(timeout=0.5)
                 except Exception:
                     pass
                 cls.ww_proc = None
 
-            for pat in ["iperf3", "Waterwall", "waterwall", "_core_"]:
+            for pat in ["iperf3", "Waterwall", "waterwall"]:
                 try:
-                    subprocess.run(["pkill", "-9", "-f", pat], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2.0)
+                    subprocess.run(["pkill", "-9", "-f", pat], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.0)
                 except Exception:
                     pass
 
@@ -260,6 +259,60 @@ class FinderAgentState:
         cls.kill_active_processes()
         stop_waterwall_and_test(None, name, ww_cwd)
         print_success(f"[{time.strftime('%X')}] [Kharej Agent] Auto-teardown complete for '{name}'. WaterWall stopped, control channel restored.")
+
+    @classmethod
+    def start_candidate(
+        cls,
+        name: str,
+        ww_bin: str,
+        ww_cwd: str,
+        tcp_port: int,
+        duration: int,
+    ) -> None:
+        cmd_ww = [ww_bin]
+        print_info(f"[{time.strftime('%X')}] [Kharej Agent] Starting WaterWall directly:")
+        try:
+            cls.ww_proc = subprocess.Popen(
+                cmd_ww,
+                cwd=ww_cwd,
+                start_new_session=True,
+                stdout=None,
+                stderr=None,
+            )
+        except Exception as e:
+            print_error(f"[{time.strftime('%X')}] [Kharej Agent] Failed to start WaterWall: {e}")
+            return
+
+        time.sleep(0.3)
+        if cls.ww_proc.poll() is not None:
+            print_error(f"[{time.strftime('%X')}] [Kharej Agent] WaterWall exited immediately with code {cls.ww_proc.returncode}")
+            return
+
+        # Launch iperf3 server on tcp_port
+        iperf_bin = find_iperf3_binary()
+        if iperf_bin:
+            try:
+                cls.iperf_proc = subprocess.Popen(
+                    [iperf_bin, "-s", "-p", str(tcp_port)],
+                    start_new_session=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            except Exception as e:
+                print_warning(f"Failed to start iperf3: {e}")
+
+        # Arm auto-teardown timer
+        test_window = (duration * 2) + 3.5
+        with cls.lock:
+            cls.auto_timer = threading.Timer(
+                test_window,
+                cls.auto_teardown,
+                args=[name, ww_cwd],
+            )
+            cls.auto_timer.daemon = True
+            cls.auto_timer.start()
+
+        print_success(f"[{time.strftime('%X')}] [Kharej Agent] WaterWall (PID {cls.ww_proc.pid}) & iperf3 active on port {tcp_port}. Auto-teardown armed in {test_window:.1f}s.")
 
 
 class FinderHTTPHandler(BaseHTTPRequestHandler):
@@ -350,53 +403,11 @@ class FinderHTTPHandler(BaseHTTPRequestHandler):
         )
         write_json(core_cfg, core_file)
 
-        # 3. Launch WaterWall directly (binary automatically loads core.json from working dir)
-        cmd_ww = [ww_bin]
-        print_info(f"[{time.strftime('%X')}] [Kharej Agent] Starting WaterWall directly:")
-        try:
-            FinderAgentState.ww_proc = subprocess.Popen(
-                cmd_ww,
-                cwd=ww_cwd,
-                start_new_session=True,
-                stdout=None,
-                stderr=None,
-            )
-        except Exception as e:
-            self._send_json(500, {"error": f"Failed to start WaterWall ({ww_bin}): {e}"})
-            return
-
-        time.sleep(0.5)
-        if FinderAgentState.ww_proc.poll() is not None:
-            self._send_json(500, {"error": f"WaterWall exited immediately with code {FinderAgentState.ww_proc.returncode}"})
-            return
-
-        # 4. Launch iperf3 server on tcp_port
-        iperf_bin = find_iperf3_binary()
-        if iperf_bin:
-            try:
-                FinderAgentState.iperf_proc = subprocess.Popen(
-                    [iperf_bin, "-s", "-p", str(tcp_port)],
-                    start_new_session=True,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-            except Exception as e:
-                print_warning(f"Failed to start iperf3: {e}")
-
-        # 5. Arm auto-teardown timer
-        test_window = (duration * 2) + 3.5
-        with FinderAgentState.lock:
-            FinderAgentState.auto_timer = threading.Timer(
-                test_window,
-                FinderAgentState.auto_teardown,
-                args=[name, ww_cwd],
-            )
-            FinderAgentState.auto_timer.daemon = True
-            FinderAgentState.auto_timer.start()
-
-        time.sleep(1.0)  # Allow WaterWall and iperf3 to bind
-        print_success(f"[{time.strftime('%X')}] [Kharej Agent] WaterWall (PID {FinderAgentState.ww_proc.pid}) & iperf3 ready on port {tcp_port}. Auto-teardown armed in {test_window:.1f}s.")
+        # 3. Respond 200 OK to Iran BEFORE starting WaterWall so HTTP handshake completes unimpeded
         self._send_json(200, {"status": "ready", "tcp_port": tcp_port})
+
+        # 4. Launch WaterWall and iperf3 in background
+        FinderAgentState.start_candidate(name, ww_bin, ww_cwd, tcp_port, duration)
 
     def _handle_teardown(self, req: Dict[str, Any]) -> None:
         name = req.get("name", "finder-kharej")

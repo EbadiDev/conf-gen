@@ -206,7 +206,7 @@ class FinderAgentState:
     iperf_proc: Optional[subprocess.Popen] = None
     current_name: Optional[str] = None
     auto_timer: Optional[threading.Timer] = None
-    lock = threading.Lock()
+    lock = threading.RLock()
 
     @classmethod
     def cancel_timer(cls) -> None:

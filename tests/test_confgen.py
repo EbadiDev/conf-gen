@@ -655,6 +655,75 @@ class TestCLIFlags(unittest.TestCase):
                 os.chdir(old_cwd)
 
 
+class TestFinder(unittest.TestCase):
+    def test_candidates_presets(self):
+        from confgen.core.finder import CANDIDATES_PRESETS
+        for preset_name in ["top", "fast", "all"]:
+            self.assertIn(preset_name, CANDIDATES_PRESETS)
+            cands = CANDIDATES_PRESETS[preset_name]
+            self.assertGreater(len(cands), 0)
+            for c in cands:
+                self.assertIn("id", c)
+                self.assertIn("name", c)
+                self.assertIn("tcp", c)
+                self.assertIn("udp", c)
+                self.assertIsInstance(c["tcp"], int)
+                self.assertIsInstance(c["udp"], int)
+
+    def test_parse_custom_protocols(self):
+        from confgen.core.finder import parse_custom_protocols
+        parsed = parse_custom_protocols("50/51, 47:136, 200")
+        self.assertEqual(len(parsed), 3)
+        self.assertEqual(parsed[0]["tcp"], 50)
+        self.assertEqual(parsed[0]["udp"], 51)
+        self.assertEqual(parsed[1]["tcp"], 47)
+        self.assertEqual(parsed[1]["udp"], 136)
+        self.assertEqual(parsed[2]["tcp"], 200)
+        self.assertEqual(parsed[2]["udp"], 201)
+
+    def test_cli_finder_parser(self):
+        from confgen.cli import create_parser
+        parser = create_parser()
+
+        # Top-level server
+        args = parser.parse_args(["finder", "server", "--port", "8088"])
+        self.assertEqual(args.command, "finder")
+        self.assertEqual(args.finder_cmd, "server")
+        self.assertEqual(args.port, 8088)
+
+        # Top-level server positional port
+        args = parser.parse_args(["finder", "server", "8090"])
+        self.assertEqual(args.pos_port, 8090)
+
+        # Top-level client with flags
+        args = parser.parse_args([
+            "finder", "client",
+            "-ii", "194.5.188.55",
+            "-ki", "130.49.161.12",
+            "-cp", "8088",
+            "-p", "9001",
+            "--preset", "fast",
+        ])
+        self.assertEqual(args.command, "finder")
+        self.assertEqual(args.finder_cmd, "client")
+        self.assertEqual(args.iran_ip, "194.5.188.55")
+        self.assertEqual(args.kharej_ip, "130.49.161.12")
+        self.assertEqual(args.control_port, 8088)
+        self.assertEqual(args.port, 9001)
+        self.assertEqual(args.preset, "fast")
+
+        # Nested waterwall finder client with positional IPs
+        args = parser.parse_args([
+            "waterwall", "finder", "client",
+            "194.5.188.55", "130.49.161.12",
+        ])
+        self.assertEqual(args.command, "waterwall")
+        self.assertEqual(args.subcommand, "finder")
+        self.assertEqual(args.finder_cmd, "client")
+        self.assertEqual(args.pos_iran_ip, "194.5.188.55")
+        self.assertEqual(args.pos_kharej_ip, "130.49.161.12")
+
+
 if __name__ == "__main__":
     unittest.main()
 

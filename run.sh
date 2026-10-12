@@ -10,8 +10,9 @@ mkdir -p "$WORKDIR"
 
 # Primary: Download ultra-lightweight standalone bundle (31KB) from raw.githubusercontent.com
 # (Same CDN domain that successfully served this runner script)
-ZIP_URL="https://raw.githubusercontent.com/${REPO}/${BRANCH}/confgen.zip"
-if curl -fsSL --connect-timeout 8 --max-time 30 --retry 3 "$ZIP_URL" -o "$WORKDIR/confgen.zip" 2>/dev/null && [ -s "$WORKDIR/confgen.zip" ]; then
+ZIP_URL="https://raw.githubusercontent.com/${REPO}/${BRANCH}/confgen.zip?t=$(date +%s)"
+if curl -fsSL -H "Cache-Control: no-cache, no-store" --connect-timeout 8 --max-time 30 --retry 3 "$ZIP_URL" -o "$WORKDIR/confgen.zip.tmp" 2>/dev/null && [ -s "$WORKDIR/confgen.zip.tmp" ]; then
+    mv -f "$WORKDIR/confgen.zip.tmp" "$WORKDIR/confgen.zip"
     exec python3 "$WORKDIR/confgen.zip" "$@"
 fi
 

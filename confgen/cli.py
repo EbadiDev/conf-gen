@@ -52,6 +52,10 @@ from confgen.generators.waterwall.benchmark import (
 )
 from confgen.generators.waterwall.core import generate_core_config
 from confgen.generators.waterwall.simple import generate_simple_config
+from confgen.core.finder import (
+    run_finder_server,
+    run_finder_client,
+)
 
 
 def _extract_ports(raw_list: Optional[List[Any]]) -> List[int]:
@@ -214,6 +218,74 @@ def _handle_v3(args: argparse.Namespace) -> int:
         return 1
 
 
+def _add_finder_subparser(finder_p: argparse.ArgumentParser) -> None:
+    finder_sub = finder_p.add_subparsers(dest="finder_cmd", help="Finder role (server | client)")
+
+    # finder server (Kharej daemon)
+    f_srv = finder_sub.add_parser(
+        "server",
+        help="Start Finder Agent daemon on Kharej server",
+        formatter_class=CustomFormatter,
+        epilog="""Examples:
+  ./confgen.py finder server --port 8088
+  ./confgen.py waterwall finder server -p 8088
+""",
+    )
+    f_srv.add_argument("pos_port", nargs="?", type=int, help="[Positional fallback] Control port")
+    f_srv.add_argument("-p", "--port", type=int, default=8088, help="Control HTTP port (default: 8088)")
+    f_srv.add_argument("--host", default="0.0.0.0", help="Bind IP address (default: 0.0.0.0)")
+
+    # finder client (Iran orchestrator)
+    f_cli = finder_sub.add_parser(
+        "client",
+        help="Orchestrate automated tunnel protocol sweep from Iran",
+        formatter_class=CustomFormatter,
+        epilog="""Examples:
+  ./confgen.py finder client -ii 194.5.188.55 -ki 130.49.161.12 --preset top
+  ./confgen.py finder client 194.5.188.55 130.49.161.12 -cp 8088 -p 9001 -d 5
+  ./confgen.py finder client -ii 194.5.188.55 -ki 130.49.161.12 --protocols 50/51,51/52,47/136
+""",
+    )
+    f_cli.add_argument("pos_iran_ip", nargs="?", help="[Positional fallback] Iran Server IP")
+    f_cli.add_argument("pos_kharej_ip", nargs="?", help="[Positional fallback] Kharej Server IP")
+    f_cli.add_argument("-ii", "--iran-ip", help="Iran Server public IP")
+    f_cli.add_argument("-ki", "--kharej-ip", help="Kharej Server public IP")
+    f_cli.add_argument("-cp", "--control-port", type=int, default=8088, help="Kharej agent control port (default: 8088)")
+    f_cli.add_argument("-p", "--port", "--tcp-port", dest="port", type=int, default=9001, help="WaterWall tunnel benchmarking port (default: 9001)")
+    f_cli.add_argument("-n", "--name", default="parspack-nl", help="Tunnel configuration name (default: parspack-nl)")
+    f_cli.add_argument("-t", "-d", "--duration", type=int, default=5, help="Test duration in seconds per direction (default: 5)")
+    f_cli.add_argument("--preset", choices=["top", "fast", "all"], default="top", help="Candidate protocol preset (default: top)")
+    f_cli.add_argument("--protocols", help="Custom comma-separated protocol pairs (e.g. 50/51,51/52,47/136)")
+    f_cli.add_argument("--no-apply", action="store_true", help="Do not automatically activate winner in core.json")
+
+
+def _handle_finder(args: argparse.Namespace) -> int:
+    cmd = getattr(args, "finder_cmd", None)
+    if cmd == "server":
+        port = args.port if args.port != 8088 or not getattr(args, "pos_port", None) else args.pos_port
+        return run_finder_server(port=port, host=args.host)
+    elif cmd == "client":
+        iran_ip = args.iran_ip or getattr(args, "pos_iran_ip", None)
+        kharej_ip = args.kharej_ip or getattr(args, "pos_kharej_ip", None)
+        if not iran_ip or not kharej_ip:
+            print_error("Missing required parameters: iran-ip (-ii) and kharej-ip (-ki) are required.")
+            return 1
+        return run_finder_client(
+            iran_ip=iran_ip,
+            kharej_ip=kharej_ip,
+            control_port=args.control_port,
+            tcp_port=args.port,
+            name=args.name,
+            duration=args.duration,
+            preset=args.preset,
+            custom_protocols=args.protocols,
+            auto_apply=not args.no_apply,
+        )
+    else:
+        print_error("Invalid finder role. Choose 'server' or 'client'.")
+        return 1
+
+
 def create_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="confgen",
@@ -232,6 +304,16 @@ def create_parser() -> argparse.ArgumentParser:
         formatter_class=CustomFormatter,
     )
     _add_v3_subparser(v3_top_p)
+
+    # =========================================================================
+    # 0.1 FINDER (Top-level alias)
+    # =========================================================================
+    finder_top_p = subparsers.add_parser(
+        "finder",
+        help="Automated best tunnel finder and protocol optimizer",
+        formatter_class=CustomFormatter,
+    )
+    _add_finder_subparser(finder_top_p)
 
     # =========================================================================
     # 1. XRAY
@@ -676,6 +758,14 @@ def create_parser() -> argparse.ArgumentParser:
     )
     _add_v3_subparser(ww_v3)
 
+    # 2.10 waterwall finder
+    ww_finder = ww_sub.add_parser(
+        "finder",
+        help="Automated best tunnel finder and protocol optimizer",
+        formatter_class=CustomFormatter,
+    )
+    _add_finder_subparser(ww_finder)
+
     return parser
 
 
@@ -691,6 +781,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         # Route V3 top-level alias
         if args.command == "v3":
             return _handle_v3(args)
+
+        # Route Finder top-level alias
+        elif args.command == "finder":
+            return _handle_finder(args)
 
         # Route Xray
         elif args.command == "xray":
@@ -736,6 +830,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         elif args.command == "waterwall":
             if args.subcommand == "v3":
                 return _handle_v3(args)
+
+            elif args.subcommand == "finder":
+                return _handle_finder(args)
 
             elif args.subcommand == "reverse-reality":
                 if args.side == "iran":

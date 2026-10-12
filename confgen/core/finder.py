@@ -13,7 +13,11 @@ import socket
 import subprocess
 import sys
 import time
-from http.server import BaseHTTPRequestHandler, HTTPServer
+try:
+    from http.server import ThreadingHTTPServer as HttpServerClass
+except ImportError:
+    from http.server import HTTPServer as HttpServerClass  # type: ignore
+from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.request import Request, urlopen
@@ -126,7 +130,7 @@ def parse_custom_protocols(proto_str: str) -> List[Dict[str, Any]]:
 class FinderAgentState:
     ww_proc: Optional[subprocess.Popen] = None
     iperf_proc: Optional[subprocess.Popen] = None
-    py_speedtest_sock: Optional[socket.socket] = None
+    current_name: Optional[str] = None
 
 
 class FinderHTTPHandler(BaseHTTPRequestHandler):
@@ -139,8 +143,11 @@ class FinderHTTPHandler(BaseHTTPRequestHandler):
         self.send_response(status_code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(payload)
+        self.wfile.flush()
+        self.close_connection = True
 
     def do_GET(self) -> None:
         if self.path in ("/health", "/status", "/"):
@@ -173,29 +180,25 @@ class FinderHTTPHandler(BaseHTTPRequestHandler):
     def _kill_active_processes(self) -> None:
         if FinderAgentState.iperf_proc:
             try:
-                FinderAgentState.iperf_proc.terminate()
-                FinderAgentState.iperf_proc.wait(timeout=1)
+                FinderAgentState.iperf_proc.kill()
             except Exception:
-                try:
-                    FinderAgentState.iperf_proc.kill()
-                except Exception:
-                    pass
+                pass
             FinderAgentState.iperf_proc = None
 
         if FinderAgentState.ww_proc:
             try:
-                FinderAgentState.ww_proc.terminate()
-                FinderAgentState.ww_proc.wait(timeout=2)
+                FinderAgentState.ww_proc.kill()
             except Exception:
-                try:
-                    FinderAgentState.ww_proc.kill()
-                except Exception:
-                    pass
+                pass
             FinderAgentState.ww_proc = None
 
-        # Clean lingering iperf processes if any
+        # Clean lingering iperf and test waterwall processes instantly
         try:
-            subprocess.run(["pkill", "-f", "iperf3 -s"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(["pkill", "-9", "-f", "iperf3 -s"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+        try:
+            subprocess.run(["pkill", "-9", "-f", "_core_"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception:
             pass
 
@@ -203,13 +206,20 @@ class FinderHTTPHandler(BaseHTTPRequestHandler):
         self._kill_active_processes()
 
         name = req.get("name", "finder-kharej")
+        FinderAgentState.current_name = name
         iran_ip = req["iran_ip"]
         kharej_ip = req["kharej_ip"]
         tcp_port = int(req.get("tcp_port", 9000))
         p_tcp = int(req["protoswap_tcp"])
         p_udp = int(req["protoswap_udp"])
 
-        # 1. Generate Kharej configuration
+        # 1. Clean TUN device if lingering
+        try:
+            subprocess.run(["ip", "link", "delete", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+
+        # 2. Generate Kharej configuration
         cfg = generate_protoswap_kharej(
             config_name=name,
             iran_ip=iran_ip,
@@ -225,7 +235,7 @@ class FinderHTTPHandler(BaseHTTPRequestHandler):
         core_cfg = generate_core_config(config_paths=[str(conf_file)], loglevel="WARN", console=False)
         write_json(core_cfg, core_file)
 
-        # 2. Launch WaterWall
+        # 3. Launch WaterWall
         ww_bin = find_waterwall_binary() or "waterwall"
         cmd_ww = [ww_bin, f"-c:{core_file}"]
         try:
@@ -238,7 +248,7 @@ class FinderHTTPHandler(BaseHTTPRequestHandler):
             self._send_json(500, {"error": f"Failed to start WaterWall: {e}"})
             return
 
-        # 3. Launch iperf3 server on tcp_port
+        # 4. Launch iperf3 server on tcp_port
         iperf_bin = find_iperf3_binary()
         if iperf_bin:
             try:
@@ -250,7 +260,7 @@ class FinderHTTPHandler(BaseHTTPRequestHandler):
             except Exception as e:
                 print_warning(f"Failed to start iperf3: {e}")
 
-        time.sleep(1.5)  # Allow WaterWall and iperf3 to bind
+        time.sleep(1.0)  # Allow WaterWall and iperf3 to bind
         self._send_json(200, {"status": "ready", "tcp_port": tcp_port})
 
     def _handle_teardown(self, req: Dict[str, Any]) -> None:
@@ -262,6 +272,10 @@ class FinderHTTPHandler(BaseHTTPRequestHandler):
                     os.remove(f)
                 except Exception:
                     pass
+        try:
+            subprocess.run(["ip", "link", "delete", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
         self._send_json(200, {"status": "stopped"})
 
     def _handle_apply_winner(self, req: Dict[str, Any]) -> None:
@@ -289,15 +303,15 @@ class FinderHTTPHandler(BaseHTTPRequestHandler):
 def run_finder_server(port: int = 8088, host: str = "0.0.0.0") -> int:
     """Start the Kharej control agent daemon."""
     server_address = (host, port)
-    httpd = HTTPServer(server_address, FinderHTTPHandler)
+    httpd = HttpServerClass(server_address, FinderHTTPHandler)
     print_info(f"⚡ WaterWall Finder Agent active on http://{host}:{port}")
     print_info("Awaiting automated benchmark commands from Iran orchestrator... (Press Ctrl+C to stop)")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
         print_info("\nStopping Finder Agent...")
-        FinderAgentState.ww_proc and FinderAgentState.ww_proc.terminate()
-        FinderAgentState.iperf_proc and FinderAgentState.iperf_proc.terminate()
+        FinderAgentState.ww_proc and FinderAgentState.ww_proc.kill()
+        FinderAgentState.iperf_proc and FinderAgentState.iperf_proc.kill()
         httpd.server_close()
     return 0
 
@@ -306,14 +320,29 @@ def run_finder_server(port: int = 8088, host: str = "0.0.0.0") -> int:
 # IRAN ORCHESTRATOR CLIENT
 # =============================================================================
 
-def _post_json(url: str, data: Dict[str, Any], timeout: float = 15.0) -> Dict[str, Any]:
-    req = Request(url, data=json.dumps(data).encode("utf-8"), headers={"Content-Type": "application/json"})
-    with urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+def _post_json(url: str, data: Dict[str, Any], timeout: float = 25.0, retries: int = 1) -> Dict[str, Any]:
+    last_err: Optional[Exception] = None
+    for attempt in range(retries + 1):
+        try:
+            req = Request(
+                url,
+                data=json.dumps(data).encode("utf-8"),
+                headers={
+                    "Content-Type": "application/json",
+                    "Connection": "close",
+                },
+            )
+            with urlopen(req, timeout=timeout) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except Exception as e:
+            last_err = e
+            if attempt < retries:
+                time.sleep(1.0)
+    raise last_err or Exception(f"Failed to post to {url}")
 
 
-def _get_json(url: str, timeout: float = 8.0) -> Dict[str, Any]:
-    req = Request(url)
+def _get_json(url: str, timeout: float = 12.0) -> Dict[str, Any]:
+    req = Request(url, headers={"Connection": "close"})
     with urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
@@ -347,10 +376,14 @@ def _run_iperf_test(
             # Remote is sending, we receive
             rx = end.get("sum_received", {})
             bps = rx.get("bits_per_second", 0.0)
+            if not bps:
+                bps = end.get("sum_sent", {}).get("bits_per_second", 0.0)
             retr = 0
         else:
             tx = end.get("sum_sent", {})
             bps = tx.get("bits_per_second", 0.0)
+            if not bps:
+                bps = end.get("sum_received", {}).get("bits_per_second", 0.0)
             retr = tx.get("retransmits", 0)
 
         mbps = round(bps / 1_000_000.0, 2)
@@ -392,7 +425,7 @@ def run_finder_client(
         print_success(f"Kharej Agent reachable! (WaterWall: {health.get('waterwall')}, iperf3: {health.get('iperf3')})")
     except Exception as e:
         print_error(f"Cannot reach Kharej Agent at {agent_url}: {e}")
-        print_error("Ensure 'finder server --port {control_port}' is running on Kharej and port is open.")
+        print_error(f"Ensure 'finder server --port {control_port}' is running on Kharej and port is open.")
         return 1
 
     # 2. Select Candidates
@@ -425,13 +458,23 @@ def run_finder_client(
                 "tcp_port": clean_port,
                 "protoswap_tcp": p_tcp,
                 "protoswap_udp": p_udp,
-            })
+            }, timeout=25.0)
             if prep.get("status") != "ready":
                 print_warning(f"    Kharej failed to prepare: {prep}")
                 continue
         except Exception as e:
             print_error(f"    Failed to contact Kharej agent: {e}")
             continue
+
+        # Clean local test state before launch
+        try:
+            subprocess.run(["pkill", "-9", "-f", "_core_"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+        try:
+            subprocess.run(["ip", "link", "delete", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
 
         # B. Generate Iran configuration and start local WaterWall
         cfg_iran = generate_protoswap_iran(
@@ -457,6 +500,9 @@ def run_finder_client(
             # Test 1: Upload (Iran -> Kharej)
             up_mbps, retr = _run_iperf_test(clean_port, duration=duration, reverse=False)
 
+            # Pause so iperf3 server can reset listener cleanly
+            time.sleep(1.5)
+
             # Test 2: Download (Kharej -> Iran)
             down_mbps, _ = _run_iperf_test(clean_port, duration=duration, reverse=True)
 
@@ -478,13 +524,17 @@ def run_finder_client(
             # D. Teardown local and remote
             if local_ww:
                 try:
-                    local_ww.terminate()
-                    local_ww.wait(timeout=2)
+                    local_ww.kill()
                 except Exception:
-                    try:
-                        local_ww.kill()
-                    except Exception:
-                        pass
+                    pass
+            try:
+                subprocess.run(["pkill", "-9", "-f", "_core_"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except Exception:
+                pass
+            try:
+                subprocess.run(["ip", "link", "delete", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except Exception:
+                pass
 
             for f in (conf_file, core_file):
                 if f.exists():
@@ -494,7 +544,7 @@ def run_finder_client(
                         pass
 
             try:
-                _post_json(f"{agent_url}/teardown", {"name": name}, timeout=5.0)
+                _post_json(f"{agent_url}/teardown", {"name": name}, timeout=10.0)
             except Exception:
                 pass
 

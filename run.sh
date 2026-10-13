@@ -8,6 +8,14 @@ REPO="EbadiDev/conf-gen"
 WORKDIR="/tmp/confgen_${UID:-0}"
 mkdir -p "$WORKDIR"
 
+# Auto-install iperf3 for finder operations if missing
+if [[ "$*" == *"finder"* ]] && ! command -v iperf3 >/dev/null 2>&1; then
+    if command -v apt-get >/dev/null 2>&1; then
+        echo "[INFO] iperf3 not found. Installing iperf3..."
+        apt-get update -y >/dev/null 2>&1 && apt-get install -y iperf3 >/dev/null 2>&1 || true
+    fi
+fi
+
 # Primary: Download ultra-lightweight standalone bundle (31KB) from raw.githubusercontent.com
 # (Same CDN domain that successfully served this runner script)
 ZIP_URL="https://raw.githubusercontent.com/${REPO}/${BRANCH}/confgen.zip?t=$(date +%s)"

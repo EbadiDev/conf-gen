@@ -945,6 +945,24 @@ class TestFinder(unittest.TestCase):
         self.assertEqual(args_custom.private_ip, "10.77.0.1")
         self.assertEqual(args_custom.private_ip_2, "10.77.10.1")
 
+    def test_cli_finder_apply_option(self):
+        """Verify --apply is False by default and True when specified."""
+        from confgen.cli import create_parser
+        parser = create_parser()
+
+        args_default = parser.parse_args(["finder", "client", "-ii", "198.51.100.10", "-ki", "203.0.113.20"])
+        self.assertFalse(args_default.apply)
+
+        args_apply = parser.parse_args(["finder", "client", "-ii", "198.51.100.10", "-ki", "203.0.113.20", "--apply"])
+        self.assertTrue(args_apply.apply)
+
+    def test_ensure_iperf3_installed(self):
+        """Verify ensure_iperf3_installed returns path if iperf3 exists or returns None if missing."""
+        from confgen.core.finder import ensure_iperf3_installed, find_iperf3_binary
+        bin_path = find_iperf3_binary()
+        if bin_path:
+            self.assertEqual(ensure_iperf3_installed(), bin_path)
+
 
 if __name__ == "__main__":
     unittest.main()

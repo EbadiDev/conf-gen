@@ -365,6 +365,43 @@ def find_iperf3_binary() -> Optional[str]:
     return shutil.which("iperf3")
 
 
+def ensure_iperf3_installed() -> Optional[str]:
+    """Ensure iperf3 binary is available, attempting automatic installation if missing."""
+    bin_path = find_iperf3_binary()
+    if bin_path:
+        return bin_path
+
+    print_info("iperf3 binary not found. Attempting automatic installation via package manager...")
+    # Debian / Ubuntu
+    if shutil.which("apt-get"):
+        try:
+            print_info("Executing 'apt-get update -y && apt-get install -y iperf3'...")
+            subprocess.run(["apt-get", "update", "-y"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+            subprocess.run(["apt-get", "install", "-y", "iperf3"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        except Exception as e:
+            print_warning(f"apt-get installation attempt encountered error: {e}")
+    # RHEL / CentOS / Alma / Rocky
+    elif shutil.which("yum") or shutil.which("dnf"):
+        pkg_mgr = shutil.which("dnf") or shutil.which("yum")
+        try:
+            subprocess.run([pkg_mgr, "install", "-y", "iperf3"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        except Exception:
+            pass
+    # Alpine
+    elif shutil.which("apk"):
+        try:
+            subprocess.run(["apk", "add", "iperf3"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        except Exception:
+            pass
+
+    bin_path = find_iperf3_binary()
+    if bin_path:
+        print_success(f"iperf3 successfully installed: {bin_path}")
+    else:
+        print_error("iperf3 could not be installed automatically. Please run 'apt install -y iperf3' manually.")
+    return bin_path
+
+
 def parse_custom_protocols(
     proto_str: str,
     include_bitswap: bool = False,
@@ -758,18 +795,6 @@ class FinderHTTPHandler(BaseHTTPRequestHandler):
         core_path = Path(ww_cwd) / "core.json"
         saved = save_waterwall_config(cfg, filepath=filepath, name=name, auto_core=True, core_path=core_path)
         print_success(f"[{time.strftime('%X')}] [Kharej Agent] Saved {saved} and synced to {core_path}.")
-
-        # Also sync to production directory (/root/waterwall) if present
-        for prod_dir in ["/root/waterwall", os.path.expanduser("~/waterwall")]:
-            if os.path.isdir(prod_dir) and os.path.abspath(prod_dir) != os.path.abspath(ww_cwd):
-                try:
-                    p_file = Path(prod_dir) / f"{name}.json"
-                    p_core = Path(prod_dir) / "core.json"
-                    save_waterwall_config(cfg, filepath=p_file, name=name, auto_core=True, core_path=p_core)
-                    print_success(f"[{time.strftime('%X')}] [Kharej Agent] Also synced winning config to production {p_file} and {p_core}.")
-                except Exception as e:
-                    print_warning(f"Could not sync to production directory {prod_dir}: {e}")
-
         self._send_json(200, {"status": "applied", "file": str(saved)})
 
 
@@ -778,6 +803,13 @@ def run_finder_server(port: int = 8088, host: str = "0.0.0.0", test_dir: Optiona
     # Pre-provision test WaterWall binary in isolated directory
     ww_bin, ww_cwd = get_test_waterwall_launch_info(test_dir=test_dir)
     print_info(f"Isolated WaterWall benchmark instance: {ww_bin} (working dir: {ww_cwd})")
+
+    # Ensure iperf3 is available on Kharej server
+    iperf_bin = ensure_iperf3_installed()
+    if iperf_bin:
+        print_success(f"iperf3 benchmark engine ready: {iperf_bin}")
+    else:
+        print_warning("iperf3 is not installed on this host! Please install with 'apt install -y iperf3'.")
 
     server_address = (host, port)
     HttpServerClass.allow_reuse_address = True
@@ -952,12 +984,19 @@ def run_finder_client(
     custom_protocols: Optional[str] = None,
     bitswap: bool = False,
     include_bitswap: bool = False,
-    auto_apply: bool = True,
+    auto_apply: bool = False,
     test_dir: Optional[str] = None,
     private_ip: str = "10.99.0.1",
     private_ip_2: Optional[str] = None,
 ) -> int:
     """Orchestrate protocol sweep against Kharej agent."""
+    # Ensure local iperf3 is available on Iran
+    local_iperf = ensure_iperf3_installed()
+    if not local_iperf:
+        print_error("iperf3 is required on Iran orchestrator but not installed.")
+        print_error("Please run: apt update && apt install -y iperf3")
+        return 1
+
     clean_iran = validate_ip(iran_ip)
     clean_kharej = validate_ip(kharej_ip)
     clean_port = validate_port(tcp_port)
@@ -980,6 +1019,10 @@ def run_finder_client(
     try:
         health = _get_json(f"{agent_url}/health")
         print_success(f"Kharej Agent reachable! (WaterWall: {health.get('waterwall')}, iperf3: {health.get('iperf3')})")
+        if not health.get("iperf3"):
+            print_error(f"Kharej Agent at {agent_url} does not have iperf3 installed!")
+            print_error("Please install iperf3 on the Kharej server: apt update && apt install -y iperf3")
+            return 1
     except Exception as e:
         print_error(f"Cannot reach Kharej Agent at {agent_url}: {e}")
         print_error(f"Ensure 'finder server --port {control_port}' is running on Kharej and port is open.")
@@ -1274,18 +1317,7 @@ def run_finder_client(
         saved_iran = save_waterwall_config(best_cfg_iran, filepath=filepath, name=name, auto_core=True, core_path=core_path)
         print_success(f"Activated in test dir: {saved_iran} (synced to {core_path})")
 
-        # Also sync to production directory (/root/waterwall) if present on Iran
-        for prod_dir in ["/root/waterwall", os.path.expanduser("~/waterwall")]:
-            if os.path.isdir(prod_dir) and os.path.abspath(prod_dir) != os.path.abspath(ww_cwd):
-                try:
-                    p_file = Path(prod_dir) / f"{name}.json"
-                    p_core = Path(prod_dir) / "core.json"
-                    save_waterwall_config(best_cfg_iran, filepath=p_file, name=name, auto_core=True, core_path=p_core)
-                    print_success(f"Also synced winning config to production {p_file} and {p_core}.")
-                except Exception as e:
-                    print_warning(f"Could not sync to production directory {prod_dir}: {e}")
-
-        # Signal Kharej to apply permanently
+        # Signal Kharej to apply in isolated test dir
         apply_payload = {
             "name": name,
             "iran_ip": clean_iran,
@@ -1302,8 +1334,13 @@ def run_finder_client(
             apply_payload["test_dir"] = test_dir
         try:
             resp = _post_json(f"{agent_url}/apply_winner", apply_payload)
-            print_success(f"Activated on Kharej: {resp.get('file', name + '.json')} (synced to core.json)")
+            print_success(f"Activated on Kharej in test dir: {resp.get('file', name + '.json')} (synced to core.json)")
         except Exception as e:
-            print_warning(f"Could not automatically apply to Kharej: {e}")
+            print_warning(f"Could not apply to Kharej test directory: {e}")
+    else:
+        print_info(f"\n[INFO] Auto-apply disabled (inspection mode). Production configurations remain untouched.")
+        print_info(f"Top Candidate:  {best_cand['name']} (TCP proto: {best_cand['tcp']}, UDP proto: {best_cand['udp']}, BitSwap: {'YES' if best_cand_bitswap else 'NO'})")
+        print_info("To automatically apply the winning configuration in the isolated test directory, re-run with '--apply'.")
 
     return 0
+

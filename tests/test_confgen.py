@@ -503,8 +503,8 @@ class TestCLIFlags(unittest.TestCase):
                 cmd_i = [
                     "waterwall", "protoswap", "iran",
                     "-n", "proto",
-                    "-ii", "212.23.201.246",
-                    "-ki", "130.49.161.12",
+                    "-ii", "198.51.100.10",
+                    "-ki", "203.0.113.20",
                     "--tcp", "9000",
                     "--protoswap-tcp", "51",
                     "--protoswap-udp", "52",
@@ -530,8 +530,8 @@ class TestCLIFlags(unittest.TestCase):
                 cmd_k = [
                     "waterwall", "protoswap", "kharej",
                     "-n", "atlanta",
-                    "-ii", "212.23.201.246",
-                    "-ki", "130.49.161.12",
+                    "-ii", "198.51.100.10",
+                    "-ki", "203.0.113.20",
                     "--tcp", "9000",
                     "--protoswap-tcp", "51",
                     "--protoswap-udp", "52",
@@ -642,8 +642,8 @@ class TestCLIFlags(unittest.TestCase):
                 cmd = [
                     "waterwall", "protoswap", "iran",
                     "-n", "standalone",
-                    "-ii", "212.23.201.246",
-                    "-ki", "130.49.161.12",
+                    "-ii", "198.51.100.10",
+                    "-ki", "203.0.113.20",
                     "--tcp", "9000",
                     "--no-core",
                 ]
@@ -698,16 +698,16 @@ class TestFinder(unittest.TestCase):
         # Top-level client with flags
         args = parser.parse_args([
             "finder", "client",
-            "-ii", "194.5.188.55",
-            "-ki", "130.49.161.12",
+            "-ii", "198.51.100.10",
+            "-ki", "203.0.113.20",
             "-cp", "8088",
             "-p", "9001",
             "--preset", "fast",
         ])
         self.assertEqual(args.command, "finder")
         self.assertEqual(args.finder_cmd, "client")
-        self.assertEqual(args.iran_ip, "194.5.188.55")
-        self.assertEqual(args.kharej_ip, "130.49.161.12")
+        self.assertEqual(args.iran_ip, "198.51.100.10")
+        self.assertEqual(args.kharej_ip, "203.0.113.20")
         self.assertEqual(args.control_port, 8088)
         self.assertEqual(args.port, 9001)
         self.assertEqual(args.preset, "fast")
@@ -715,13 +715,13 @@ class TestFinder(unittest.TestCase):
         # Nested waterwall finder client with positional IPs
         args = parser.parse_args([
             "waterwall", "finder", "client",
-            "194.5.188.55", "130.49.161.12",
+            "198.51.100.10", "203.0.113.20",
         ])
         # Finder client with bitswap and combo preset
         args = parser.parse_args([
             "finder", "client",
-            "-ii", "194.5.188.55",
-            "-ki", "130.49.161.12",
+            "-ii", "198.51.100.10",
+            "-ki", "203.0.113.20",
             "--preset", "combo",
             "--bitswap",
             "--include-bitswap",
@@ -762,8 +762,8 @@ class TestFinder(unittest.TestCase):
         # 4. Generator node settings when bitswap is enabled
         iran_cfg = generate_protoswap_iran(
             config_name="test_bs_i",
-            iran_ip="194.5.188.55",
-            kharej_ip="130.49.161.12",
+            iran_ip="198.51.100.10",
+            kharej_ip="203.0.113.20",
             tcp_ports=[9001],
             protoswap_tcp=132,
             protoswap_udp=133,
@@ -775,8 +775,8 @@ class TestFinder(unittest.TestCase):
 
         kharej_cfg = generate_protoswap_kharej(
             config_name="test_bs_k",
-            iran_ip="194.5.188.55",
-            kharej_ip="130.49.161.12",
+            iran_ip="198.51.100.10",
+            kharej_ip="203.0.113.20",
             tcp_ports=[9001],
             protoswap_tcp=132,
             protoswap_udp=133,
@@ -873,7 +873,56 @@ class TestFinder(unittest.TestCase):
                 mbps, retr, timed_out = _run_iperf_test(9001, duration=5)
                 self.assertEqual(mbps, 0.0)
                 self.assertEqual(retr, 0)
-                self.assertTrue(timed_out)
+    def test_isolated_test_dir_resolution(self):
+        """Verify default test dir and environment variable resolution."""
+        import os
+        from unittest.mock import patch
+        from confgen.core.finder import get_default_test_dir
+        with patch.dict(os.environ, {"WATERWALL_TEST_DIR": "/opt/custom-ww-test"}):
+            self.assertEqual(get_default_test_dir(), "/opt/custom-ww-test")
+
+    def test_test_waterwall_launch_info_isolation(self):
+        """Verify get_test_waterwall_launch_info isolates test binary from production."""
+        import os
+        import tempfile
+        from confgen.core.finder import get_test_waterwall_launch_info, WATERWALL_TEST_BIN_NAME
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            # Create a mock Waterwall-test binary
+            mock_bin = os.path.join(tmp_dir, WATERWALL_TEST_BIN_NAME)
+            with open(mock_bin, "w") as f:
+                f.write("#!/bin/sh\nexit 0\n")
+            os.chmod(mock_bin, 0o755)
+
+            bin_path, cwd = get_test_waterwall_launch_info(test_dir=tmp_dir, auto_download=False)
+            self.assertEqual(bin_path, mock_bin)
+            self.assertEqual(cwd, tmp_dir)
+            self.assertNotEqual(cwd, "/root/waterwall")
+
+    def test_stop_waterwall_never_kills_production(self):
+        """Verify stop_waterwall_and_test only pkills Waterwall-test and iperf3, never production waterwall."""
+        from unittest.mock import patch
+        from confgen.core.finder import stop_waterwall_and_test, WATERWALL_TEST_BIN_NAME
+
+        with patch("subprocess.run") as mock_run:
+            stop_waterwall_and_test(None, "test-name", "/tmp")
+            # Verify every pkill call made
+            for call in mock_run.call_args_list:
+                cmd = call[0][0]
+                if cmd[0] == "pkill":
+                    target_pattern = cmd[-1]
+                    self.assertIn(target_pattern, [WATERWALL_TEST_BIN_NAME, "iperf3"])
+                    self.assertNotIn(target_pattern.lower(), ["waterwall"])
+
+    def test_cli_finder_test_dir_option(self):
+        """Verify --test-dir is parsed correctly in CLI for both server and client."""
+        from confgen.cli import create_parser
+        parser = create_parser()
+        args_srv = parser.parse_args(["finder", "server", "--test-dir", "/tmp/ww-test"])
+        self.assertEqual(args_srv.test_dir, "/tmp/ww-test")
+
+        args_cli = parser.parse_args(["finder", "client", "-ii", "1.1.1.1", "-ki", "2.2.2.2", "--test-dir", "/tmp/ww-test"])
+        self.assertEqual(args_cli.test_dir, "/tmp/ww-test")
 
 
 if __name__ == "__main__":

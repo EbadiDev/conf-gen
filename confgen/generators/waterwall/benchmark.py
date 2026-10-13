@@ -340,11 +340,22 @@ CANDIDATES = [
 ]
 
 def find_waterwall():
-    for bin_name in ["waterwall", "Waterwall", "./waterwall", "./Waterwall"]:
+    search_paths = [
+        "Waterwall-test",
+        "waterwall-test",
+        "./Waterwall-test",
+        "./waterwall-test",
+        "/root/waterwall-test/Waterwall-test",
+        "Waterwall",
+        "waterwall",
+        "./Waterwall",
+        "./waterwall",
+    ]
+    for bin_name in search_paths:
         import shutil
         if os.path.exists(bin_name) or shutil.which(bin_name):
             return bin_name
-    return "waterwall"
+    return "Waterwall-test"
 
 WW_BIN = find_waterwall()
 

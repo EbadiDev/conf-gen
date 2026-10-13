@@ -102,13 +102,219 @@ CANDIDATES_PRESETS: Dict[str, List[Dict[str, Any]]] = {
 }
 
 
-def get_waterwall_launch_info() -> Tuple[str, str]:
-    """Find the WaterWall executable and its working directory.
+import zipfile
 
-    WaterWall requires its 'libs/' directory in its working directory, so cwd
-    must point to the directory containing the binary (usually /root/waterwall).
+WATERWALL_RELEASE_URL = "https://github.com/radkesvat/WaterWall/releases/download/v1.46.94/Waterwall-linux-gcc-x64-old-cpu.zip"
+WATERWALL_TEST_BIN_NAME = "Waterwall-test"
+
+
+def get_default_test_dir() -> str:
+    """Return the isolated working directory for WaterWall benchmark instances."""
+    custom = os.environ.get("WATERWALL_TEST_DIR")
+    if custom:
+        return os.path.abspath(custom)
+    if os.name != "nt" and hasattr(os, "geteuid") and os.geteuid() == 0:
+        return "/root/waterwall-test"
+    home = os.path.expanduser("~")
+    cand = os.path.join(home, "waterwall-test")
+    try:
+        os.makedirs(cand, exist_ok=True)
+        return cand
+    except Exception:
+        return "/tmp/waterwall-test"
+
+
+def download_and_extract_waterwall(target_dir: str) -> Optional[str]:
+    """Download WaterWall release and install an isolated Waterwall-test binary.
+
+    Follows:
+    curl -4 -L -o waterwall.zip <RELEASE_URL> && unzip waterwall.zip && chmod +x Waterwall && cp Waterwall Waterwall-test
+    """
+    os.makedirs(target_dir, exist_ok=True)
+    zip_path = os.path.join(target_dir, "waterwall.zip")
+    bin_test = os.path.join(target_dir, WATERWALL_TEST_BIN_NAME)
+
+    # Clean any stale zip or broken test binary
+    if os.path.exists(zip_path):
+        try:
+            os.remove(zip_path)
+        except Exception:
+            pass
+
+    print_info(f"Downloading isolated WaterWall benchmark instance into {target_dir}...")
+    downloaded = False
+
+    # Attempt 1: curl -4 -L -o
+    curl_bin = shutil.which("curl")
+    if curl_bin:
+        try:
+            ret = subprocess.run(
+                [curl_bin, "-4", "-fsSL", "--connect-timeout", "15", "--max-time", "120", "-o", zip_path, WATERWALL_RELEASE_URL],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=130,
+            )
+            if ret.returncode == 0 and os.path.exists(zip_path) and os.path.getsize(zip_path) > 1000:
+                downloaded = True
+        except Exception as e:
+            print_warning(f"curl download failed: {e}")
+
+    # Attempt 2: Python urllib
+    if not downloaded:
+        try:
+            req = Request(WATERWALL_RELEASE_URL, headers={"User-Agent": "Mozilla/5.0"})
+            with urlopen(req, timeout=30.0) as resp, open(zip_path, "wb") as out_f:
+                shutil.copyfileobj(resp, out_f)
+            if os.path.exists(zip_path) and os.path.getsize(zip_path) > 1000:
+                downloaded = True
+        except Exception as e:
+            print_warning(f"urllib download failed: {e}")
+
+    if not downloaded:
+        print_warning(f"Failed to download WaterWall release archive to {zip_path}")
+        # Fallback: check if main /root/waterwall exists on host and copy it
+        for main_dir in ["/root/waterwall", os.path.expanduser("~/waterwall")]:
+            for b_name in ["Waterwall", "waterwall"]:
+                main_ww = os.path.join(main_dir, b_name)
+                if os.path.isfile(main_ww):
+                    print_info(f"Copying existing WaterWall from {main_ww} to isolated {bin_test}...")
+                    shutil.copy2(main_ww, bin_test)
+                    os.chmod(bin_test, 0o755)
+                    main_libs = os.path.join(main_dir, "libs")
+                    target_libs = os.path.join(target_dir, "libs")
+                    if os.path.isdir(main_libs) and not os.path.exists(target_libs):
+                        try:
+                            shutil.copytree(main_libs, target_libs, dirs_exist_ok=True)
+                        except Exception:
+                            pass
+                    return bin_test
+        return None
+
+    # Extraction: try zipfile, fallback to system unzip
+    extracted = False
+    try:
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            zf.extractall(target_dir)
+        extracted = True
+    except Exception as e:
+        print_warning(f"Python zipfile extraction failed ({e}), attempting system unzip...")
+        unzip_bin = shutil.which("unzip")
+        if unzip_bin:
+            try:
+                ret = subprocess.run([unzip_bin, "-o", zip_path, "-d", target_dir], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                if ret.returncode == 0:
+                    extracted = True
+            except Exception:
+                pass
+
+    # Clean zip archive
+    if os.path.exists(zip_path):
+        try:
+            os.remove(zip_path)
+        except Exception:
+            pass
+
+    if not extracted:
+        print_error(f"Failed to extract WaterWall archive in {target_dir}")
+        return None
+
+    # Locate extracted binary and provision Waterwall-test
+    base_ww = None
+    for name in ["Waterwall", "waterwall"]:
+        cand = os.path.join(target_dir, name)
+        if os.path.exists(cand):
+            base_ww = cand
+            break
+
+    if base_ww:
+        try:
+            os.chmod(base_ww, 0o755)
+        except Exception:
+            pass
+        shutil.copy2(base_ww, bin_test)
+        os.chmod(bin_test, 0o755)
+        print_success(f"Isolated WaterWall benchmark binary prepared at {bin_test}")
+
+    # Ensure libs directory is present if main /root/waterwall/libs exists
+    target_libs = os.path.join(target_dir, "libs")
+    main_libs = "/root/waterwall/libs"
+    if not os.path.isdir(target_libs) and os.path.isdir(main_libs):
+        try:
+            shutil.copytree(main_libs, target_libs, dirs_exist_ok=True)
+        except Exception:
+            pass
+
+    return bin_test if os.path.exists(bin_test) and os.access(bin_test, os.X_OK) else None
+
+
+def get_test_waterwall_launch_info(
+    test_dir: Optional[str] = None,
+    auto_download: bool = True,
+) -> Tuple[str, str]:
+    """Find or provision the isolated WaterWall test executable and working directory.
+
+    NEVER uses the main /root/waterwall directory so production tunnels remain untouched.
     Returns (executable_path, working_directory).
     """
+    target_dir = os.path.abspath(test_dir) if test_dir else get_default_test_dir()
+    os.makedirs(target_dir, exist_ok=True)
+    test_bin = os.path.join(target_dir, WATERWALL_TEST_BIN_NAME)
+
+    # 1. Existing Waterwall-test in target_dir
+    if os.path.isfile(test_bin) and os.access(test_bin, os.X_OK):
+        return test_bin, target_dir
+
+    # 2. Existing Waterwall in target_dir -> copy to Waterwall-test
+    for b_name in ["Waterwall", "waterwall"]:
+        cand = os.path.join(target_dir, b_name)
+        if os.path.isfile(cand) and os.access(cand, os.X_OK):
+            try:
+                shutil.copy2(cand, test_bin)
+                os.chmod(test_bin, 0o755)
+                return test_bin, target_dir
+            except Exception:
+                pass
+
+    # 3. Auto-download from GitHub into target_dir
+    if auto_download:
+        provisioned = download_and_extract_waterwall(target_dir)
+        if provisioned and os.path.isfile(provisioned) and os.access(provisioned, os.X_OK):
+            return provisioned, target_dir
+
+    # 4. Fallback: Copy from /root/waterwall if host has it installed
+    for main_dir in ["/root/waterwall", os.path.expanduser("~/waterwall")]:
+        for b_name in ["Waterwall", "waterwall"]:
+            cand = os.path.join(main_dir, b_name)
+            if os.path.isfile(cand) and os.access(cand, os.X_OK):
+                try:
+                    shutil.copy2(cand, test_bin)
+                    os.chmod(test_bin, 0o755)
+                    libs_src = os.path.join(main_dir, "libs")
+                    libs_dst = os.path.join(target_dir, "libs")
+                    if os.path.isdir(libs_src) and not os.path.exists(libs_dst):
+                        try:
+                            shutil.copytree(libs_src, libs_dst, dirs_exist_ok=True)
+                        except Exception:
+                            pass
+                    return test_bin, target_dir
+                except Exception:
+                    pass
+
+    return test_bin, target_dir
+
+
+def get_waterwall_launch_info(
+    test_mode: bool = True,
+    test_dir: Optional[str] = None,
+) -> Tuple[str, str]:
+    """Find the WaterWall executable and its working directory.
+
+    When test_mode is True (default for benchmarking/finder), returns the isolated
+    Waterwall-test instance in the benchmark directory to protect production tunnels.
+    """
+    if test_mode:
+        return get_test_waterwall_launch_info(test_dir=test_dir)
+
     search_dirs = [
         "/root/waterwall",
         os.path.expanduser("~/waterwall"),
@@ -141,12 +347,17 @@ def get_waterwall_launch_info() -> Tuple[str, str]:
     return os.path.join(default_dir, "Waterwall"), default_dir
 
 
-def find_waterwall_binary() -> Optional[str]:
-    """Locate the WaterWall binary on the host."""
-    bin_path, _ = get_waterwall_launch_info()
+def find_waterwall_binary(test_dir: Optional[str] = None) -> Optional[str]:
+    """Locate the WaterWall binary on the host (checks test instance then host)."""
+    bin_path, _ = get_test_waterwall_launch_info(test_dir=test_dir, auto_download=False)
     if os.path.isfile(bin_path) and os.access(bin_path, os.X_OK):
         return bin_path
-    return None
+    for d in ["/root/waterwall", os.path.expanduser("~/waterwall"), "/usr/local/bin", "/usr/bin"]:
+        for n in ["Waterwall", "waterwall"]:
+            p = os.path.join(d, n)
+            if os.path.isfile(p) and os.access(p, os.X_OK):
+                return p
+    return shutil.which("Waterwall") or shutil.which("waterwall")
 
 
 def find_iperf3_binary() -> Optional[str]:
@@ -216,7 +427,11 @@ def stop_waterwall_and_test(
     name: Optional[str] = None,
     ww_cwd: Optional[str] = None,
 ) -> None:
-    """Deterministically terminate WaterWall and test processes."""
+    """Deterministically terminate test WaterWall and test processes.
+
+    CRITICAL: Never kills production WaterWall ('waterwall' / 'Waterwall');
+    only targets 'Waterwall-test' and 'iperf3'.
+    """
     # 1. Terminate provided process and its process group
     if proc:
         try:
@@ -230,18 +445,18 @@ def stop_waterwall_and_test(
         except Exception:
             pass
 
-    # 2. Case-insensitive kill of all WaterWall instances (including memfd:waterwall) & iperf3
-    for pat in ["waterwall", "iperf3"]:
+    # 2. Kill ONLY isolated test instances (Waterwall-test) & iperf3
+    for pat in [WATERWALL_TEST_BIN_NAME, "iperf3"]:
         try:
-            subprocess.run(["pkill", "-9", "-i", "-f", pat], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.0)
+            subprocess.run(["pkill", "-9", "-f", pat], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.0)
         except Exception:
             pass
 
     time.sleep(0.2)
 
-    # 3. Clean temporary test config files
+    # 3. Clean temporary test config files in test working directory
     if ww_cwd and name:
-        for f in (Path(ww_cwd) / f"_tmp_{name}.json", Path(ww_cwd) / f"_core_{name}.json"):
+        for f in (Path(ww_cwd) / f"_tmp_{name}.json", Path(ww_cwd) / f"_core_{name}.json", Path(ww_cwd) / f"{name}.json"):
             if f.exists():
                 try:
                     f.unlink()
@@ -302,7 +517,7 @@ class FinderAgentState:
                     pass
                 cls.ww_proc = None
 
-            for pat in ["iperf3", "Waterwall", "waterwall"]:
+            for pat in [WATERWALL_TEST_BIN_NAME, "iperf3"]:
                 try:
                     subprocess.run(["pkill", "-9", "-f", pat], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.0)
                 except Exception:
@@ -430,15 +645,17 @@ class FinderHTTPHandler(BaseHTTPRequestHandler):
         enable_bitswap = bool(req.get("bitswap", False))
         cand_type = req.get("type", "protoswap")
         duration = int(req.get("duration", 5))
+        test_dir = req.get("test_dir")
 
-        ww_bin, ww_cwd = get_waterwall_launch_info()
+        ww_bin, ww_cwd = get_test_waterwall_launch_info(test_dir=test_dir)
         print_info(f"[{time.strftime('%X')}] [Kharej Agent] Preparing candidate: {name} (type: {cand_type}, TCP: {p_tcp}, UDP: {p_udp}, BitSwap: {enable_bitswap}, duration: {duration}s)...")
+        print_info(f"[{time.strftime('%X')}] [Kharej Agent] Using isolated test binary: {ww_bin} in {ww_cwd}")
 
         # 1. Reset any active WaterWall & iperf processes
         FinderAgentState.kill_active_processes()
         stop_waterwall_and_test(None, name, ww_cwd)
 
-        # 2. Generate Kharej configuration inside WaterWall directory
+        # 2. Generate Kharej configuration inside isolated test directory
         Path(ww_cwd, "log").mkdir(parents=True, exist_ok=True)
         if cand_type == "bitswap":
             cfg = generate_bitswap_kharej(
@@ -480,7 +697,8 @@ class FinderHTTPHandler(BaseHTTPRequestHandler):
 
     def _handle_teardown(self, req: Dict[str, Any]) -> None:
         name = req.get("name", "finder-kharej")
-        ww_bin, ww_cwd = get_waterwall_launch_info()
+        test_dir = req.get("test_dir")
+        ww_bin, ww_cwd = get_test_waterwall_launch_info(test_dir=test_dir, auto_download=False)
         print_info(f"[{time.strftime('%X')}] [Kharej Agent] Teardown requested for '{name}'...")
         FinderAgentState.kill_active_processes()
         stop_waterwall_and_test(None, name, ww_cwd)
@@ -488,8 +706,9 @@ class FinderHTTPHandler(BaseHTTPRequestHandler):
         self._send_json(200, {"status": "stopped"})
 
     def _handle_apply_winner(self, req: Dict[str, Any]) -> None:
-        name = req.get("name", "parspack-nl")
-        ww_bin, ww_cwd = get_waterwall_launch_info()
+        name = req.get("name", "finder-tunnel")
+        test_dir = req.get("test_dir")
+        ww_bin, ww_cwd = get_test_waterwall_launch_info(test_dir=test_dir, auto_download=False)
         print_info(f"[{time.strftime('%X')}] [Kharej Agent] Applying winning config '{name}'...")
         FinderAgentState.kill_active_processes()
         stop_waterwall_and_test(None, name, ww_cwd)
@@ -526,12 +745,28 @@ class FinderHTTPHandler(BaseHTTPRequestHandler):
         filepath = Path(ww_cwd) / f"{name}.json"
         core_path = Path(ww_cwd) / "core.json"
         saved = save_waterwall_config(cfg, filepath=filepath, name=name, auto_core=True, core_path=core_path)
-        print_success(f"[{time.strftime('%X')}] [Kharej Agent] Saved {saved} and synced to core.json.")
+        print_success(f"[{time.strftime('%X')}] [Kharej Agent] Saved {saved} and synced to {core_path}.")
+
+        # Also sync to production directory (/root/waterwall) if present
+        for prod_dir in ["/root/waterwall", os.path.expanduser("~/waterwall")]:
+            if os.path.isdir(prod_dir) and os.path.abspath(prod_dir) != os.path.abspath(ww_cwd):
+                try:
+                    p_file = Path(prod_dir) / f"{name}.json"
+                    p_core = Path(prod_dir) / "core.json"
+                    save_waterwall_config(cfg, filepath=p_file, name=name, auto_core=True, core_path=p_core)
+                    print_success(f"[{time.strftime('%X')}] [Kharej Agent] Also synced winning config to production {p_file} and {p_core}.")
+                except Exception as e:
+                    print_warning(f"Could not sync to production directory {prod_dir}: {e}")
+
         self._send_json(200, {"status": "applied", "file": str(saved)})
 
 
-def run_finder_server(port: int = 8088, host: str = "0.0.0.0") -> int:
+def run_finder_server(port: int = 8088, host: str = "0.0.0.0", test_dir: Optional[str] = None) -> int:
     """Start the Kharej control agent daemon."""
+    # Pre-provision test WaterWall binary in isolated directory
+    ww_bin, ww_cwd = get_test_waterwall_launch_info(test_dir=test_dir)
+    print_info(f"Isolated WaterWall benchmark instance: {ww_bin} (working dir: {ww_cwd})")
+
     server_address = (host, port)
     HttpServerClass.allow_reuse_address = True
     httpd = HttpServerClass(server_address, FinderHTTPHandler)
@@ -542,7 +777,6 @@ def run_finder_server(port: int = 8088, host: str = "0.0.0.0") -> int:
         httpd.serve_forever()
     except KeyboardInterrupt:
         print_info("\nStopping Finder Agent...")
-        ww_bin, ww_cwd = get_waterwall_launch_info()
         FinderAgentState.kill_active_processes()
         stop_waterwall_and_test(None, FinderAgentState.current_name, ww_cwd)
         httpd.server_close()
@@ -700,13 +934,14 @@ def run_finder_client(
     kharej_ip: str,
     control_port: int = 8088,
     tcp_port: int = 9001,
-    name: str = "parspack-nl",
+    name: str = "finder-tunnel",
     duration: int = 5,
     preset: str = "top",
     custom_protocols: Optional[str] = None,
     bitswap: bool = False,
     include_bitswap: bool = False,
     auto_apply: bool = True,
+    test_dir: Optional[str] = None,
 ) -> int:
     """Orchestrate protocol sweep against Kharej agent."""
     clean_iran = validate_ip(iran_ip)
@@ -776,8 +1011,8 @@ def run_finder_client(
     total = len(candidates)
     print_info(f"Testing {total} protocol candidates ({preset} preset)...\n")
 
-    ww_bin, ww_cwd = get_waterwall_launch_info()
-    print_info(f"Using WaterWall binary: {ww_bin} (working dir: {ww_cwd})")
+    ww_bin, ww_cwd = get_test_waterwall_launch_info(test_dir=test_dir)
+    print_info(f"Using isolated WaterWall test binary: {ww_bin} (working dir: {ww_cwd})")
     results: List[Dict[str, Any]] = []
 
     # 3. Execution Sweep Loop
@@ -811,7 +1046,7 @@ def run_finder_client(
 
         print_info(f"Signaling Kharej Agent to prepare candidate (TCP: {p_tcp}, UDP: {p_udp}, BitSwap: {bs_str})...")
         try:
-            prep = _post_json(f"{agent_url}/prepare", {
+            prep_payload = {
                 "name": name,
                 "iran_ip": clean_iran,
                 "kharej_ip": clean_kharej,
@@ -821,7 +1056,10 @@ def run_finder_client(
                 "bitswap": cand_bitswap,
                 "type": cand_type,
                 "duration": duration,
-            }, timeout=15.0)
+            }
+            if test_dir:
+                prep_payload["test_dir"] = test_dir
+            prep = _post_json(f"{agent_url}/prepare", prep_payload, timeout=15.0)
             if prep.get("status") != "ready":
                 print_warning(f"    Kharej failed to prepare: {prep}")
                 continue
@@ -936,9 +1174,12 @@ def run_finder_client(
             local_ww = None
 
             print_info(f"Awaiting Kharej reset and restoring control channel...")
+            teardown_payload = {"name": name}
+            if test_dir:
+                teardown_payload["test_dir"] = test_dir
             for check_attempt in range(15):
                 try:
-                    _post_json(f"{agent_url}/teardown", {"name": name}, timeout=1.5)
+                    _post_json(f"{agent_url}/teardown", teardown_payload, timeout=1.5)
                     break
                 except Exception:
                     time.sleep(1.0)
@@ -981,7 +1222,7 @@ def run_finder_client(
     # 5. Apply Winning Configuration
     if auto_apply:
         print_info(f"Applying winning configuration '{name}.json' to Iran and Kharej...")
-        # Apply locally on Iran
+        # Apply locally on Iran in test directory
         if best_cand_type == "bitswap":
             best_cfg_iran = generate_bitswap_iran(
                 config_name=name,
@@ -1004,20 +1245,34 @@ def run_finder_client(
         filepath = Path(ww_cwd) / f"{name}.json"
         core_path = Path(ww_cwd) / "core.json"
         saved_iran = save_waterwall_config(best_cfg_iran, filepath=filepath, name=name, auto_core=True, core_path=core_path)
-        print_success(f"Activated on Iran: {saved_iran} (synced to {core_path})")
+        print_success(f"Activated in test dir: {saved_iran} (synced to {core_path})")
+
+        # Also sync to production directory (/root/waterwall) if present on Iran
+        for prod_dir in ["/root/waterwall", os.path.expanduser("~/waterwall")]:
+            if os.path.isdir(prod_dir) and os.path.abspath(prod_dir) != os.path.abspath(ww_cwd):
+                try:
+                    p_file = Path(prod_dir) / f"{name}.json"
+                    p_core = Path(prod_dir) / "core.json"
+                    save_waterwall_config(best_cfg_iran, filepath=p_file, name=name, auto_core=True, core_path=p_core)
+                    print_success(f"Also synced winning config to production {p_file} and {p_core}.")
+                except Exception as e:
+                    print_warning(f"Could not sync to production directory {prod_dir}: {e}")
 
         # Signal Kharej to apply permanently
+        apply_payload = {
+            "name": name,
+            "iran_ip": clean_iran,
+            "kharej_ip": clean_kharej,
+            "tcp_port": clean_port,
+            "protoswap_tcp": best_cand["tcp"],
+            "protoswap_udp": best_cand["udp"],
+            "bitswap": best_cand_bitswap,
+            "type": best_cand_type,
+        }
+        if test_dir:
+            apply_payload["test_dir"] = test_dir
         try:
-            resp = _post_json(f"{agent_url}/apply_winner", {
-                "name": name,
-                "iran_ip": clean_iran,
-                "kharej_ip": clean_kharej,
-                "tcp_port": clean_port,
-                "protoswap_tcp": best_cand["tcp"],
-                "protoswap_udp": best_cand["udp"],
-                "bitswap": best_cand_bitswap,
-                "type": best_cand_type,
-            })
+            resp = _post_json(f"{agent_url}/apply_winner", apply_payload)
             print_success(f"Activated on Kharej: {resp.get('file', name + '.json')} (synced to core.json)")
         except Exception as e:
             print_warning(f"Could not automatically apply to Kharej: {e}")

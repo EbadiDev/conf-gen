@@ -234,6 +234,7 @@ def _add_finder_subparser(finder_p: argparse.ArgumentParser) -> None:
     f_srv.add_argument("pos_port", nargs="?", type=int, help="[Positional fallback] Control port")
     f_srv.add_argument("-p", "--port", type=int, default=8088, help="Control HTTP port (default: 8088)")
     f_srv.add_argument("--host", default="0.0.0.0", help="Bind IP address (default: 0.0.0.0)")
+    f_srv.add_argument("--test-dir", help="Isolated directory for test WaterWall instance (default: /root/waterwall-test)")
 
     # finder client (Iran orchestrator)
     f_cli = finder_sub.add_parser(
@@ -241,9 +242,10 @@ def _add_finder_subparser(finder_p: argparse.ArgumentParser) -> None:
         help="Orchestrate automated tunnel protocol sweep from Iran",
         formatter_class=CustomFormatter,
         epilog="""Examples:
-  ./confgen.py finder client -ii 194.5.188.55 -ki 130.49.161.12 --preset top
-  ./confgen.py finder client 194.5.188.55 130.49.161.12 -cp 8088 -p 9001 -d 5
-  ./confgen.py finder client -ii 194.5.188.55 -ki 130.49.161.12 --protocols 50/51,51/52,47/136
+  ./confgen.py finder client -ii 198.51.100.10 -ki 203.0.113.20 --preset top
+  ./confgen.py finder client 198.51.100.10 203.0.113.20 -cp 8088 -p 9001 -d 5
+  ./confgen.py finder client -ii 198.51.100.10 -ki 203.0.113.20 --protocols 50/51,51/52,47/136
+  ./confgen.py finder client -ii 198.51.100.10 -ki 203.0.113.20 --test-dir /root/waterwall-test
 """,
     )
     f_cli.add_argument("pos_iran_ip", nargs="?", help="[Positional fallback] Iran Server IP")
@@ -252,20 +254,21 @@ def _add_finder_subparser(finder_p: argparse.ArgumentParser) -> None:
     f_cli.add_argument("-ki", "--kharej-ip", help="Kharej Server public IP")
     f_cli.add_argument("-cp", "--control-port", type=int, default=8088, help="Kharej agent control port (default: 8088)")
     f_cli.add_argument("-p", "--port", "--tcp-port", dest="port", type=int, default=9001, help="WaterWall tunnel benchmarking port (default: 9001)")
-    f_cli.add_argument("-n", "--name", default="parspack-nl", help="Tunnel configuration name (default: parspack-nl)")
+    f_cli.add_argument("-n", "--name", default="finder-tunnel", help="Tunnel configuration name (default: finder-tunnel)")
     f_cli.add_argument("-t", "-d", "--duration", type=int, default=5, help="Test duration in seconds per direction (default: 5)")
     f_cli.add_argument("--preset", choices=["top", "fast", "combo", "all"], default="top", help="Candidate protocol preset (default: top)")
     f_cli.add_argument("--protocols", help="Custom comma-separated protocol pairs (e.g. 50/51,51/52,47/136)")
     f_cli.add_argument("--bitswap", action="store_true", help="Force TCP BitSwap on all tested protocols")
     f_cli.add_argument("--include-bitswap", action="store_true", help="Include BitSwap variants for custom protocols or preset")
     f_cli.add_argument("--no-apply", action="store_true", help="Do not automatically activate winner in core.json")
+    f_cli.add_argument("--test-dir", help="Isolated directory for test WaterWall instance (default: /root/waterwall-test)")
 
 
 def _handle_finder(args: argparse.Namespace) -> int:
     cmd = getattr(args, "finder_cmd", None)
     if cmd == "server":
         port = args.port if args.port != 8088 or not getattr(args, "pos_port", None) else args.pos_port
-        return run_finder_server(port=port, host=args.host)
+        return run_finder_server(port=port, host=args.host, test_dir=getattr(args, "test_dir", None))
     elif cmd == "client":
         iran_ip = args.iran_ip or getattr(args, "pos_iran_ip", None)
         kharej_ip = args.kharej_ip or getattr(args, "pos_kharej_ip", None)
@@ -284,6 +287,7 @@ def _handle_finder(args: argparse.Namespace) -> int:
             bitswap=bool(getattr(args, "bitswap", False)),
             include_bitswap=bool(getattr(args, "include_bitswap", False)),
             auto_apply=not args.no_apply,
+            test_dir=getattr(args, "test_dir", None),
         )
     else:
         print_error("Invalid finder role. Choose 'server' or 'client'.")

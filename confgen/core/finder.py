@@ -646,9 +646,11 @@ class FinderHTTPHandler(BaseHTTPRequestHandler):
         cand_type = req.get("type", "protoswap")
         duration = int(req.get("duration", 5))
         test_dir = req.get("test_dir")
+        private_ip = req.get("private_ip", "10.99.0.1")
+        private_ip_2 = req.get("private_ip_2")
 
         ww_bin, ww_cwd = get_test_waterwall_launch_info(test_dir=test_dir)
-        print_info(f"[{time.strftime('%X')}] [Kharej Agent] Preparing candidate: {name} (type: {cand_type}, TCP: {p_tcp}, UDP: {p_udp}, BitSwap: {enable_bitswap}, duration: {duration}s)...")
+        print_info(f"[{time.strftime('%X')}] [Kharej Agent] Preparing candidate: {name} (type: {cand_type}, TCP: {p_tcp}, UDP: {p_udp}, BitSwap: {enable_bitswap}, private_ip: {private_ip}, duration: {duration}s)...")
         print_info(f"[{time.strftime('%X')}] [Kharej Agent] Using isolated test binary: {ww_bin} in {ww_cwd}")
 
         # 1. Reset any active WaterWall & iperf processes
@@ -665,6 +667,8 @@ class FinderHTTPHandler(BaseHTTPRequestHandler):
                 tcp_ports=[tcp_port],
                 udp_ports=[tcp_port],
                 final_ip="127.0.0.1",
+                custom_private_ip=private_ip,
+                custom_private_ip_2=private_ip_2,
             )
         else:
             cfg = generate_protoswap_kharej(
@@ -677,6 +681,8 @@ class FinderHTTPHandler(BaseHTTPRequestHandler):
                 protoswap_udp=p_udp,
                 final_ip="127.0.0.1",
                 enable_bitswap=enable_bitswap,
+                custom_private_ip=private_ip,
+                custom_private_ip_2=private_ip_2,
             )
         conf_file = Path(ww_cwd) / f"{name}.json"
         core_file = Path(ww_cwd) / "core.json"
@@ -720,6 +726,8 @@ class FinderHTTPHandler(BaseHTTPRequestHandler):
         p_udp = int(req.get("protoswap_udp", 17))
         enable_bitswap = bool(req.get("bitswap", False))
         cand_type = req.get("type", "protoswap")
+        private_ip = req.get("private_ip", "10.99.0.1")
+        private_ip_2 = req.get("private_ip_2")
 
         if cand_type == "bitswap":
             cfg = generate_bitswap_kharej(
@@ -729,6 +737,8 @@ class FinderHTTPHandler(BaseHTTPRequestHandler):
                 tcp_ports=[tcp_port],
                 udp_ports=[tcp_port],
                 final_ip="127.0.0.1",
+                custom_private_ip=private_ip,
+                custom_private_ip_2=private_ip_2,
             )
         else:
             cfg = generate_protoswap_kharej(
@@ -741,6 +751,8 @@ class FinderHTTPHandler(BaseHTTPRequestHandler):
                 protoswap_udp=p_udp,
                 final_ip="127.0.0.1",
                 enable_bitswap=enable_bitswap,
+                custom_private_ip=private_ip,
+                custom_private_ip_2=private_ip_2,
             )
         filepath = Path(ww_cwd) / f"{name}.json"
         core_path = Path(ww_cwd) / "core.json"
@@ -942,11 +954,15 @@ def run_finder_client(
     include_bitswap: bool = False,
     auto_apply: bool = True,
     test_dir: Optional[str] = None,
+    private_ip: str = "10.99.0.1",
+    private_ip_2: Optional[str] = None,
 ) -> int:
     """Orchestrate protocol sweep against Kharej agent."""
     clean_iran = validate_ip(iran_ip)
     clean_kharej = validate_ip(kharej_ip)
     clean_port = validate_port(tcp_port)
+    clean_private_ip = validate_ip(private_ip)
+    clean_private_ip_2 = validate_ip(private_ip_2) if private_ip_2 else None
 
     agent_url = f"http://{clean_kharej}:{control_port}"
     print("=" * 76)
@@ -956,6 +972,7 @@ def run_finder_client(
     print(f"Kharej IP:      {clean_kharej}")
     print(f"Control Agent:  {agent_url}")
     print(f"Test Port:      {clean_port}")
+    print(f"Test Private IP:{clean_private_ip}")
     print(f"Test Duration:  {duration}s per direction")
 
     # 1. Verify Kharej Agent connectivity
@@ -1056,6 +1073,8 @@ def run_finder_client(
                 "bitswap": cand_bitswap,
                 "type": cand_type,
                 "duration": duration,
+                "private_ip": clean_private_ip,
+                "private_ip_2": clean_private_ip_2,
             }
             if test_dir:
                 prep_payload["test_dir"] = test_dir
@@ -1076,6 +1095,8 @@ def run_finder_client(
                 kharej_ip=clean_kharej,
                 tcp_ports=[clean_port],
                 udp_ports=[clean_port],
+                custom_private_ip=clean_private_ip,
+                custom_private_ip_2=clean_private_ip_2,
             )
         else:
             cfg_iran = generate_protoswap_iran(
@@ -1087,6 +1108,8 @@ def run_finder_client(
                 protoswap_tcp=p_tcp,
                 protoswap_udp=p_udp,
                 enable_bitswap=cand_bitswap,
+                custom_private_ip=clean_private_ip,
+                custom_private_ip_2=clean_private_ip_2,
             )
         conf_file = Path(ww_cwd) / f"{name}.json"
         core_file = Path(ww_cwd) / "core.json"
@@ -1230,6 +1253,8 @@ def run_finder_client(
                 kharej_ip=clean_kharej,
                 tcp_ports=[clean_port],
                 udp_ports=[clean_port],
+                custom_private_ip=clean_private_ip,
+                custom_private_ip_2=clean_private_ip_2,
             )
         else:
             best_cfg_iran = generate_protoswap_iran(
@@ -1241,6 +1266,8 @@ def run_finder_client(
                 protoswap_tcp=best_cand["tcp"],
                 protoswap_udp=best_cand["udp"],
                 enable_bitswap=best_cand_bitswap,
+                custom_private_ip=clean_private_ip,
+                custom_private_ip_2=clean_private_ip_2,
             )
         filepath = Path(ww_cwd) / f"{name}.json"
         core_path = Path(ww_cwd) / "core.json"
@@ -1268,6 +1295,8 @@ def run_finder_client(
             "protoswap_udp": best_cand["udp"],
             "bitswap": best_cand_bitswap,
             "type": best_cand_type,
+            "private_ip": clean_private_ip,
+            "private_ip_2": clean_private_ip_2,
         }
         if test_dir:
             apply_payload["test_dir"] = test_dir

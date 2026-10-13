@@ -262,6 +262,8 @@ def _add_finder_subparser(finder_p: argparse.ArgumentParser) -> None:
     f_cli.add_argument("--include-bitswap", action="store_true", help="Include BitSwap variants for custom protocols or preset")
     f_cli.add_argument("--no-apply", action="store_true", help="Do not automatically activate winner in core.json")
     f_cli.add_argument("--test-dir", help="Isolated directory for test WaterWall instance (default: /root/waterwall-test)")
+    f_cli.add_argument("--private-ip", default="10.99.0.1", help="Custom base private IP for TUN test adapter (default: 10.99.0.1)")
+    f_cli.add_argument("--private-ip-2", help="Optional secondary private IP for dual TUN")
 
 
 def _handle_finder(args: argparse.Namespace) -> int:
@@ -288,6 +290,8 @@ def _handle_finder(args: argparse.Namespace) -> int:
             include_bitswap=bool(getattr(args, "include_bitswap", False)),
             auto_apply=not args.no_apply,
             test_dir=getattr(args, "test_dir", None),
+            private_ip=getattr(args, "private_ip", "10.99.0.1") or "10.99.0.1",
+            private_ip_2=getattr(args, "private_ip_2", None),
         )
     else:
         print_error("Invalid finder role. Choose 'server' or 'client'.")

@@ -921,8 +921,29 @@ class TestFinder(unittest.TestCase):
         args_srv = parser.parse_args(["finder", "server", "--test-dir", "/tmp/ww-test"])
         self.assertEqual(args_srv.test_dir, "/tmp/ww-test")
 
-        args_cli = parser.parse_args(["finder", "client", "-ii", "1.1.1.1", "-ki", "2.2.2.2", "--test-dir", "/tmp/ww-test"])
+        args_cli = parser.parse_args(["finder", "client", "-ii", "198.51.100.10", "-ki", "203.0.113.20", "--test-dir", "/tmp/ww-test"])
         self.assertEqual(args_cli.test_dir, "/tmp/ww-test")
+
+    def test_cli_finder_private_ip_option(self):
+        """Verify --private-ip and --private-ip-2 are parsed correctly with defaults."""
+        from confgen.cli import create_parser
+        parser = create_parser()
+
+        # Default private-ip
+        args_default = parser.parse_args(["finder", "client", "-ii", "198.51.100.10", "-ki", "203.0.113.20"])
+        self.assertEqual(args_default.private_ip, "10.99.0.1")
+        self.assertIsNone(args_default.private_ip_2)
+
+        # Custom private-ip and private-ip-2
+        args_custom = parser.parse_args([
+            "finder", "client",
+            "-ii", "198.51.100.10",
+            "-ki", "203.0.113.20",
+            "--private-ip", "10.77.0.1",
+            "--private-ip-2", "10.77.10.1",
+        ])
+        self.assertEqual(args_custom.private_ip, "10.77.0.1")
+        self.assertEqual(args_custom.private_ip_2, "10.77.10.1")
 
 
 if __name__ == "__main__":

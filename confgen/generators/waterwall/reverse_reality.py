@@ -17,6 +17,8 @@ def generate_reverse_reality_tcp_iran(
     key_path: Optional[str] = None,
     use_proxy_protocol: bool = False,
     use_halfduplex: bool = False,
+    use_grpc: bool = False,
+    grpc_concurrency: int = 64,
     use_fisher: bool = False,
     reverse_secret_length: Optional[int] = None,
     reverse_secret: Optional[str] = None,
@@ -135,6 +137,66 @@ def generate_reverse_reality_tcp_iran(
                 "settings": reverse_settings,
                 "next": "bridge_reverse_side",
             },
+        ]
+    )
+
+    # Route from reality-server into reverse_server (standard vs gRPC vs HalfDuplex)
+    after_reality = "reverse_server"
+    if use_halfduplex and use_grpc:
+        after_reality = "halfs"
+        nodes.extend(
+            [
+                {
+                    "name": "halfs",
+                    "type": "HalfDuplexServer",
+                    "settings": {},
+                    "next": "h2server",
+                },
+                {
+                    "name": "h2server",
+                    "type": "Http2Server",
+                    "settings": {},
+                    "next": "pbserver",
+                },
+                {
+                    "name": "pbserver",
+                    "type": "ProtoBufServer",
+                    "settings": {},
+                    "next": "reverse_server",
+                },
+            ]
+        )
+    elif use_grpc:
+        after_reality = "h2server"
+        nodes.extend(
+            [
+                {
+                    "name": "h2server",
+                    "type": "Http2Server",
+                    "settings": {},
+                    "next": "pbserver",
+                },
+                {
+                    "name": "pbserver",
+                    "type": "ProtoBufServer",
+                    "settings": {},
+                    "next": "reverse_server",
+                },
+            ]
+        )
+    elif use_halfduplex:
+        after_reality = "halfs"
+        nodes.append(
+            {
+                "name": "halfs",
+                "type": "HalfDuplexServer",
+                "settings": {},
+                "next": "reverse_server",
+            }
+        )
+
+    nodes.extend(
+        [
             {
                 "name": "reality-server",
                 "type": "RealityServer",
@@ -145,7 +207,7 @@ def generate_reverse_reality_tcp_iran(
                     "kdf-iterations": 12000,
                     "sniffing-attempts": 8,
                 },
-                "next": "reverse_server",
+                "next": after_reality,
             },
             {
                 "name": "dest-visitor",
@@ -205,6 +267,8 @@ def generate_reverse_reality_tcp_kharej(
     min_held: int = 8,
     float_ips: Optional[List[str]] = None,
     use_halfduplex: bool = False,
+    use_grpc: bool = False,
+    grpc_concurrency: int = 64,
     use_fisher: bool = False,
     reverse_secret_length: Optional[int] = None,
     reverse_secret: Optional[str] = None,
@@ -268,6 +332,73 @@ def generate_reverse_reality_tcp_kharej(
     if reverse_secret:
         reverse_settings["reverse-secret"] = reverse_secret
 
+    # Next hop after reverse_client
+    after_reverse_client = "reality-client"
+    if use_halfduplex and use_grpc:
+        after_reverse_client = "pbclient"
+        nodes.extend(
+            [
+                {
+                    "name": "pbclient",
+                    "type": "ProtoBufClient",
+                    "settings": {},
+                    "next": "h2client",
+                },
+                {
+                    "name": "h2client",
+                    "type": "Http2Client",
+                    "settings": {
+                        "host": "$domain_to_handshake_reality$",
+                        "port": "$connect_to_iran_port$",
+                        "path": "/",
+                        "content-type": "application/grpc",
+                        "concurrency": grpc_concurrency,
+                    },
+                    "next": "halfc",
+                },
+                {
+                    "name": "halfc",
+                    "type": "HalfDuplexClient",
+                    "settings": {},
+                    "next": "reality-client",
+                },
+            ]
+        )
+    elif use_grpc:
+        after_reverse_client = "pbclient"
+        nodes.extend(
+            [
+                {
+                    "name": "pbclient",
+                    "type": "ProtoBufClient",
+                    "settings": {},
+                    "next": "h2client",
+                },
+                {
+                    "name": "h2client",
+                    "type": "Http2Client",
+                    "settings": {
+                        "host": "$domain_to_handshake_reality$",
+                        "port": "$connect_to_iran_port$",
+                        "path": "/",
+                        "content-type": "application/grpc",
+                        "concurrency": grpc_concurrency,
+                    },
+                    "next": "reality-client",
+                },
+            ]
+        )
+    elif use_halfduplex:
+        after_reverse_client = "halfc"
+        nodes.append(
+            {
+                "name": "halfc",
+                "type": "HalfDuplexClient",
+                "settings": {},
+                "next": "reality-client",
+            }
+        )
+
     nodes.extend(
         [
             {
@@ -280,7 +411,7 @@ def generate_reverse_reality_tcp_kharej(
                 "name": "reverse_client",
                 "type": "ReverseClient",
                 "settings": reverse_settings,
-                "next": "reality-client",
+                "next": after_reverse_client,
             },
             {
                 "name": "reality-client",

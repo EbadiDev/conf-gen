@@ -192,6 +192,7 @@ def apply_setup_link(
             custom_private_ip_2=private_ip_2,
             enable_bitswap=enable_bitswap,
             bitswap_pattern=pattern,
+            use_mux=data.get("use_mux", True),
         )
 
     # Save configuration

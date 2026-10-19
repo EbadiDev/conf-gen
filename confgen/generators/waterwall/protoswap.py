@@ -51,6 +51,7 @@ def generate_protoswap_iran(
     enable_bitswap: bool = False,
     bitswap_pattern: str = "psh/cwr",
     preserve_bitflags: bool = False,
+    use_mux: bool = True,
 ) -> Dict[str, Any]:
     """Generate unified Iran server ProtoSwap configuration."""
     clean_iran = validate_ip(iran_ip)
@@ -131,7 +132,8 @@ def generate_protoswap_iran(
     nodes: List[Dict[str, Any]] = []
 
     if is_single_tcp:
-        entry_next = "mux-client"
+        dest_connector = "mux-client" if use_mux else "tcp-out"
+        entry_next = dest_connector
         if use_proxy_protocol:
             entry_next = "proxy-header"
         if use_tls:
@@ -164,7 +166,7 @@ def generate_protoswap_iran(
                         "session-tickets": True,
                         "verbose": False,
                     },
-                    "next": "proxy-header" if use_proxy_protocol else "mux-client",
+                    "next": "proxy-header" if use_proxy_protocol else dest_connector,
                 }
             )
         if use_proxy_protocol:
@@ -176,11 +178,11 @@ def generate_protoswap_iran(
                         "data": "proxy-protocol",
                         "frontend-ipv4": "$ip_server_iran$",
                     },
-                    "next": "mux-client",
+                    "next": dest_connector,
                 }
             )
-        nodes.extend(
-            [
+        if use_mux:
+            nodes.append(
                 {
                     "name": "mux-client",
                     "type": "MuxClient",
@@ -189,17 +191,18 @@ def generate_protoswap_iran(
                         "per-worker-connections-count": "$each_worker_mux_connections_count$",
                     },
                     "next": "tcp-out",
+                }
+            )
+        nodes.append(
+            {
+                "name": "tcp-out",
+                "type": "TcpConnector",
+                "settings": {
+                    "address": "$tun_ip_2$",
+                    "port": "$port_to_forward_to_kharej$",
+                    "nodelay": True,
                 },
-                {
-                    "name": "tcp-out",
-                    "type": "TcpConnector",
-                    "settings": {
-                        "address": "$tun_ip_2$",
-                        "port": "$port_to_forward_to_kharej$",
-                        "nodelay": True,
-                    },
-                },
-            ]
+            }
         )
 
     elif is_single_udp:
@@ -613,6 +616,7 @@ def generate_protoswap_kharej(
     enable_bitswap: bool = False,
     bitswap_pattern: str = "psh/cwr",
     preserve_bitflags: bool = False,
+    use_mux: bool = True,
 ) -> Dict[str, Any]:
     """Generate unified Kharej server ProtoSwap configuration."""
     clean_iran = validate_ip(iran_ip)
@@ -688,36 +692,40 @@ def generate_protoswap_kharej(
     nodes: List[Dict[str, Any]] = []
 
     if is_single_tcp:
-        nodes.extend(
-            [
-                {
-                    "name": "users_inbound",
-                    "type": "TcpListener",
-                    "settings": {
-                        "address": "0.0.0.0",
-                        "port": "$port_to_listen$",
-                        "nodelay": True,
-                        "initial-idle-timeout-ms": 3600000,
-                        "active-idle-timeout-ms": 3600000,
-                    },
-                    "next": "mux-s",
+        listener_next = "mux-s" if use_mux else "tcp-out"
+        nodes.append(
+            {
+                "name": "users_inbound",
+                "type": "TcpListener",
+                "settings": {
+                    "address": "0.0.0.0",
+                    "port": "$port_to_listen$",
+                    "nodelay": True,
+                    "initial-idle-timeout-ms": 3600000,
+                    "active-idle-timeout-ms": 3600000,
                 },
+                "next": listener_next,
+            }
+        )
+        if use_mux:
+            nodes.append(
                 {
                     "name": "mux-s",
                     "type": "MuxServer",
                     "settings": {},
                     "next": "tcp-out",
+                }
+            )
+        nodes.append(
+            {
+                "name": "tcp-out",
+                "type": "TcpConnector",
+                "settings": {
+                    "address": "$final_ip$",
+                    "port": "$final_port$",
+                    "nodelay": True,
                 },
-                {
-                    "name": "tcp-out",
-                    "type": "TcpConnector",
-                    "settings": {
-                        "address": "$final_ip$",
-                        "port": "$final_port$",
-                        "nodelay": True,
-                    },
-                },
-            ]
+            }
         )
 
     elif is_single_udp:

@@ -115,6 +115,7 @@ def _add_v3_subparser(v3_p: argparse.ArgumentParser) -> None:
     v3_s.add_argument("-l", "-p", "--listen-port", "--listen", type=int, default=443, help="Listen port on Iran side (default: 443)")
     v3_s.add_argument("-f", "-t", "--target-port", "--forward", type=int, default=443, help="Target/forward port on Kharej side (default: 443)")
     v3_s.add_argument("--mux", nargs="?", const=8, type=int, default=0, help="Enable Mux multiplexing (default count: 8)")
+    v3_s.add_argument("--no-mux", action="store_true", help="Disable Mux multiplexing (Direct Classic TCP mode)")
     v3_s.add_argument("--tls", nargs=2, metavar=("CERT", "KEY"), help="TLS certificate and key paths")
     v3_s.add_argument("--proxy-protocol", action="store_true", help="Enable Proxy Protocol header")
     v3_s.add_argument("--xor-key", type=int, default=90, help="XOR obfuscation key (default: 90)")
@@ -147,6 +148,7 @@ def _add_v3_subparser(v3_p: argparse.ArgumentParser) -> None:
     v3_c.add_argument("-f", "-t", "--target-port", "--forward", type=int, default=443, help="Final destination service port on Kharej side (default: 443)")
     v3_c.add_argument("--final-ip", default="127.0.0.1", help="Final destination service IP (default: 127.0.0.1)")
     v3_c.add_argument("--mux", nargs="?", const=8, type=int, default=0, help="Enable Mux multiplexing (default count: 8)")
+    v3_c.add_argument("--no-mux", action="store_true", help="Disable Mux multiplexing (Direct Classic TCP mode)")
     v3_c.add_argument("--proxy-protocol", action="store_true", help="Enable Proxy Protocol header")
     v3_c.add_argument("--xor-key", type=int, default=90, help="XOR obfuscation key (default: 90)")
     v3_c.add_argument("--no-core", action="store_true", help="Do not automatically add to core.json")
@@ -168,8 +170,8 @@ def _handle_v3(args: argparse.Namespace) -> int:
     if proto_udp is None:
         proto_udp = proto_tcp + 1
 
-    use_mux = bool(args.mux and args.mux > 0)
-    mux_count = args.mux if use_mux else 8
+    use_mux = not bool(getattr(args, "no_mux", False))
+    mux_count = args.mux if (args.mux and args.mux > 0) else 8
     xor_key = getattr(args, "xor_key", 90) or 90
 
     if side in ("server", "iran"):
@@ -192,6 +194,7 @@ def _handle_v3(args: argparse.Namespace) -> int:
             cert_path=cert_path,
             key_path=key_path,
             xor_key=xor_key,
+            use_mux=use_mux,
         )
         save_waterwall_config(cfg, name=name, auto_core=not args.no_core)
         from confgen.core.link import encode_setup_link, print_setup_box
@@ -206,9 +209,11 @@ def _handle_v3(args: argparse.Namespace) -> int:
             "protoswap_udp": proto_udp,
             "private_ip": private_ip,
             "xor_key": xor_key,
+            "use_mux": use_mux,
         }
         link = encode_setup_link(payload)
-        print_setup_box(link, name, f"V3 ProtoSwap ({proto_tcp}/{proto_udp})")
+        mode_label = f"V3 ProtoSwap ({proto_tcp}/{proto_udp})" + (" (Direct No-Mux)" if not use_mux else "")
+        print_setup_box(link, name, mode_label)
         return 0
 
     elif side in ("client", "kharej"):
@@ -224,6 +229,7 @@ def _handle_v3(args: argparse.Namespace) -> int:
             protoswap_udp=proto_udp,
             custom_private_ip=private_ip,
             xor_key=xor_key,
+            use_mux=use_mux,
         )
         save_waterwall_config(cfg, name=name, auto_core=not args.no_core)
         return 0

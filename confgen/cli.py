@@ -474,7 +474,30 @@ def create_parser() -> argparse.ArgumentParser:
 
     # 2.1 waterwall reverse-reality
     ww_rr = ww_sub.add_parser("reverse-reality", help="Reverse Reality tunnel (TCP & UDP)", formatter_class=CustomFormatter)
-    ww_rr_sub = ww_rr.add_subparsers(dest="side", help="Tunnel side (iran | kharej | dual)")
+    ww_rr_sub = ww_rr.add_subparsers(dest="side", help="Tunnel side (iran | kharej | dual | udp)")
+
+    # ww rr udp (Dedicated UDP Reverse Reality)
+    w_rr_u = ww_rr_sub.add_parser(
+        "udp",
+        help="Dedicated UDP Reverse Reality tunnel (UdpOverTcp framing)",
+        formatter_class=CustomFormatter,
+        epilog="""Example:
+  ./confgen.py waterwall reverse-reality udp iran -n champion-udp -ii 198.51.100.10 -ki 203.0.113.20 -p 27012 -fp 10006 -d shariati.tums.ac.ir --halfduplex --fisher
+""",
+    )
+    w_rr_u.add_argument("mode", choices=["iran", "kharej"], help="Server role (iran | kharej)")
+    w_rr_u.add_argument("-n", "--name", default="champion-udp", help="Configuration name (default: champion-udp)")
+    w_rr_u.add_argument("-ii", "--iran-ip", required=True, help="Iran Server public IP")
+    w_rr_u.add_argument("-ki", "--kharej-ip", required=True, help="Kharej Server public IP")
+    w_rr_u.add_argument("-p", "--port", type=int, default=27012, help="UDP listening / carrier port (default: 27012)")
+    w_rr_u.add_argument("-fp", "--final-port", type=int, default=10006, help="Target UDP service port on Kharej (default: 10006)")
+    w_rr_u.add_argument("-d", "--domain", default="shariati.tums.ac.ir", help="Reality SNI domain (default: shariati.tums.ac.ir)")
+    w_rr_u.add_argument("-wi", "--white-ip", help="Origin IP behind SNI domain")
+    w_rr_u.add_argument("--pass", "--password", dest="password", default="arch1234net", help="Reality password")
+    w_rr_u.add_argument("--float", nargs="*", default=[], help="Kharej floating IPs")
+    w_rr_u.add_argument("--halfduplex", action="store_true", help="Enable HalfDuplex")
+    w_rr_u.add_argument("--fisher", action="store_true", help="Enable ConnectionFisher")
+    w_rr_u.add_argument("--no-core", action="store_true", help="Do not automatically add to core.json")
 
     # ww rr dual (Champion Multi-Port TCP + UDP)
     w_rr_d = ww_rr_sub.add_parser(
@@ -996,7 +1019,73 @@ def main(argv: Optional[List[str]] = None) -> int:
                 return _handle_finder(args)
 
             elif args.subcommand == "reverse-reality":
-                if args.side == "dual":
+                if args.side == "udp":
+                    name = args.name or "champion-udp"
+                    iran_ip = args.iran_ip
+                    kharej_ip = args.kharej_ip
+                    port = args.port or 27012
+                    final_port = args.final_port or 10006
+                    domain = args.domain or "shariati.tums.ac.ir"
+                    from confgen.core.finder import resolve_sni_ip
+                    white_ip = args.white_ip or resolve_sni_ip(domain)
+                    password = args.password
+                    use_hd = bool(args.halfduplex)
+                    use_cf = bool(args.fisher)
+
+                    from confgen.generators.waterwall.reverse_reality import (
+                        generate_reverse_reality_udp_iran,
+                        generate_reverse_reality_udp_kharej,
+                    )
+
+                    if args.mode == "iran":
+                        cfg = generate_reverse_reality_udp_iran(
+                            config_name=name,
+                            iran_ip=iran_ip,
+                            kharej_ip=kharej_ip,
+                            port=port,
+                            domain=domain,
+                            white_ip=white_ip,
+                            password=password,
+                            float_ips=args.float,
+                            use_halfduplex=use_hd,
+                            use_fisher=use_cf,
+                        )
+                        save_waterwall_config(cfg, name=name, auto_core=not args.no_core)
+                        from confgen.core.link import encode_setup_link, print_setup_box
+                        payload = {
+                            "type": "reverse_reality_udp",
+                            "name": name,
+                            "iran_ip": iran_ip,
+                            "kharej_ip": kharej_ip,
+                            "tcp_ports": [port],
+                            "tcp_tunnel_port": port,
+                            "final_port": final_port,
+                            "domain": domain,
+                            "password": password,
+                            "use_halfduplex": use_hd,
+                            "use_fisher": use_cf,
+                            "float_ips": args.float,
+                        }
+                        link = encode_setup_link(payload)
+                        print_setup_box(link, name, f"Reverse Reality UDP ({domain})")
+                        return 0
+                    elif args.mode == "kharej":
+                        cfg = generate_reverse_reality_udp_kharej(
+                            config_name=name,
+                            iran_ip=iran_ip,
+                            kharej_ip=kharej_ip,
+                            port=port,
+                            domain=domain,
+                            final_port=final_port,
+                            password=password,
+                            float_ips=args.float,
+                            use_halfduplex=use_hd,
+                            use_fisher=use_cf,
+                        )
+                        save_waterwall_config(cfg, name=name, auto_core=not args.no_core)
+                        return 0
+
+                elif args.side == "dual":
                     name = args.name or "champion"
                     iran_ip = args.iran_ip
                     kharej_ip = args.kharej_ip

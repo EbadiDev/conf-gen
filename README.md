@@ -132,57 +132,147 @@ Rank  | Candidate                                          | Type            | T
 
 ## 🛠️ Deploying Production Tunnels
 
-### 1. Reverse Reality (4.7 Gbps Champion)
+### 1. Reverse Reality Multi-Port TCP (4.7 Gbps Champion)
 
-Disguises cross-border traffic as Google Chrome TLS traffic to an Iranian national host:
+Carries multiple public web and proxy ports (`443, 8080, 5370, 9008`) simultaneously over a single high-speed Reverse Reality tunnel. Uses `HeaderClient` and `HeaderServer` to preserve and route each port 1-to-1 to your backend:
 
 ```bash
 # On Iran Server:
 confgen waterwall reverse-reality iran \
-  -n champion-tunnel \
+  -n champion \
   -ii <IRAN_IP> \
   -ki <KHAREJ_IP> \
-  -p 443 \
+  -p 443 8080 5370 9008 \
   -d shariati.tums.ac.ir \
-  -wi 185.143.234.132 \
   --halfduplex \
   --fisher
 
-# Copy the ONE-LINE setup command printed by ConfGen and paste it on Kharej:
+# Copy the ONE-LINE setup command printed by Iran and run it on Kharej:
 confgen link apply 'confgen://...'
+
+# (Or run the direct command on Kharej):
+confgen waterwall reverse-reality kharej \
+  -n champion \
+  -ii <IRAN_IP> \
+  -ki <KHAREJ_IP> \
+  -p 443 \
+  -fp 0 \
+  -d shariati.tums.ac.ir \
+  --halfduplex \
+  --fisher
 ```
 
-### 2. Reverse Reality UDP (0.0% Packet Loss for Gaming & Voice)
+Restart WaterWall on both servers:
+```bash
+systemctl restart waterwall.service
+```
 
-Transports UDP datagrams over the high-speed Reality TLS carrier using `UdpOverTcpClient` & `UdpOverTcpServer`:
+- **Port Routing**:
+  - `443` on Iran ➔ `127.0.0.1:443` on Kharej
+  - `8080` on Iran ➔ `127.0.0.1:8080` on Kharej
+  - `5370` on Iran ➔ `127.0.0.1:5370` on Kharej
+  - `9008` on Iran ➔ `127.0.0.1:9008` on Kharej
+- **Speed**: **~4.7 Gbps** aggregate wire speed with **0ms added latency**!
+
+---
+
+### 2. Reverse Reality Dedicated UDP (WireGuard, Gaming & Voice)
+
+Transports UDP datagrams over the 4.7 Gbps Reality TLS carrier using `UdpOverTcpClient` & `UdpOverTcpServer` with **0.0% packet loss** and **800+ Mbps throughput**:
 
 ```bash
-# On Iran Server:
-confgen waterwall reverse-reality iran \
+# On Iran Server (example with WireGuard port 27012):
+confgen waterwall reverse-reality udp iran \
   -n champion-udp \
   -ii <IRAN_IP> \
   -ki <KHAREJ_IP> \
-  -p 443 \
+  -p 27012 \
+  -fp 27012 \
   -d shariati.tums.ac.ir \
-  -wi 185.143.234.132 \
-  --udp \
   --halfduplex \
   --fisher
 
-# On Kharej: Run the generated setup link or:
-confgen waterwall reverse-reality kharej \
+# Copy the ONE-LINE setup command printed by Iran and run it on Kharej:
+confgen link apply 'confgen://...'
+
+# (Or run the direct command on Kharej):
+confgen waterwall reverse-reality udp kharej \
   -n champion-udp \
   -ii <IRAN_IP> \
   -ki <KHAREJ_IP> \
-  -p 443 \
+  -p 27012 \
+  -fp 27012 \
   -d shariati.tums.ac.ir \
-  -fp 443 \
-  --udp \
   --halfduplex \
   --fisher
 ```
 
-### 3. V3 ProtoSwap (Raw Protocol Replacement)
+Restart WaterWall on both servers:
+```bash
+systemctl restart waterwall.service
+```
+
+#### 🛡️ WireGuard Client Configuration Rules:
+In your WireGuard client configuration file (`.conf` on phone/laptop):
+1. **Set `MTU = 1280`**:
+   The tunnel encapsulates UDP packets in length headers and TLS. Setting `MTU = 1280` eliminates packet fragmentation and prevents silent drops.
+2. **Set `Endpoint` to Iran**:
+   `Endpoint = <IRAN_IP>:27012` (points to Iran's public IP).
+3. **Open Iran Firewall**:
+   Ensure `ufw allow 27012/udp` (or `iptables -I INPUT -p udp --dport 27012 -j ACCEPT`) is applied on Iran.
+
+---
+
+### 3. Running TCP + UDP in Parallel (Production Best Practice)
+
+In WaterWall, `core.json` automatically loads multiple configuration files simultaneously:
+
+```json
+{
+  "configs": [
+    "champion.json",
+    "champion-udp.json"
+  ]
+}
+```
+
+- **Complete Decoupling**: If UDP gaming or VoIP encounters packet bursts or network congestion, **it will never drop or throttle your 4.7 Gbps TCP web users**.
+- **Dedicated Sockets**: TCP uses standard port 443; UDP uses its dedicated port (e.g. 27012).
+- **Independent Maintenance**: You can inspect or restart UDP without interrupting active TCP streams.
+
+---
+
+### 4. How to Test & Verify Tunnels
+
+#### Test 1: Test TCP Bandwidth
+1. On Kharej:
+   ```bash
+   confgen test server --port 8080
+   ```
+2. On Iran:
+   ```bash
+   confgen test client -t 127.0.0.1 -p 8080
+   ```
+
+#### Test 2: Test UDP Bandwidth & Packet Loss
+1. On Kharej:
+   ```bash
+   confgen test server --port 9001
+   ```
+2. On Iran:
+   ```bash
+   confgen test client -t 127.0.0.1 -p 9001 --udp
+   ```
+
+#### Test 3: Test MUX Concurrency Scaling Table
+Measures how throughput scales across 1, 2, 8, and 16 concurrent streams:
+```bash
+confgen test client -t 127.0.0.1 -p 8080 --matrix
+```
+
+---
+
+### 5. V3 ProtoSwap (Raw Protocol Replacement)
 
 Swaps standard TCP and UDP IP headers with raw protocol numbers (e.g. Protocol 50 [ESP], 47 [GRE], or 253):
 
@@ -194,7 +284,7 @@ confgen v3 server my-proto <KHAREJ_IP> <IRAN_IP> 10.40.0.1 50 -l 443 -f 443 --no
 confgen v3 client my-proto <KHAREJ_IP> <IRAN_IP> 10.40.0.1 50 -l 443 -f 443 --no-mux
 ```
 
-### 4. BitSwap (Configurable TCP Flag Swapping)
+### 6. BitSwap (Configurable TCP Flag Swapping)
 
 Swaps specified TCP header bitflags (e.g. `psh/rst`, `psh/cwr`, `cwr/ece`, `ack/fin`):
 

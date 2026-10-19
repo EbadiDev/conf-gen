@@ -8,6 +8,7 @@ and automatically applies the winning configuration to both servers.
 
 import json
 import os
+import platform
 import shutil
 import signal
 import socket
@@ -129,8 +130,39 @@ CANDIDATES_PRESETS: Dict[str, List[Dict[str, Any]]] = {
 
 import zipfile
 
-WATERWALL_RELEASE_URL = "https://github.com/radkesvat/WaterWall/releases/download/v1.46.94/Waterwall-linux-gcc-x64-old-cpu.zip"
 WATERWALL_TEST_BIN_NAME = "Waterwall-test"
+
+
+def get_cpu_architecture() -> str:
+    """Return normalized CPU architecture: 'arm64' or 'x64'."""
+    machine = platform.machine().lower()
+    if machine in ("aarch64", "arm64", "armv8", "armv8b", "armv8l"):
+        return "arm64"
+    return "x64"
+
+
+def get_waterwall_release_url() -> str:
+    """Return appropriate WaterWall release download URL based on CPU architecture."""
+    arch = get_cpu_architecture()
+    base = "https://github.com/radkesvat/WaterWall/releases/download/v1.46.94"
+    if arch == "arm64":
+        return f"{base}/Waterwall-linux-gcc-arm64-old-cpu.zip"
+    else:
+        return f"{base}/Waterwall-linux-gcc-x64-old-cpu.zip"
+
+
+def is_binary_runnable(bin_path: str) -> bool:
+    """Check if the binary can be executed without Exec format error."""
+    if not os.path.isfile(bin_path) or not os.access(bin_path, os.X_OK):
+        return False
+    try:
+        proc = subprocess.run([bin_path, "-v"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=2.0)
+        return True
+    except OSError as e:
+        # e.errno == 8 (Exec format error)
+        return False
+    except Exception:
+        return True
 
 
 def get_default_test_dir() -> str:
@@ -166,7 +198,9 @@ def download_and_extract_waterwall(target_dir: str) -> Optional[str]:
         except Exception:
             pass
 
-    print_info(f"Downloading isolated WaterWall benchmark instance into {target_dir}...")
+    arch = get_cpu_architecture()
+    release_url = get_waterwall_release_url()
+    print_info(f"Downloading isolated WaterWall benchmark instance for {arch} into {target_dir}...")
     downloaded = False
 
     # Attempt 1: curl -4 -L -o
@@ -174,7 +208,7 @@ def download_and_extract_waterwall(target_dir: str) -> Optional[str]:
     if curl_bin:
         try:
             ret = subprocess.run(
-                [curl_bin, "-4", "-fsSL", "--connect-timeout", "15", "--max-time", "120", "-o", zip_path, WATERWALL_RELEASE_URL],
+                [curl_bin, "-4", "-fsSL", "--connect-timeout", "15", "--max-time", "120", "-o", zip_path, release_url],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 timeout=130,
@@ -187,7 +221,7 @@ def download_and_extract_waterwall(target_dir: str) -> Optional[str]:
     # Attempt 2: Python urllib
     if not downloaded:
         try:
-            req = Request(WATERWALL_RELEASE_URL, headers={"User-Agent": "Mozilla/5.0"})
+            req = Request(release_url, headers={"User-Agent": "Mozilla/5.0"})
             with urlopen(req, timeout=30.0) as resp, open(zip_path, "wb") as out_f:
                 shutil.copyfileobj(resp, out_f)
             if os.path.exists(zip_path) and os.path.getsize(zip_path) > 1000:
@@ -285,20 +319,33 @@ def get_test_waterwall_launch_info(
     os.makedirs(target_dir, exist_ok=True)
     test_bin = os.path.join(target_dir, WATERWALL_TEST_BIN_NAME)
 
-    # 1. Existing Waterwall-test in target_dir
+    # 1. Existing Waterwall-test in target_dir (must be runnable)
     if os.path.isfile(test_bin) and os.access(test_bin, os.X_OK):
-        return test_bin, target_dir
+        if is_binary_runnable(test_bin):
+            return test_bin, target_dir
+        else:
+            print_warning(f"Existing binary at {test_bin} has wrong architecture (Exec format error). Re-downloading...")
+            try:
+                os.remove(test_bin)
+            except Exception:
+                pass
 
-    # 2. Existing Waterwall in target_dir -> copy to Waterwall-test
+    # 2. Existing Waterwall in target_dir -> copy to Waterwall-test (if runnable)
     for b_name in ["Waterwall", "waterwall"]:
         cand = os.path.join(target_dir, b_name)
         if os.path.isfile(cand) and os.access(cand, os.X_OK):
-            try:
-                shutil.copy2(cand, test_bin)
-                os.chmod(test_bin, 0o755)
-                return test_bin, target_dir
-            except Exception:
-                pass
+            if is_binary_runnable(cand):
+                try:
+                    shutil.copy2(cand, test_bin)
+                    os.chmod(test_bin, 0o755)
+                    return test_bin, target_dir
+                except Exception:
+                    pass
+            else:
+                try:
+                    os.remove(cand)
+                except Exception:
+                    pass
 
     # 3. Auto-download from GitHub into target_dir
     if auto_download:
@@ -373,16 +420,20 @@ def get_waterwall_launch_info(
 
 
 def find_waterwall_binary(test_dir: Optional[str] = None) -> Optional[str]:
-    """Locate the WaterWall binary on the host (checks test instance then host)."""
+    """Locate a runnable WaterWall binary on the host (checks test instance then host)."""
     bin_path, _ = get_test_waterwall_launch_info(test_dir=test_dir, auto_download=False)
-    if os.path.isfile(bin_path) and os.access(bin_path, os.X_OK):
+    if is_binary_runnable(bin_path):
         return bin_path
     for d in ["/root/waterwall", os.path.expanduser("~/waterwall"), "/usr/local/bin", "/usr/bin"]:
         for n in ["Waterwall", "waterwall"]:
             p = os.path.join(d, n)
-            if os.path.isfile(p) and os.access(p, os.X_OK):
+            if is_binary_runnable(p):
                 return p
-    return shutil.which("Waterwall") or shutil.which("waterwall")
+    for n in ["Waterwall", "waterwall"]:
+        w = shutil.which(n)
+        if w and is_binary_runnable(w):
+            return w
+    return None
 
 
 def find_iperf3_binary() -> Optional[str]:

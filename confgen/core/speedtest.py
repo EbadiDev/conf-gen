@@ -79,14 +79,18 @@ def run_speedtest_client(
     host: str = "127.0.0.1",
     port: int = 9001,
     duration: int = 5,
+    parallel: int = 1,
+    quiet: bool = False,
 ) -> Tuple[float, float, float]:
-    """Execute native speedtest client against server."""
-    print("=" * 65)
-    print("⚡ CONFGEN NATIVE STREAM BENCHMARK")
-    print("=" * 65)
-    print(f"Target Endpoint:  {host}:{port}")
-    print(f"Test Duration:    {duration}s per direction")
-    print(f"Frame Size:       {CHUNK_SIZE} B (MTU-safe)")
+    """Execute native speedtest client against server with optional parallel streams."""
+    if not quiet:
+        print("=" * 65)
+        print("⚡ CONFGEN NATIVE STREAM BENCHMARK")
+        print("=" * 65)
+        print(f"Target Endpoint:  {host}:{port}")
+        print(f"Child Streams:    {parallel} connection(s)")
+        print(f"Test Duration:    {duration}s per direction")
+        print(f"Frame Size:       {CHUNK_SIZE} B (MTU-safe)")
 
     # 1. Latency RTT Probe
     rtt_ms: Optional[float] = None
@@ -102,54 +106,116 @@ def run_speedtest_client(
         pass
 
     rtt_str = f"{rtt_ms:.1f} ms" if rtt_ms is not None else "TIMEOUT / UNREACHABLE"
-    print_info(f"Handshake Latency: {rtt_str}")
+    if not quiet:
+        print_info(f"Handshake Latency: {rtt_str}")
 
-    # 2. Upload Test (Iran -> Kharej)
-    print_info(f"Testing Upload speed (Iran -> Kharej, {duration}s)...")
-    up_bytes = 0
-    up_mbps = 0.0
-    t_end = time.perf_counter() + duration
+    # 2. Upload Test (Iran -> Kharej) with parallel child connections
+    if not quiet:
+        print_info(f"Testing Upload speed ({parallel} stream(s), {duration}s)...")
+    total_up_bytes = 0
+    up_bytes_lock = threading.Lock()
     chunk = b"\x55" * CHUNK_SIZE
-    try:
-        with socket.create_connection((host, port), timeout=4.0) as s:
-            s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-            s.sendall(f"UPLOAD:{duration}".encode("ascii"))
-            t_start = time.perf_counter()
-            while time.perf_counter() < t_end:
-                s.sendall(chunk)
-                up_bytes += len(chunk)
-            elapsed = time.perf_counter() - t_start
-            if elapsed > 0:
-                up_mbps = round((up_bytes * 8) / (elapsed * 1_000_000.0), 2)
-        print_success(f"Upload:   {up_mbps:6.2f} Mbps ({(up_bytes / (1024 * 1024)):.1f} MB in {duration}s)")
-    except Exception as e:
-        print_warning(f"Upload failed: {e}")
+    t_end = time.perf_counter() + duration
+
+    def _worker_up():
+        nonlocal total_up_bytes
+        local_bytes = 0
+        try:
+            with socket.create_connection((host, port), timeout=4.0) as s:
+                s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                s.sendall(f"UPLOAD:{duration}".encode("ascii"))
+                while time.perf_counter() < t_end:
+                    s.sendall(chunk)
+                    local_bytes += len(chunk)
+        except Exception:
+            pass
+        with up_bytes_lock:
+            total_up_bytes += local_bytes
+
+    threads = [threading.Thread(target=_worker_up) for _ in range(parallel)]
+    t_start = time.perf_counter()
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    elapsed = time.perf_counter() - t_start
+    up_mbps = round((total_up_bytes * 8) / (elapsed * 1_000_000.0), 2) if elapsed > 0 else 0.0
+    if not quiet:
+        print_success(f"Upload:   {up_mbps:6.2f} Mbps ({(total_up_bytes / (1024 * 1024)):.1f} MB in {duration}s across {parallel} streams)")
 
     time.sleep(0.5)
 
-    # 3. Download Test (Kharej -> Iran)
-    print_info(f"Testing Download speed (Kharej -> Iran, {duration}s)...")
-    down_bytes = 0
-    down_mbps = 0.0
-    try:
-        with socket.create_connection((host, port), timeout=4.0) as s:
-            s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-            s.sendall(f"DNLOAD:{duration}".encode("ascii"))
-            t_start = time.perf_counter()
-            t_down_end = t_start + duration + 0.5
-            while time.perf_counter() < t_down_end:
-                data = s.recv(65536)
-                if not data:
-                    break
-                down_bytes += len(data)
-            elapsed = time.perf_counter() - t_start
-            if elapsed > 0:
-                down_mbps = round((down_bytes * 8) / (elapsed * 1_000_000.0), 2)
-        print_success(f"Download: {down_mbps:6.2f} Mbps ({(down_bytes / (1024 * 1024)):.1f} MB in {duration}s)")
-    except Exception as e:
-        print_warning(f"Download failed: {e}")
+    # 3. Download Test (Kharej -> Iran) with parallel child connections
+    if not quiet:
+        print_info(f"Testing Download speed ({parallel} stream(s), {duration}s)...")
+    total_down_bytes = 0
+    down_bytes_lock = threading.Lock()
 
-    print("=" * 65)
-    print(f"📊 SUMMARY: Up: {up_mbps} Mbps | Down: {down_mbps} Mbps | RTT: {rtt_str}")
-    print("=" * 65 + "\n")
+    def _worker_down():
+        nonlocal total_down_bytes
+        local_bytes = 0
+        try:
+            with socket.create_connection((host, port), timeout=4.0) as s:
+                s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                s.sendall(f"DNLOAD:{duration}".encode("ascii"))
+                t_down_end = time.perf_counter() + duration + 0.5
+                while time.perf_counter() < t_down_end:
+                    data = s.recv(65536)
+                    if not data:
+                        break
+                    local_bytes += len(data)
+        except Exception:
+            pass
+        with down_bytes_lock:
+            total_down_bytes += local_bytes
+
+    threads = [threading.Thread(target=_worker_down) for _ in range(parallel)]
+    t_start = time.perf_counter()
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    elapsed = time.perf_counter() - t_start
+    down_mbps = round((total_down_bytes * 8) / (elapsed * 1_000_000.0), 2) if elapsed > 0 else 0.0
+    if not quiet:
+        print_success(f"Download: {down_mbps:6.2f} Mbps ({(total_down_bytes / (1024 * 1024)):.1f} MB in {duration}s across {parallel} streams)")
+        print("=" * 65)
+        print(f"📊 SUMMARY: Up: {up_mbps} Mbps | Down: {down_mbps} Mbps | RTT: {rtt_str}")
+        print("=" * 65 + "\n")
+
     return up_mbps, down_mbps, (rtt_ms or 0.0)
+
+
+def run_mux_scaling_benchmark(
+    host: str = "127.0.0.1",
+    port: int = 9001,
+    duration: int = 5,
+    steps: Optional[List[int]] = None,
+) -> None:
+    """Run multi-connection scaling benchmark (1, 2, 8, 16 child connections) matching WaterWall docs."""
+    from typing import List
+    steps = steps or [1, 2, 8, 16]
+    print("\n" + "=" * 80)
+    print("⚡ WATERWALL MUX MULTI-CONNECTION SCALING BENCHMARK")
+    print("=" * 80)
+    print("Each cell shows throughput in Mbps. All child connections share the tunnel.")
+    print(f"Target: {host}:{port} | Duration: {duration}s per test\n")
+
+    matrix_results = []
+    for count in steps:
+        print(f"[*] Testing with {count} child connection(s)...")
+        up, down, rtt = run_speedtest_client(host=host, port=port, duration=duration, parallel=count, quiet=True)
+        print_success(f"    -> Up: {up:6.2f} Mbps | Down: {down:6.2f} Mbps")
+        matrix_results.append((count, up, down, rtt))
+        time.sleep(0.5)
+
+    print("\n" + "=" * 80)
+    print("📊 MUX CONCURRENCY SCALING BENCHMARK TABLE")
+    print("=" * 80)
+    print(f"{'Child Connections':<20} | {'Upload Throughput':<25} | {'Download Throughput':<25}")
+    print("-" * 80)
+    for count, up, down, rtt in matrix_results:
+        up_str = f"{up:6.2f} Mbps ({(up/8):.1f} MB/s)"
+        down_str = f"{down:6.2f} Mbps ({(down/8):.1f} MB/s)"
+        print(f"{count:<20} | {up_str:<25} | {down_str:<25}")
+    print("=" * 80 + "\n")

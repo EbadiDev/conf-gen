@@ -379,6 +379,8 @@ def create_parser() -> argparse.ArgumentParser:
     t_cli.add_argument("-t", "--host", default="127.0.0.1", help="Target host (default: 127.0.0.1)")
     t_cli.add_argument("-p", "--port", type=int, default=9001, help="Target port (default: 9001)")
     t_cli.add_argument("-d", "--duration", type=int, default=5, help="Test duration in seconds per direction (default: 5)")
+    t_cli.add_argument("-P", "--parallel", type=int, default=1, help="Number of parallel child streams (default: 1)")
+    t_cli.add_argument("--matrix", "--scaling", dest="matrix", action="store_true", help="Run MUX multi-connection scaling benchmark table (1, 2, 8, 16 streams)")
 
     # =========================================================================
     # 0.1 FINDER (Top-level alias)
@@ -871,11 +873,14 @@ def main(argv: Optional[List[str]] = None) -> int:
             return 0
 
         elif args.command in ("test", "speedtest"):
-            from confgen.core.speedtest import run_speedtest_server, run_speedtest_client
+            from confgen.core.speedtest import run_speedtest_server, run_speedtest_client, run_mux_scaling_benchmark
             if getattr(args, "test_cmd", None) == "server":
                 return run_speedtest_server(port=args.port, bind=args.bind)
             elif getattr(args, "test_cmd", None) == "client":
-                run_speedtest_client(host=args.host, port=args.port, duration=args.duration)
+                if getattr(args, "matrix", False):
+                    run_mux_scaling_benchmark(host=args.host, port=args.port, duration=args.duration)
+                else:
+                    run_speedtest_client(host=args.host, port=args.port, duration=args.duration, parallel=args.parallel)
                 return 0
             parser.print_help()
             return 1

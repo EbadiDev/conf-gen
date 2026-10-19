@@ -404,21 +404,36 @@ def run_interactive_menu() -> int:
             optimize_server()
             input("\nPress Enter to return to menu...")
         elif choice == "6":
-            from confgen.core.speedtest import run_speedtest_server, run_speedtest_client
+            from confgen.core.speedtest import run_speedtest_server, run_speedtest_client, run_mux_scaling_benchmark
             print("\n--- NATIVE STREAM SPEEDTEST ---")
-            print("Select role:")
-            print("  1) Client (Run speedtest from Iran)")
-            print("  2) Server (Start receiver daemon on Kharej)")
+            print("Select mode:")
+            print("  1) Single Stream Client (1 connection)")
+            print("  2) Mux Scaling Benchmark Table (1, 2, 8, 16 child connections)")
+            print("  3) Custom Parallel Streams Client (e.g. 2, 8, 16 connections)")
+            print("  4) Server (Start receiver daemon on Kharej)")
             print("  0) Back")
-            st_choice = prompt_string("Choose [0-2]", default="1")
-            if st_choice == "2":
+            st_choice = prompt_string("Choose [0-4]", default="1")
+            if st_choice == "4":
                 p = prompt_int("Listen Port", default=9001)
                 run_speedtest_server(port=p)
             elif st_choice == "1":
                 h = prompt_string("Target Host (IP or 127.0.0.1)", default="127.0.0.1")
                 p = prompt_int("Target Port", default=9001)
                 d = prompt_int("Duration in seconds", default=5, min_val=2, max_val=30)
-                run_speedtest_client(host=h, port=p, duration=d)
+                run_speedtest_client(host=h, port=p, duration=d, parallel=1)
+                input("\nPress Enter to return to menu...")
+            elif st_choice == "2":
+                h = prompt_string("Target Host (IP or 127.0.0.1)", default="127.0.0.1")
+                p = prompt_int("Target Port", default=9001)
+                d = prompt_int("Duration per step in seconds", default=5, min_val=2, max_val=30)
+                run_mux_scaling_benchmark(host=h, port=p, duration=d)
+                input("\nPress Enter to return to menu...")
+            elif st_choice == "3":
+                h = prompt_string("Target Host (IP or 127.0.0.1)", default="127.0.0.1")
+                p = prompt_int("Target Port", default=9001)
+                d = prompt_int("Duration in seconds", default=5, min_val=2, max_val=30)
+                par = prompt_int("Parallel Streams Count (e.g. 2, 8, 16)", default=8, min_val=1, max_val=64)
+                run_speedtest_client(host=h, port=p, duration=d, parallel=par)
                 input("\nPress Enter to return to menu...")
         elif choice == "7":
             update_app()

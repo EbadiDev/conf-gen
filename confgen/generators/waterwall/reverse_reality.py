@@ -750,6 +750,9 @@ def generate_reverse_reality_dual_iran(
     for idx, fip in enumerate(float_ips):
         variables[f"ip_server_kharej_float_{idx + 1}"] = f"{validate_ip(fip)}/32"
 
+    has_multi_tcp = len(clean_tcp_ports) > 1
+    next_after_inbound_tcp = "header_client_tcp" if has_multi_tcp else "bridge_tcp_user"
+
     nodes: List[Dict[str, Any]] = [
         # --- TCP Stream Pipeline ---
         {
@@ -757,11 +760,22 @@ def generate_reverse_reality_dual_iran(
             "type": "TcpListener",
             "settings": {
                 "address": "0.0.0.0",
-                "port": clean_tcp_ports if len(clean_tcp_ports) > 1 else clean_tcp_ports[0],
+                "port": clean_tcp_ports if has_multi_tcp else clean_tcp_ports[0],
                 "nodelay": True,
             },
-            "next": "bridge_tcp_user",
+            "next": next_after_inbound_tcp,
         },
+    ]
+
+    if has_multi_tcp:
+        nodes.append({
+            "name": "header_client_tcp",
+            "type": "HeaderClient",
+            "settings": {"data": "src_context->port"},
+            "next": "bridge_tcp_user",
+        })
+
+    nodes.extend([
         {
             "name": "bridge_tcp_user",
             "type": "Bridge",
@@ -778,7 +792,7 @@ def generate_reverse_reality_dual_iran(
             "settings": {"minimum-unused": 8},
             "next": "bridge_tcp_rev",
         },
-    ]
+    ])
 
     reality_tcp_next = "halfs_tcp" if use_halfduplex else "reverse_server_tcp"
     if use_halfduplex:
@@ -970,36 +984,61 @@ def generate_reverse_reality_dual_kharej(
     for idx, fip in enumerate(float_ips):
         variables[f"ip_server_kharej_float_{idx + 1}"] = validate_ip(fip)
 
-    nodes: List[Dict[str, Any]] = [
-        # --- TCP Outbound to local Xray (10005) ---
-        {
-            "name": "outbound_tcp",
-            "type": "TcpConnector",
-            "settings": {
-                "address": "127.0.0.1",
-                "port": "$final_tcp_port$",
-                "nodelay": True,
+    is_preserve_ports = (tcp_forward_port == 0)
+    if is_preserve_ports:
+        nodes: List[Dict[str, Any]] = [
+            {
+                "name": "outbound_tcp",
+                "type": "TcpConnector",
+                "settings": {
+                    "address": "127.0.0.1",
+                    "port": "dest_context->port",
+                    "nodelay": True,
+                },
             },
-        },
-        {
-            "name": "bridge_tcp_local",
-            "type": "Bridge",
-            "settings": {"pair": "bridge_tcp_rev_client"},
-            "next": "outbound_tcp",
-        },
-        {
-            "name": "bridge_tcp_rev_client",
-            "type": "Bridge",
-            "settings": {"pair": "bridge_tcp_local"},
-            "next": "rev_client_tcp",
-        },
-        {
-            "name": "rev_client_tcp",
-            "type": "ReverseClient",
-            "settings": {"minimum-unused": 8},
-            "next": "halfc_tcp" if use_halfduplex else "reality_client_tcp",
-        },
-    ]
+            {
+                "name": "header_server_tcp",
+                "type": "HeaderServer",
+                "settings": {"override": "dest_context->port"},
+                "next": "outbound_tcp",
+            },
+            {
+                "name": "bridge_tcp_local",
+                "type": "Bridge",
+                "settings": {"pair": "bridge_tcp_rev_client"},
+                "next": "header_server_tcp",
+            },
+        ]
+    else:
+        nodes: List[Dict[str, Any]] = [
+            {
+                "name": "outbound_tcp",
+                "type": "TcpConnector",
+                "settings": {
+                    "address": "127.0.0.1",
+                    "port": "$final_tcp_port$",
+                    "nodelay": True,
+                },
+            },
+            {
+                "name": "bridge_tcp_local",
+                "type": "Bridge",
+                "settings": {"pair": "bridge_tcp_rev_client"},
+                "next": "outbound_tcp",
+            },
+            {
+                "name": "bridge_tcp_rev_client",
+                "type": "Bridge",
+                "settings": {"pair": "bridge_tcp_local"},
+                "next": "rev_client_tcp",
+            },
+            {
+                "name": "rev_client_tcp",
+                "type": "ReverseClient",
+                "settings": {"minimum-unused": 8},
+                "next": "halfc_tcp" if use_halfduplex else "reality_client_tcp",
+            },
+        ]
 
     if use_halfduplex:
         nodes.append({

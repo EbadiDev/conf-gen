@@ -358,7 +358,6 @@ def generate_reverse_reality_tcp_kharej(
                     "address": "$ip_server_iran$",
                     "port": "$connect_to_iran_port$",
                     "nodelay": True,
-                    "source_ip": "$ip_server_kharej$",
                 },
             }
         )
@@ -673,7 +672,6 @@ def generate_reverse_reality_udp_kharej(
                     "address": "$ip_server_iran$",
                     "port": "$connect_to_iran_port$",
                     "nodelay": True,
-                    "source_ip": "$ip_server_kharej$",
                 },
             }
         )
@@ -1077,7 +1075,6 @@ def generate_reverse_reality_dual_kharej(
             "address": "$ip_server_iran$",
             "port": "$tunnel_carrier_port$",
             "nodelay": True,
-            "source_ip": "$ip_server_kharej$",
         },
     })
 
@@ -1155,7 +1152,6 @@ def generate_reverse_reality_dual_kharej(
                 "address": "$ip_server_iran$",
                 "port": "$tunnel_carrier_udp_port$",
                 "nodelay": True,
-                "source_ip": "$ip_server_kharej$",
             },
         })
 

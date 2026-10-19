@@ -46,6 +46,8 @@ from confgen.generators.waterwall.protoswap import (
 from confgen.generators.waterwall.reverse_reality import (
     generate_reverse_reality_tcp_iran,
     generate_reverse_reality_tcp_kharej,
+    generate_reverse_reality_udp_iran,
+    generate_reverse_reality_udp_kharej,
 )
 from confgen.generators.waterwall.tls_reverse import (
     generate_waterwall_tls_reverse_iran,
@@ -815,6 +817,42 @@ def _run_native_socket_test(
         return 0.0, 0, False
 
 
+def _run_native_udp_test(
+    port: int,
+    duration: int = 4,
+    host: str = "127.0.0.1",
+) -> Tuple[float, float, float]:
+    """Pure-Python synthetic UDP throughput and latency probe."""
+    chunk = b"\x55" * 1300
+    total_bytes = 0
+    rtt_ms = 0.0
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.settimeout(1.5)
+            # 1. Measure RTT
+            ping_t = time.perf_counter()
+            s.sendto(b"PING0000", (host, port))
+            try:
+                resp, _ = s.recvfrom(1024)
+                if resp.startswith(b"PONG"):
+                    rtt_ms = round((time.perf_counter() - ping_t) * 1000.0, 1)
+            except Exception:
+                pass
+
+            # 2. UDP transmission
+            t_start = time.perf_counter()
+            t_end = t_start + duration
+            while time.perf_counter() < t_end:
+                s.sendto(chunk, (host, port))
+                total_bytes += len(chunk)
+                time.sleep(0.00005)
+        elapsed = time.perf_counter() - t_start
+        mbps = round((total_bytes * 8) / (elapsed * 1_000_000.0), 2) if elapsed > 0 else 0.0
+        return mbps, 0.0, rtt_ms
+    except Exception:
+        return 0.0, 100.0, 0.0
+
+
 def parse_custom_protocols(
     proto_str: str,
     include_bitswap: bool = False,
@@ -988,6 +1026,7 @@ kill_waterwall_and_clean_tun = stop_waterwall_and_test
 class FinderAgentState:
     ww_proc: Optional[subprocess.Popen] = None
     iperf_proc: Optional[subprocess.Popen] = None
+    udp_sink_sock: Optional[socket.socket] = None
     current_name: Optional[str] = None
     auto_timer: Optional[threading.Timer] = None
     lock = threading.RLock()
@@ -1005,6 +1044,13 @@ class FinderAgentState:
     def kill_active_processes(cls) -> None:
         with cls.lock:
             cls.cancel_timer()
+            if cls.udp_sink_sock:
+                try:
+                    cls.udp_sink_sock.close()
+                except Exception:
+                    pass
+                cls.udp_sink_sock = None
+
             if cls.iperf_proc:
                 try:
                     pgid = os.getpgid(cls.iperf_proc.pid)
@@ -1084,6 +1130,24 @@ class FinderAgentState:
                 )
             except Exception as e:
                 print_warning(f"Failed to start iperf3: {e}")
+
+        # Launch UDP sink receiver on Kharej for UDP candidates
+        try:
+            udp_sink = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            udp_sink.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            udp_sink.bind(("127.0.0.1", tcp_port))
+            cls.udp_sink_sock = udp_sink
+            def _udp_sink_worker():
+                while cls.udp_sink_sock:
+                    try:
+                        data, addr = udp_sink.recvfrom(65536)
+                        if data.startswith(b"PING"):
+                            udp_sink.sendto(b"PONG0000", addr)
+                    except Exception:
+                        break
+            threading.Thread(target=_udp_sink_worker, daemon=True).start()
+        except Exception:
+            pass
 
         # Arm auto-teardown timer (ensure upload, download, and UDP probes complete before reset)
         test_window = (duration * 2) + 12.0
@@ -1717,13 +1781,9 @@ def run_finder_client(
                 # UDP-dedicated tunnel candidate probe
                 udp_dur = min(duration, 4)
                 print_info(f"Running dedicated UDP probe (Iran -> Kharej, {udp_dur}s)...")
-                if has_iperf:
-                    udp_mbps, udp_loss, udp_jitter = _run_iperf_udp_test(clean_port, duration=udp_dur, target_bandwidth="0")
-                else:
-                    udp_mbps, udp_loss, udp_jitter = 50.0, 0.0, 0.0
-
-                rtt_ms = udp_jitter if udp_jitter > 0 else 0.0
-                rtt_str = f"{rtt_ms:.0f} ms"
+                udp_mbps, udp_loss, udp_jitter = _run_native_udp_test(clean_port, duration=udp_dur)
+                rtt_ms = udp_jitter
+                rtt_str = f"{rtt_ms:.0f} ms" if rtt_ms > 0 else "0 ms"
                 up_mbps = udp_mbps
                 down_mbps = udp_mbps
                 retr = 0

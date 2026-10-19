@@ -392,6 +392,7 @@ def create_parser() -> argparse.ArgumentParser:
     t_cli.add_argument("-p", "--port", type=int, default=9001, help="Target port (default: 9001)")
     t_cli.add_argument("-d", "--duration", type=int, default=5, help="Test duration in seconds per direction (default: 5)")
     t_cli.add_argument("-P", "--parallel", type=int, default=1, help="Number of parallel child streams (default: 1)")
+    t_cli.add_argument("--udp", action="store_true", help="Run UDP speed test instead of TCP")
     t_cli.add_argument("--matrix", "--scaling", dest="matrix", action="store_true", help="Run MUX multi-connection scaling benchmark table (1, 2, 8, 16 streams)")
 
     # =========================================================================
@@ -944,7 +945,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 if getattr(args, "matrix", False):
                     run_mux_scaling_benchmark(host=args.host, port=args.port, duration=args.duration)
                 else:
-                    run_speedtest_client(host=args.host, port=args.port, duration=args.duration, parallel=args.parallel)
+                    run_speedtest_client(host=args.host, port=args.port, duration=args.duration, parallel=args.parallel, use_udp=bool(getattr(args, "udp", False)))
                 return 0
             parser.print_help()
             return 1

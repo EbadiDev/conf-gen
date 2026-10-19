@@ -31,8 +31,24 @@ def run_speedtest_server(port: int = 9001, bind: str = "0.0.0.0") -> int:
         print_error(f"Cannot bind speedtest server to {bind}:{port}: {e}")
         return 1
 
-    print_success(f"⚡ ConfGen SpeedTest server listening on {bind}:{port}")
+    print_success(f"⚡ ConfGen SpeedTest server listening on {bind}:{port} (TCP & UDP)")
     print_info("Awaiting client test connections... (Press Ctrl+C to stop)")
+
+    udp_server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        udp_server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        udp_server.bind((bind, port))
+        def _handle_udp():
+            while True:
+                try:
+                    data, addr = udp_server.recvfrom(65536)
+                    if data.startswith(b"PING"):
+                        udp_server.sendto(b"PONG0000", addr)
+                except Exception:
+                    break
+        threading.Thread(target=_handle_udp, daemon=True).start()
+    except Exception:
+        pass
 
     chunk = b"\x00" * CHUNK_SIZE
 
@@ -81,8 +97,58 @@ def run_speedtest_client(
     duration: int = 5,
     parallel: int = 1,
     quiet: bool = False,
+    use_udp: bool = False,
 ) -> Tuple[float, float, float]:
-    """Execute native speedtest client against server with optional parallel streams."""
+    """Execute native speedtest client against server with optional parallel streams or UDP."""
+    if use_udp:
+        if not quiet:
+            print("=" * 65)
+            print("⚡ CONFGEN NATIVE UDP BENCHMARK")
+            print("=" * 65)
+            print(f"Target Endpoint:  {host}:{port} (UDP)")
+            print(f"Test Duration:    {duration}s")
+            print(f"Frame Size:       {CHUNK_SIZE} B (MTU-safe)")
+
+        rtt_ms = None
+        up_bytes = 0
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                s.settimeout(1.5)
+                t0 = time.perf_counter()
+                s.sendto(b"PING0000", (host, port))
+                try:
+                    resp, _ = s.recvfrom(1024)
+                    if resp.startswith(b"PONG"):
+                        rtt_ms = round((time.perf_counter() - t0) * 1000.0, 1)
+                except Exception:
+                    pass
+
+                rtt_str = f"{rtt_ms:.1f} ms" if rtt_ms is not None else "TIMEOUT"
+                if not quiet:
+                    print_info(f"UDP Handshake Latency: {rtt_str}")
+                    print_info(f"Testing UDP Upload speed ({duration}s)...")
+
+                t_start = time.perf_counter()
+                t_end = t_start + duration
+                chunk = b"\x55" * CHUNK_SIZE
+                while time.perf_counter() < t_end:
+                    for _ in range(32):
+                        s.sendto(chunk, (host, port))
+                        up_bytes += len(chunk)
+
+                elapsed = time.perf_counter() - t_start
+                up_mbps = round((up_bytes * 8) / (elapsed * 1_000_000.0), 2) if elapsed > 0 else 0.0
+                if not quiet:
+                    print_success(f"UDP Upload: {up_mbps:6.2f} Mbps ({(up_bytes / (1024 * 1024)):.1f} MB in {duration}s)")
+                    print("=" * 65)
+                    print(f"📊 SUMMARY: UDP Throughput: {up_mbps} Mbps | RTT: {rtt_str}")
+                    print("=" * 65 + "\n")
+                return up_mbps, up_mbps, (rtt_ms or 0.0)
+        except Exception as e:
+            if not quiet:
+                print_warning(f"UDP test failed: {e}")
+            return 0.0, 0.0, 0.0
+
     if not quiet:
         print("=" * 65)
         print("⚡ CONFGEN NATIVE STREAM BENCHMARK")

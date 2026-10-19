@@ -48,7 +48,7 @@ def generate_reverse_reality_tcp_iran(
     variables["user_and_server_kharej_port"] = validated_port
     variables["password"] = password
 
-    user_side_entry = "halfduplex_client" if use_halfduplex else "bridge_user_side"
+    user_side_entry = "bridge_user_side"
     kharej_listener_next = "fisher_server" if use_fisher else "reality-server"
 
     first_next = user_side_entry
@@ -103,17 +103,7 @@ def generate_reverse_reality_tcp_iran(
             }
         )
 
-    if use_halfduplex:
-        nodes.append(
-            {
-                "name": "halfduplex_client",
-                "type": "HalfDuplexClient",
-                "settings": {},
-                "next": "bridge_user_side",
-            }
-        )
-
-    reverse_settings: Dict[str, Any] = {}
+    reverse_settings: Dict[str, Any] = {"minimum-unused": "$min_held_connections$"}
     if reverse_secret_length:
         reverse_settings["reverse-secret-length"] = reverse_secret_length
     if reverse_secret:
@@ -312,19 +302,9 @@ def generate_reverse_reality_tcp_kharej(
             "name": "bridge_local_side",
             "type": "Bridge",
             "settings": {"pair": "bridge_reverse_client_side"},
-            "next": "halfduplex_server" if use_halfduplex else "outbound_to_local_service",
+            "next": "outbound_to_local_service",
         },
     ]
-
-    if use_halfduplex:
-        nodes.append(
-            {
-                "name": "halfduplex_server",
-                "type": "HalfDuplexServer",
-                "settings": {},
-                "next": "outbound_to_local_service",
-            }
-        )
 
     reverse_settings: Dict[str, Any] = {"minimum-unused": "$min_held_connections$"}
     if reverse_secret_length:

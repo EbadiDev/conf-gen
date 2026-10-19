@@ -8,11 +8,15 @@ REPO="EbadiDev/conf-gen"
 WORKDIR="/tmp/confgen_${UID:-0}"
 mkdir -p "$WORKDIR"
 
-# Auto-install iperf3 for finder operations if missing
+# Auto-install iperf3 for finder operations if missing (non-interactive, safe lock handling)
 if [[ "$*" == *"finder"* ]] && ! command -v iperf3 >/dev/null 2>&1; then
     if command -v apt-get >/dev/null 2>&1; then
-        echo "[INFO] iperf3 not found. Installing iperf3..."
-        apt-get update -y >/dev/null 2>&1 && apt-get install -y iperf3 >/dev/null 2>&1 || true
+        echo "[INFO] Installing iperf3..."
+        DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y -o DPkg::Lock::Timeout=60 -o Dpkg::Options::=--force-confdef --no-install-recommends iperf3 >/dev/null 2>&1 || true
+    elif command -v pacman >/dev/null 2>&1; then
+        pacman -Sy --noconfirm iperf3 >/dev/null 2>&1 || true
+    elif command -v dnf >/dev/null 2>&1; then
+        dnf install -y iperf3 >/dev/null 2>&1 || true
     fi
 fi
 

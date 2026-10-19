@@ -963,6 +963,114 @@ class TestFinder(unittest.TestCase):
         if bin_path:
             self.assertEqual(ensure_iperf3_installed(), bin_path)
 
+    def test_link_encode_decode_and_apply(self):
+        """Verify BackPack-style setup link encode, decode, and Kharej apply."""
+        import os
+        import json
+        import tempfile
+        from confgen.core.link import encode_setup_link, decode_setup_link, apply_setup_link
+
+        payload = {
+            "type": "protoswap",
+            "name": "link-proto-test",
+            "iran_ip": "198.51.100.10",
+            "kharej_ip": "203.0.113.20",
+            "tcp_ports": [443],
+            "tcp_tunnel_port": 8443,
+            "protoswap_tcp": 50,
+            "protoswap_udp": 51,
+        }
+        link = encode_setup_link(payload)
+        self.assertTrue(link.startswith("confgen://"))
+
+        decoded = decode_setup_link(link)
+        self.assertEqual(decoded["name"], "link-proto-test")
+        self.assertEqual(decoded["protoswap_tcp"], 50)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            old_cwd = os.getcwd()
+            try:
+                os.chdir(tmpdir)
+                ret = apply_setup_link(link, auto_restart=False)
+                self.assertEqual(ret, 0)
+                self.assertTrue(os.path.exists("link-proto-test.json"))
+                with open("link-proto-test.json") as f:
+                    cfg = json.load(f)
+                self.assertEqual(cfg["variables"]["ip_server_iran"], "198.51.100.10")
+                self.assertEqual(cfg["variables"]["protoswap_tcp_to_number"], 50)
+                self.assertTrue(os.path.exists("core.json"))
+            finally:
+                os.chdir(old_cwd)
+
+    def test_reverse_reality_kharej_node_topology(self):
+        """Verify that reverse_reality Kharej has paired bridges and correct minimum-unused setting."""
+        from confgen.generators.waterwall.reverse_reality import generate_reverse_reality_tcp_kharej
+        cfg = generate_reverse_reality_tcp_kharej("rr_k", "1.1.1.1", "2.2.2.2", 443, "telewebion.ir", 8080)
+        nodes_by_name = {n["name"]: n for n in cfg["nodes"]}
+
+        # 1. bridge_local_side must pair with bridge_reverse_client_side
+        self.assertIn("bridge_local_side", nodes_by_name)
+        self.assertEqual(nodes_by_name["bridge_local_side"]["settings"]["pair"], "bridge_reverse_client_side")
+
+        # 2. bridge_reverse_client_side must pair with bridge_local_side and forward to reverse_client
+        self.assertIn("bridge_reverse_client_side", nodes_by_name)
+        self.assertEqual(nodes_by_name["bridge_reverse_client_side"]["settings"]["pair"], "bridge_local_side")
+        self.assertEqual(nodes_by_name["bridge_reverse_client_side"]["next"], "reverse_client")
+
+        # 3. reverse_client must use minimum-unused and forward to reality-client
+        self.assertIn("reverse_client", nodes_by_name)
+        self.assertIn("minimum-unused", nodes_by_name["reverse_client"]["settings"])
+        self.assertEqual(nodes_by_name["reverse_client"]["next"], "reality-client")
+
+        # 4. reality-client must have verify: True
+        self.assertTrue(nodes_by_name["reality-client"]["settings"]["verify"])
+
+    def test_tls_reverse_kharej_node_topology(self):
+        """Verify that tls_reverse Kharej has paired bridges and correct reverse_client."""
+        from confgen.generators.waterwall.tls_reverse import generate_waterwall_tls_reverse_kharej
+        cfg = generate_waterwall_tls_reverse_kharej("tls_k", "1.1.1.1", 8443, "telewebion.ir", 8080)
+        nodes_by_name = {n["name"]: n for n in cfg["nodes"]}
+
+        # bridge_local_side and bridge_reverse_client_side must be a pair
+        self.assertIn("bridge_local_side", nodes_by_name)
+        self.assertIn("bridge_reverse_client_side", nodes_by_name)
+        self.assertEqual(nodes_by_name["bridge_local_side"]["settings"]["pair"], "bridge_reverse_client_side")
+        self.assertEqual(nodes_by_name["bridge_reverse_client_side"]["settings"]["pair"], "bridge_local_side")
+        self.assertEqual(nodes_by_name["bridge_reverse_client_side"]["next"], "reverse_client")
+        self.assertEqual(nodes_by_name["reverse_client"]["next"], "tls_client")
+
+    def test_bitswap_custom_flag_patterns(self):
+        """Verify custom BitSwap flag patterns (psh/rst, ack/fin) and preserve-tcp-bitflags."""
+        from confgen.generators.waterwall.bitswap import generate_bitswap_iran, generate_bitswap_kharej
+
+        # 1. psh/rst pattern
+        cfg_i = generate_bitswap_iran("bs_rst_i", "1.1.1.1", "2.2.2.2", tcp_ports=[443], bitswap_pattern="psh/rst", preserve_bitflags=True)
+        nodes_by_type = {n["name"]: n for n in cfg_i["nodes"]}
+        up_manip = nodes_by_type["ip-manipulator-up"]
+        self.assertEqual(up_manip["settings"]["up-tcp-bit-psh"], "packet->rst")
+        self.assertEqual(up_manip["settings"]["up-tcp-bit-rst"], "packet->psh")
+        self.assertTrue(up_manip["settings"]["preserve-tcp-bitflags"])
+
+        # 2. Kharej side psh/rst
+        cfg_k = generate_bitswap_kharej("bs_rst_k", "1.1.1.1", "2.2.2.2", tcp_ports=[443], bitswap_pattern="psh/rst", preserve_bitflags=True)
+        k_nodes = {n["name"]: n for n in cfg_k["nodes"]}
+        in_manip = k_nodes["ip-manipulator-in"]
+        self.assertEqual(in_manip["settings"]["dw-tcp-bit-psh"], "packet->rst")
+        self.assertEqual(in_manip["settings"]["dw-tcp-bit-rst"], "packet->psh")
+        self.assertTrue(in_manip["settings"]["preserve-tcp-bitflags"])
+
+    def test_finder_methods_preset(self):
+        """Verify 'methods' preset is present and includes all 5 WaterWall architectures."""
+        from confgen.core.finder import CANDIDATES_PRESETS
+        self.assertIn("methods", CANDIDATES_PRESETS)
+        methods = CANDIDATES_PRESETS["methods"]
+        cand_types = {c["type"] for c in methods}
+        self.assertIn("reverse_reality", cand_types)
+        self.assertIn("bitswap", cand_types)
+        self.assertIn("protoswap", cand_types)
+        self.assertIn("tls_reverse", cand_types)
+        self.assertIn("udp_reverse", cand_types)
+
 
 if __name__ == "__main__":
     unittest.main()

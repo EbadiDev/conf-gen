@@ -1,8 +1,10 @@
 """Common output, file system, and formatting utilities."""
 
 import json
+import socket
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
+from urllib.request import Request, urlopen
 
 
 # ANSI Color Codes
@@ -27,6 +29,35 @@ def print_warning(msg: str) -> None:
 
 def print_error(msg: str) -> None:
     print(f"{RED}[ERROR]{NC} {msg}", flush=True)
+
+
+def get_public_ip(timeout: float = 2.0) -> Optional[str]:
+    """Auto-detect public IPv4 address of this machine."""
+    services = [
+        "https://api.ipify.org",
+        "https://ifconfig.me/ip",
+        "https://icanhazip.com",
+    ]
+    for url in services:
+        try:
+            req = Request(url, headers={"User-Agent": "curl/7.68.0"})
+            with urlopen(req, timeout=timeout) as resp:
+                cand = resp.read().decode("utf-8").strip()
+                if cand and cand.count(".") == 3 and not cand.startswith("127."):
+                    return cand
+        except Exception:
+            continue
+    # Fallback to local egress socket
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        cand = s.getsockname()[0]
+        s.close()
+        if cand and not cand.startswith("127."):
+            return cand
+    except Exception:
+        pass
+    return None
 
 
 def resolve_variables(config: Dict[str, Any]) -> Dict[str, Any]:

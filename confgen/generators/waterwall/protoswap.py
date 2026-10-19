@@ -49,6 +49,8 @@ def generate_protoswap_iran(
     custom_private_ip: Optional[str] = None,
     custom_private_ip_2: Optional[str] = None,
     enable_bitswap: bool = False,
+    bitswap_pattern: str = "psh/cwr",
+    preserve_bitflags: bool = False,
 ) -> Dict[str, Any]:
     """Generate unified Iran server ProtoSwap configuration."""
     clean_iran = validate_ip(iran_ip)
@@ -494,10 +496,15 @@ def generate_protoswap_iran(
     }
 
     if enable_bitswap:
-        manipulator_up_settings["up-tcp-bit-psh"] = "packet->cwr"
-        manipulator_up_settings["up-tcp-bit-cwr"] = "packet->psh"
-        manipulator_dw_settings["dw-tcp-bit-psh"] = "packet->cwr"
-        manipulator_dw_settings["dw-tcp-bit-cwr"] = "packet->psh"
+        from confgen.generators.waterwall.bitswap import parse_bitswap_pair
+        f1, f2 = parse_bitswap_pair(bitswap_pattern)
+        manipulator_up_settings[f"up-tcp-bit-{f1}"] = f"packet->{f2}"
+        manipulator_up_settings[f"up-tcp-bit-{f2}"] = f"packet->{f1}"
+        manipulator_dw_settings[f"dw-tcp-bit-{f1}"] = f"packet->{f2}"
+        manipulator_dw_settings[f"dw-tcp-bit-{f2}"] = f"packet->{f1}"
+        if preserve_bitflags:
+            manipulator_up_settings["preserve-tcp-bitflags"] = True
+            manipulator_dw_settings["preserve-tcp-bitflags"] = True
 
     nodes.extend(
         [
@@ -604,6 +611,8 @@ def generate_protoswap_kharej(
     custom_private_ip: Optional[str] = None,
     custom_private_ip_2: Optional[str] = None,
     enable_bitswap: bool = False,
+    bitswap_pattern: str = "psh/cwr",
+    preserve_bitflags: bool = False,
 ) -> Dict[str, Any]:
     """Generate unified Kharej server ProtoSwap configuration."""
     clean_iran = validate_ip(iran_ip)
@@ -918,10 +927,15 @@ def generate_protoswap_kharej(
     }
 
     if enable_bitswap:
-        manipulator_in_settings["dw-tcp-bit-psh"] = "packet->cwr"
-        manipulator_in_settings["dw-tcp-bit-cwr"] = "packet->psh"
-        manipulator_out_settings["up-tcp-bit-psh"] = "packet->cwr"
-        manipulator_out_settings["up-tcp-bit-cwr"] = "packet->psh"
+        from confgen.generators.waterwall.bitswap import parse_bitswap_pair
+        f1, f2 = parse_bitswap_pair(bitswap_pattern)
+        manipulator_in_settings[f"dw-tcp-bit-{f1}"] = f"packet->{f2}"
+        manipulator_in_settings[f"dw-tcp-bit-{f2}"] = f"packet->{f1}"
+        manipulator_out_settings[f"up-tcp-bit-{f1}"] = f"packet->{f2}"
+        manipulator_out_settings[f"up-tcp-bit-{f2}"] = f"packet->{f1}"
+        if preserve_bitflags:
+            manipulator_in_settings["preserve-tcp-bitflags"] = True
+            manipulator_out_settings["preserve-tcp-bitflags"] = True
 
     nodes.extend(
         [

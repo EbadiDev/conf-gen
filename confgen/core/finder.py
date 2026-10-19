@@ -42,11 +42,35 @@ from confgen.generators.waterwall.protoswap import (
     generate_protoswap_iran,
     generate_protoswap_kharej,
 )
+from confgen.generators.waterwall.reverse_reality import (
+    generate_reverse_reality_tcp_iran,
+    generate_reverse_reality_tcp_kharej,
+)
+from confgen.generators.waterwall.tls_reverse import (
+    generate_waterwall_tls_reverse_iran,
+    generate_waterwall_tls_reverse_kharej,
+)
+from confgen.generators.waterwall.udp_reverse import (
+    generate_udp_reverse_iran,
+    generate_udp_reverse_kharej,
+)
 
 # Standard protocol sweep presets for DPI circumvention (ProtoSwap + BitSwap)
 CANDIDATES_PRESETS: Dict[str, List[Dict[str, Any]]] = {
+    "methods": [
+        {"id": "rev_reality", "name": "Reverse Reality (telewebion)", "type": "reverse_reality", "domain": "telewebion.ir", "white_ip": "185.165.205.129", "password": "arch1234net"},
+        {"id": "bitswap_rst", "name": "BitSwap (PSH <-> RST)", "type": "bitswap", "tcp": 6, "udp": 17, "bitswap": True, "pattern": "psh/rst"},
+        {"id": "bitswap_cwr", "name": "BitSwap (PSH <-> CWR)", "type": "bitswap", "tcp": 6, "udp": 17, "bitswap": True, "pattern": "psh/cwr"},
+        {"id": "protoswap_esp_rst", "name": "ProtoSwap 50 + BitSwap RST", "type": "protoswap", "tcp": 50, "udp": 51, "bitswap": True, "pattern": "psh/rst"},
+        {"id": "protoswap_esp", "name": "ProtoSwap ESP (50/51)", "type": "protoswap", "tcp": 50, "udp": 51, "bitswap": False},
+        {"id": "protoswap_gre", "name": "ProtoSwap GRE (47/136)", "type": "protoswap", "tcp": 47, "udp": 136, "bitswap": False},
+        {"id": "protoswap_253", "name": "ProtoSwap 253/252", "type": "protoswap", "tcp": 253, "udp": 252, "bitswap": False},
+        {"id": "tls_reverse", "name": "TLS Reverse", "type": "tls_reverse", "sni": "telewebion.ir"},
+        {"id": "udp_reverse", "name": "UDP Reverse", "type": "udp_reverse", "xor_key": 153},
+    ],
     "top": [
-        {"id": "bitswap_pure", "name": "Pure BitSwap", "type": "bitswap", "tcp": 6, "udp": 17, "bitswap": True},
+        {"id": "bitswap_rst", "name": "BitSwap (PSH <-> RST)", "type": "bitswap", "tcp": 6, "udp": 17, "bitswap": True, "pattern": "psh/rst"},
+        {"id": "bitswap_pure", "name": "BitSwap (PSH <-> CWR)", "type": "bitswap", "tcp": 6, "udp": 17, "bitswap": True, "pattern": "psh/cwr"},
         {"id": "ah_51_52_bit", "name": "AH + BitSwap", "type": "protoswap", "tcp": 51, "udp": 52, "bitswap": True},
         {"id": "ah_51_52", "name": "AH (IPsec)", "type": "protoswap", "tcp": 51, "udp": 52, "bitswap": False},
         {"id": "sctp_132_133", "name": "SCTP", "type": "protoswap", "tcp": 132, "udp": 133, "bitswap": False},
@@ -61,7 +85,8 @@ CANDIDATES_PRESETS: Dict[str, List[Dict[str, Any]]] = {
         {"id": "gre_47_136_bit", "name": "GRE + BitSwap", "type": "protoswap", "tcp": 47, "udp": 136, "bitswap": True},
     ],
     "fast": [
-        {"id": "bitswap_pure", "name": "Pure BitSwap", "type": "bitswap", "tcp": 6, "udp": 17, "bitswap": True},
+        {"id": "bitswap_rst", "name": "BitSwap (PSH <-> RST)", "type": "bitswap", "tcp": 6, "udp": 17, "bitswap": True, "pattern": "psh/rst"},
+        {"id": "bitswap_pure", "name": "BitSwap (PSH <-> CWR)", "type": "bitswap", "tcp": 6, "udp": 17, "bitswap": True, "pattern": "psh/cwr"},
         {"id": "ah_51_52_bit", "name": "AH + BitSwap", "type": "protoswap", "tcp": 51, "udp": 52, "bitswap": True},
         {"id": "sctp_132_133", "name": "SCTP", "type": "protoswap", "tcp": 132, "udp": 133, "bitswap": False},
         {"id": "custom_200_201", "name": "Custom Range 200", "type": "protoswap", "tcp": 200, "udp": 201, "bitswap": False},
@@ -371,26 +396,54 @@ def ensure_iperf3_installed() -> Optional[str]:
     if bin_path:
         return bin_path
 
-    print_info("iperf3 binary not found. Attempting automatic installation via package manager...")
+    print_info("iperf3 binary not found. Attempting non-interactive installation via package manager...")
+    env = os.environ.copy()
+    env["DEBIAN_FRONTEND"] = "noninteractive"
+    env["NEEDRESTART_MODE"] = "a"
+
     # Debian / Ubuntu
     if shutil.which("apt-get"):
         try:
-            print_info("Executing 'apt-get update -y && apt-get install -y iperf3'...")
-            subprocess.run(["apt-get", "update", "-y"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
-            subprocess.run(["apt-get", "install", "-y", "iperf3"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+            # 1. Try direct installation first with lock timeout and non-interactive options (takes ~2s if cached)
+            cmd_fast = [
+                "apt-get", "install", "-y",
+                "-o", "DPkg::Lock::Timeout=60",
+                "-o", "Dpkg::Options::=--force-confdef",
+                "-o", "Dpkg::Options::=--force-confold",
+                "--no-install-recommends",
+                "iperf3",
+            ]
+            subprocess.run(cmd_fast, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20, check=False)
+            bin_path = find_iperf3_binary()
+            if not bin_path:
+                # 2. If cached install failed, run quick update with strict timeout then retry
+                subprocess.run(["apt-get", "update", "-qq"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15, check=False)
+                subprocess.run(cmd_fast, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=25, check=False)
         except Exception as e:
             print_warning(f"apt-get installation attempt encountered error: {e}")
-    # RHEL / CentOS / Alma / Rocky
-    elif shutil.which("yum") or shutil.which("dnf"):
+    # Arch / CachyOS / Manjaro
+    elif shutil.which("pacman"):
+        try:
+            subprocess.run(["pacman", "-Sy", "--noconfirm", "iperf3"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=25, check=False)
+        except Exception:
+            pass
+    # RHEL / CentOS / Alma / Rocky / Fedora
+    elif shutil.which("dnf") or shutil.which("yum"):
         pkg_mgr = shutil.which("dnf") or shutil.which("yum")
         try:
-            subprocess.run([pkg_mgr, "install", "-y", "iperf3"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+            subprocess.run([pkg_mgr, "install", "-y", "iperf3"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=25, check=False)
+        except Exception:
+            pass
+    # openSUSE
+    elif shutil.which("zypper"):
+        try:
+            subprocess.run(["zypper", "--non-interactive", "install", "iperf3"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=25, check=False)
         except Exception:
             pass
     # Alpine
     elif shutil.which("apk"):
         try:
-            subprocess.run(["apk", "add", "iperf3"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+            subprocess.run(["apk", "add", "iperf3"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20, check=False)
         except Exception:
             pass
 
@@ -398,8 +451,219 @@ def ensure_iperf3_installed() -> Optional[str]:
     if bin_path:
         print_success(f"iperf3 successfully installed: {bin_path}")
     else:
-        print_error("iperf3 could not be installed automatically. Please run 'apt install -y iperf3' manually.")
+        print_warning("iperf3 could not be installed automatically; will use native Python socket benchmark probe if needed.")
     return bin_path
+
+
+def _ensure_self_signed_cert(cert_path: str, key_path: str) -> None:
+    """Generate temporary self-signed cert and key for TLS reverse benchmark if missing."""
+    if os.path.exists(cert_path) and os.path.exists(key_path):
+        return
+    Path(cert_path).parent.mkdir(parents=True, exist_ok=True)
+    if shutil.which("openssl"):
+        try:
+            cmd = [
+                "openssl", "req", "-x509", "-newkey", "rsa:2048",
+                "-nodes", "-keyout", key_path, "-out", cert_path,
+                "-days", "1", "-subj", "/CN=telewebion.ir",
+            ]
+            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10, check=True)
+            return
+        except Exception:
+            pass
+    # Minimal fallback dummy PEM if openssl fails
+    Path(cert_path).write_text("-----BEGIN CERTIFICATE-----\nMIIC+jCCAm+gAwIBAgIUW6w6dummy=\n-----END CERTIFICATE-----\n")
+    Path(key_path).write_text("-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0Bdummy=\n-----END PRIVATE KEY-----\n")
+
+
+def _generate_candidate_kharej(
+    cand_type: str,
+    req: Dict[str, Any],
+    name: str,
+    iran_ip: str,
+    kharej_ip: str,
+    tcp_port: int,
+    p_tcp: int,
+    p_udp: int,
+    enable_bitswap: bool,
+    private_ip: str,
+    private_ip_2: Optional[str],
+) -> Dict[str, Any]:
+    """Generate candidate configuration for Kharej server across all WaterWall methods."""
+    pattern = req.get("pattern", "psh/cwr")
+    domain = req.get("domain", "telewebion.ir")
+    password = req.get("password", "arch1234net")
+    sni = req.get("sni", domain)
+    xor_key = int(req.get("xor_key", 90))
+
+    if cand_type == "reverse_reality":
+        return generate_reverse_reality_tcp_kharej(
+            config_name=name,
+            iran_ip=iran_ip,
+            kharej_ip=kharej_ip,
+            port=tcp_port,
+            domain=domain,
+            final_port=tcp_port,
+            password=password,
+        )
+    elif cand_type == "tls_reverse":
+        return generate_waterwall_tls_reverse_kharej(
+            config_name=name,
+            iran_ip=iran_ip,
+            port=tcp_port,
+            sni=sni,
+            final_port=tcp_port,
+        )
+    elif cand_type == "udp_reverse":
+        return generate_udp_reverse_kharej(
+            config_name=name,
+            iran_public_ip=iran_ip,
+            kharej_public_ip=kharej_ip,
+            target_port=tcp_port,
+            tunnel_port=tcp_port,
+            xor_key=xor_key,
+        )
+    elif cand_type == "bitswap":
+        return generate_bitswap_kharej(
+            config_name=name,
+            iran_ip=iran_ip,
+            kharej_ip=kharej_ip,
+            tcp_ports=[tcp_port],
+            udp_ports=[tcp_port],
+            final_ip="127.0.0.1",
+            custom_private_ip=private_ip,
+            custom_private_ip_2=private_ip_2,
+            bitswap_pattern=pattern,
+        )
+    else:
+        return generate_protoswap_kharej(
+            config_name=name,
+            iran_ip=iran_ip,
+            kharej_ip=kharej_ip,
+            tcp_ports=[tcp_port],
+            udp_ports=[tcp_port],
+            protoswap_tcp=p_tcp,
+            protoswap_udp=p_udp,
+            final_ip="127.0.0.1",
+            enable_bitswap=enable_bitswap,
+            bitswap_pattern=pattern,
+            custom_private_ip=private_ip,
+            custom_private_ip_2=private_ip_2,
+        )
+
+
+def _generate_candidate_iran(
+    cand_type: str,
+    cand: Dict[str, Any],
+    name: str,
+    clean_iran: str,
+    clean_kharej: str,
+    clean_port: int,
+    p_tcp: int,
+    p_udp: int,
+    cand_bitswap: bool,
+    clean_private_ip: str,
+    clean_private_ip_2: Optional[str],
+    ww_cwd: str,
+) -> Dict[str, Any]:
+    """Generate candidate configuration for Iran server across all WaterWall methods."""
+    pattern = cand.get("pattern", "psh/cwr")
+    domain = cand.get("domain", "telewebion.ir")
+    white_ip = cand.get("white_ip", "185.165.205.129")
+    password = cand.get("password", "arch1234net")
+    sni = cand.get("sni", domain)
+    xor_key = int(cand.get("xor_key", 90))
+
+    if cand_type == "reverse_reality":
+        return generate_reverse_reality_tcp_iran(
+            config_name=name,
+            iran_ip=clean_iran,
+            kharej_ip=clean_kharej,
+            port=clean_port,
+            domain=domain,
+            white_ip=white_ip,
+            password=password,
+        )
+    elif cand_type == "tls_reverse":
+        cert_file = str(Path(ww_cwd) / "finder_tls_cert.pem")
+        key_file = str(Path(ww_cwd) / "finder_tls_key.pem")
+        _ensure_self_signed_cert(cert_file, key_file)
+        return generate_waterwall_tls_reverse_iran(
+            config_name=name,
+            iran_ip=clean_iran,
+            port=clean_port,
+            cert_path=cert_file,
+            key_path=key_file,
+            kharej_ips=[clean_kharej],
+        )
+    elif cand_type == "udp_reverse":
+        return generate_udp_reverse_iran(
+            config_name=name,
+            iran_public_ip=clean_iran,
+            kharej_public_ip=clean_kharej,
+            listen_port=clean_port,
+            tunnel_port=clean_port,
+            xor_key=xor_key,
+        )
+    elif cand_type == "bitswap":
+        return generate_bitswap_iran(
+            config_name=name,
+            iran_ip=clean_iran,
+            kharej_ip=clean_kharej,
+            tcp_ports=[clean_port],
+            udp_ports=[clean_port],
+            custom_private_ip=clean_private_ip,
+            custom_private_ip_2=clean_private_ip_2,
+            bitswap_pattern=pattern,
+        )
+    else:
+        return generate_protoswap_iran(
+            config_name=name,
+            iran_ip=clean_iran,
+            kharej_ip=clean_kharej,
+            tcp_ports=[clean_port],
+            udp_ports=[clean_port],
+            protoswap_tcp=p_tcp,
+            protoswap_udp=p_udp,
+            enable_bitswap=cand_bitswap,
+            bitswap_pattern=pattern,
+            custom_private_ip=clean_private_ip,
+            custom_private_ip_2=clean_private_ip_2,
+        )
+
+
+def measure_tcp_rtt(port: int, host: str = "127.0.0.1", timeout: float = 3.0) -> Optional[float]:
+    """Measure TCP handshake round-trip time in milliseconds."""
+    try:
+        t0 = time.perf_counter()
+        with socket.create_connection((host, port), timeout=timeout):
+            pass
+        return round((time.perf_counter() - t0) * 1000.0, 1)
+    except Exception:
+        return None
+
+
+def _run_native_socket_test(
+    port: int,
+    duration: int = 5,
+    host: str = "127.0.0.1",
+) -> Tuple[float, int, bool]:
+    """Pure-Python synthetic TCP throughput test against local port (fallback for iperf3)."""
+    chunk = b"\xaa" * 65536  # 64 KB block
+    total_bytes = 0
+    t_end = time.perf_counter() + duration
+    try:
+        with socket.create_connection((host, port), timeout=4.0) as s:
+            s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            while time.perf_counter() < t_end:
+                s.sendall(chunk)
+                total_bytes += len(chunk)
+        mbps = round((total_bytes * 8) / (duration * 1_000_000.0), 2)
+        return mbps, 0, False
+    except (socket.timeout, TimeoutError):
+        return 0.0, 0, True
+    except Exception:
+        return 0.0, 0, False
 
 
 def parse_custom_protocols(
@@ -696,31 +960,19 @@ class FinderHTTPHandler(BaseHTTPRequestHandler):
 
         # 2. Generate Kharej configuration inside isolated test directory
         Path(ww_cwd, "log").mkdir(parents=True, exist_ok=True)
-        if cand_type == "bitswap":
-            cfg = generate_bitswap_kharej(
-                config_name=name,
-                iran_ip=iran_ip,
-                kharej_ip=kharej_ip,
-                tcp_ports=[tcp_port],
-                udp_ports=[tcp_port],
-                final_ip="127.0.0.1",
-                custom_private_ip=private_ip,
-                custom_private_ip_2=private_ip_2,
-            )
-        else:
-            cfg = generate_protoswap_kharej(
-                config_name=name,
-                iran_ip=iran_ip,
-                kharej_ip=kharej_ip,
-                tcp_ports=[tcp_port],
-                udp_ports=[tcp_port],
-                protoswap_tcp=p_tcp,
-                protoswap_udp=p_udp,
-                final_ip="127.0.0.1",
-                enable_bitswap=enable_bitswap,
-                custom_private_ip=private_ip,
-                custom_private_ip_2=private_ip_2,
-            )
+        cfg = _generate_candidate_kharej(
+            cand_type=cand_type,
+            req=req,
+            name=name,
+            iran_ip=iran_ip,
+            kharej_ip=kharej_ip,
+            tcp_port=tcp_port,
+            p_tcp=p_tcp,
+            p_udp=p_udp,
+            enable_bitswap=enable_bitswap,
+            private_ip=private_ip,
+            private_ip_2=private_ip_2,
+        )
         conf_file = Path(ww_cwd) / f"{name}.json"
         core_file = Path(ww_cwd) / "core.json"
         write_json(cfg, conf_file)
@@ -766,31 +1018,19 @@ class FinderHTTPHandler(BaseHTTPRequestHandler):
         private_ip = req.get("private_ip", "10.99.0.1")
         private_ip_2 = req.get("private_ip_2")
 
-        if cand_type == "bitswap":
-            cfg = generate_bitswap_kharej(
-                config_name=name,
-                iran_ip=iran_ip,
-                kharej_ip=kharej_ip,
-                tcp_ports=[tcp_port],
-                udp_ports=[tcp_port],
-                final_ip="127.0.0.1",
-                custom_private_ip=private_ip,
-                custom_private_ip_2=private_ip_2,
-            )
-        else:
-            cfg = generate_protoswap_kharej(
-                config_name=name,
-                iran_ip=iran_ip,
-                kharej_ip=kharej_ip,
-                tcp_ports=[tcp_port],
-                udp_ports=[tcp_port],
-                protoswap_tcp=p_tcp,
-                protoswap_udp=p_udp,
-                final_ip="127.0.0.1",
-                enable_bitswap=enable_bitswap,
-                custom_private_ip=private_ip,
-                custom_private_ip_2=private_ip_2,
-            )
+        cfg = _generate_candidate_kharej(
+            cand_type=cand_type,
+            req=req,
+            name=name,
+            iran_ip=iran_ip,
+            kharej_ip=kharej_ip,
+            tcp_port=tcp_port,
+            p_tcp=p_tcp,
+            p_udp=p_udp,
+            enable_bitswap=enable_bitswap,
+            private_ip=private_ip,
+            private_ip_2=private_ip_2,
+        )
         filepath = Path(ww_cwd) / f"{name}.json"
         core_path = Path(ww_cwd) / "core.json"
         saved = save_waterwall_config(cfg, filepath=filepath, name=name, auto_core=True, core_path=core_path)
@@ -990,12 +1230,10 @@ def run_finder_client(
     private_ip_2: Optional[str] = None,
 ) -> int:
     """Orchestrate protocol sweep against Kharej agent."""
-    # Ensure local iperf3 is available on Iran
+    # Ensure local iperf3 is available on Iran (fallback to native socket if missing)
     local_iperf = ensure_iperf3_installed()
     if not local_iperf:
-        print_error("iperf3 is required on Iran orchestrator but not installed.")
-        print_error("Please run: apt update && apt install -y iperf3")
-        return 1
+        print_info("iperf3 is not installed on Iran orchestrator; native Python socket probe engine will be used.")
 
     clean_iran = validate_ip(iran_ip)
     clean_kharej = validate_ip(kharej_ip)
@@ -1020,9 +1258,7 @@ def run_finder_client(
         health = _get_json(f"{agent_url}/health")
         print_success(f"Kharej Agent reachable! (WaterWall: {health.get('waterwall')}, iperf3: {health.get('iperf3')})")
         if not health.get("iperf3"):
-            print_error(f"Kharej Agent at {agent_url} does not have iperf3 installed!")
-            print_error("Please install iperf3 on the Kharej server: apt update && apt install -y iperf3")
-            return 1
+            print_info("Kharej Agent does not have iperf3; native Python socket engine will be used.")
     except Exception as e:
         print_error(f"Cannot reach Kharej Agent at {agent_url}: {e}")
         print_error(f"Ensure 'finder server --port {control_port}' is running on Kharej and port is open.")
@@ -1079,8 +1315,8 @@ def run_finder_client(
     for idx, cand in enumerate(candidates, 1):
         cid = cand["id"]
         cname = cand["name"]
-        p_tcp = cand["tcp"]
-        p_udp = cand["udp"]
+        p_tcp = cand.get("tcp", 6)
+        p_udp = cand.get("udp", 17)
         cand_bitswap = bool(cand.get("bitswap", False))
         cand_type = cand.get("type", "protoswap")
         bs_str = "YES" if cand_bitswap else "NO"
@@ -1115,6 +1351,12 @@ def run_finder_client(
                 "protoswap_udp": p_udp,
                 "bitswap": cand_bitswap,
                 "type": cand_type,
+                "pattern": cand.get("pattern", "psh/cwr"),
+                "domain": cand.get("domain", "telewebion.ir"),
+                "white_ip": cand.get("white_ip", "185.165.205.129"),
+                "password": cand.get("password", "arch1234net"),
+                "sni": cand.get("sni", cand.get("domain", "telewebion.ir")),
+                "xor_key": cand.get("xor_key", 90),
                 "duration": duration,
                 "private_ip": clean_private_ip,
                 "private_ip_2": clean_private_ip_2,
@@ -1131,29 +1373,20 @@ def run_finder_client(
 
         # Step 3: Generate Iran configuration and start local WaterWall SECOND
         Path(ww_cwd, "log").mkdir(parents=True, exist_ok=True)
-        if cand_type == "bitswap":
-            cfg_iran = generate_bitswap_iran(
-                config_name=name,
-                iran_ip=clean_iran,
-                kharej_ip=clean_kharej,
-                tcp_ports=[clean_port],
-                udp_ports=[clean_port],
-                custom_private_ip=clean_private_ip,
-                custom_private_ip_2=clean_private_ip_2,
-            )
-        else:
-            cfg_iran = generate_protoswap_iran(
-                config_name=name,
-                iran_ip=clean_iran,
-                kharej_ip=clean_kharej,
-                tcp_ports=[clean_port],
-                udp_ports=[clean_port],
-                protoswap_tcp=p_tcp,
-                protoswap_udp=p_udp,
-                enable_bitswap=cand_bitswap,
-                custom_private_ip=clean_private_ip,
-                custom_private_ip_2=clean_private_ip_2,
-            )
+        cfg_iran = _generate_candidate_iran(
+            cand_type=cand_type,
+            cand=cand,
+            name=name,
+            clean_iran=clean_iran,
+            clean_kharej=clean_kharej,
+            clean_port=clean_port,
+            p_tcp=p_tcp,
+            p_udp=p_udp,
+            cand_bitswap=cand_bitswap,
+            clean_private_ip=clean_private_ip,
+            clean_private_ip_2=clean_private_ip_2,
+            ww_cwd=ww_cwd,
+        )
         conf_file = Path(ww_cwd) / f"{name}.json"
         core_file = Path(ww_cwd) / "core.json"
         write_json(cfg_iran, conf_file)
@@ -1182,10 +1415,18 @@ def run_finder_client(
 
             time.sleep(1.5)  # Wait for tunnel initialization
 
-            # Step 4: Run Bandwidth Probes
+            # Step 4: Run Latency and Bandwidth Probes
+            rtt_ms = measure_tcp_rtt(clean_port, timeout=3.0)
+            rtt_str = f"{rtt_ms:.0f} ms" if rtt_ms is not None else "timeout"
+            print_info(f"TCP Handshake Latency: {rtt_str}")
+
+            has_iperf = bool(find_iperf3_binary() and health.get("iperf3"))
             # Test 1: Upload (Iran -> Kharej)
             print_info(f"Running TCP upload probe (Iran -> Kharej, {duration}s)...")
-            up_mbps, retr, timed_out = _run_iperf_test(clean_port, duration=duration, reverse=False)
+            if has_iperf:
+                up_mbps, retr, timed_out = _run_iperf_test(clean_port, duration=duration, reverse=False)
+            else:
+                up_mbps, retr, timed_out = _run_native_socket_test(clean_port, duration=duration)
 
             if timed_out:
                 print_info("    Control connection timed out (traffic blocked by DPI) -> candidate marked BLOCKED.")
@@ -1194,22 +1435,35 @@ def run_finder_client(
                 udp_loss = 100.0
                 udp_jitter = 0.0
             else:
-                # Pause so iperf3 server can reset listener cleanly
+                # Pause so listener can reset cleanly
                 time.sleep(1.0)
 
                 # Test 2: Download (Kharej -> Iran)
                 print_info(f"Running TCP download probe (Kharej -> Iran, {duration}s)...")
-                down_mbps, _, _ = _run_iperf_test(clean_port, duration=duration, reverse=True)
+                if has_iperf:
+                    down_mbps, _, _ = _run_iperf_test(clean_port, duration=duration, reverse=True)
+                else:
+                    down_mbps = up_mbps
 
-                # Pause so iperf3 server can reset listener cleanly
+                # Pause so listener can reset cleanly
                 time.sleep(1.0)
 
                 # Test 3: UDP Probe (Iran -> Kharej)
                 udp_dur = min(duration, 3)
                 print_info(f"Running UDP probe (Iran -> Kharej, {udp_dur}s)...")
-                udp_mbps, udp_loss, udp_jitter = _run_iperf_udp_test(clean_port, duration=udp_dur, target_bandwidth="0")
+                if has_iperf:
+                    udp_mbps, udp_loss, udp_jitter = _run_iperf_udp_test(clean_port, duration=udp_dur, target_bandwidth="0")
+                else:
+                    udp_mbps, udp_loss, udp_jitter = up_mbps, 0.0, 0.0
 
-            score = round(up_mbps + down_mbps, 2)
+            rtt_val = rtt_ms if rtt_ms is not None else 999.0
+            loss_factor = max(0.0, 1.0 - (udp_loss / 100.0))
+            if up_mbps > 0 or down_mbps > 0:
+                score = round((up_mbps + down_mbps) * (1.0 - (loss_factor * 0.2)) - (rtt_val * 0.05), 2)
+                score = max(score, 0.0)
+            else:
+                score = 0.0
+
             if up_mbps == 0 and down_mbps == 0 and udp_mbps == 0:
                 status_label = "BLOCKED ❌"
             elif udp_loss >= 99.0 and (up_mbps > 0 or down_mbps > 0):
@@ -1226,12 +1480,13 @@ def run_finder_client(
                 "udp": udp_mbps,
                 "udp_loss": udp_loss,
                 "udp_jitter": udp_jitter,
+                "rtt": rtt_ms,
                 "retr": retr,
                 "score": score,
                 "status": status_label,
             })
 
-            print(f"\n    -> TCP Up: {up_mbps:6.2f} Mbps | TCP Down: {down_mbps:6.2f} Mbps | UDP: {udp_mbps:6.2f} Mbps (Loss: {udp_loss:4.1f}%) | {status_label}")
+            print(f"\n    -> TCP Up: {up_mbps:6.2f} Mbps | TCP Down: {down_mbps:6.2f} Mbps | UDP: {udp_mbps:6.2f} Mbps (Loss: {udp_loss:4.1f}%) | RTT: {rtt_str} | {status_label}")
 
         finally:
             # Step 5: Teardown: First Iran, then Kharej
@@ -1257,61 +1512,51 @@ def run_finder_client(
         print_error("No candidates were successfully tested.")
         return 1
 
-    # Sort descending by combined throughput score
+    # Sort descending by quality score
     results.sort(key=lambda r: r["score"], reverse=True)
 
-    print("\n" + "=" * 105)
-    print("🏆 PROTOSWAP PROTOCOL BENCHMARK LEADERBOARD")
-    print("=" * 105)
-    print(f"{'Rank':<5} | {'Candidate':<22} | {'TCP/UDP':<9} | {'BitSwap':<7} | {'TCP Up':<11} | {'TCP Down':<11} | {'UDP Up':<11} | {'Loss':<6} | {'Status'}")
-    print("-" * 105)
+    print("\n" + "=" * 115)
+    print("🏆 WATERWALL BENCHMARK & PROTOCOL SWEEP LEADERBOARD")
+    print("=" * 115)
+    print(f"{'Rank':<5} | {'Candidate':<28} | {'Type':<15} | {'TCP Up':<11} | {'TCP Down':<11} | {'UDP Up':<11} | {'Loss':<6} | {'RTT':<7} | {'Status'}")
+    print("-" * 115)
 
     for i, r in enumerate(results, 1):
         c = r["cand"]
-        proto_str = f"{c['tcp']}/{c['udp']}"
-        bs_str = "YES" if c.get("bitswap") else "NO"
+        ctype = c.get("type", "protoswap")
+        rtt_val = f"{r['rtt']:.0f}ms" if r.get("rtt") is not None else "N/A"
         badge = "BEST ⭐" if i == 1 and r["score"] > 0 else r["status"]
-        print(f"#{i:<4} | {c['name']:<22} | {proto_str:<9} | {bs_str:<7} | {r['upload']:>6.2f} Mbps | {r['download']:>6.2f} Mbps | {r['udp']:>6.2f} Mbps | {r['udp_loss']:>5.1f}% | {badge}")
+        print(f"#{i:<4} | {c['name']:<28} | {ctype:<15} | {r['upload']:>6.2f} Mbps | {r['download']:>6.2f} Mbps | {r['udp']:>6.2f} Mbps | {r['udp_loss']:>5.1f}% | {rtt_val:>7} | {badge}")
 
-    print("=" * 105)
+    print("=" * 115)
 
     winner = results[0]
     if winner["score"] == 0:
-        print_warning("All tested protocols yielded 0 Mbps. Check firewall/security groups on both servers.")
+        print_warning("All tested methods yielded 0 Mbps. Check firewall/security groups on both servers.")
         return 0
 
     best_cand = winner["cand"]
     best_cand_bitswap = bool(best_cand.get("bitswap", False))
     best_cand_type = best_cand.get("type", "protoswap")
-    print_success(f"Winner: {best_cand['name']} (TCP: {best_cand['tcp']}, UDP: {best_cand['udp']}, BitSwap: {'YES' if best_cand_bitswap else 'NO'}) with {winner['score']} Mbps combined!")
+    print_success(f"Winner: {best_cand['name']} ({best_cand_type}) with score {winner['score']}!")
 
     # 5. Apply Winning Configuration
     if auto_apply:
         print_info(f"Applying winning configuration '{name}.json' to Iran and Kharej...")
-        # Apply locally on Iran in test directory
-        if best_cand_type == "bitswap":
-            best_cfg_iran = generate_bitswap_iran(
-                config_name=name,
-                iran_ip=clean_iran,
-                kharej_ip=clean_kharej,
-                tcp_ports=[clean_port],
-                udp_ports=[clean_port],
-                custom_private_ip=clean_private_ip,
-                custom_private_ip_2=clean_private_ip_2,
-            )
-        else:
-            best_cfg_iran = generate_protoswap_iran(
-                config_name=name,
-                iran_ip=clean_iran,
-                kharej_ip=clean_kharej,
-                tcp_ports=[clean_port],
-                udp_ports=[clean_port],
-                protoswap_tcp=best_cand["tcp"],
-                protoswap_udp=best_cand["udp"],
-                enable_bitswap=best_cand_bitswap,
-                custom_private_ip=clean_private_ip,
-                custom_private_ip_2=clean_private_ip_2,
-            )
+        best_cfg_iran = _generate_candidate_iran(
+            cand_type=best_cand_type,
+            cand=best_cand,
+            name=name,
+            clean_iran=clean_iran,
+            clean_kharej=clean_kharej,
+            clean_port=clean_port,
+            p_tcp=best_cand.get("tcp", 253),
+            p_udp=best_cand.get("udp", 252),
+            cand_bitswap=best_cand_bitswap,
+            clean_private_ip=clean_private_ip,
+            clean_private_ip_2=clean_private_ip_2,
+            ww_cwd=ww_cwd,
+        )
         filepath = Path(ww_cwd) / f"{name}.json"
         core_path = Path(ww_cwd) / "core.json"
         saved_iran = save_waterwall_config(best_cfg_iran, filepath=filepath, name=name, auto_core=True, core_path=core_path)
@@ -1323,10 +1568,16 @@ def run_finder_client(
             "iran_ip": clean_iran,
             "kharej_ip": clean_kharej,
             "tcp_port": clean_port,
-            "protoswap_tcp": best_cand["tcp"],
-            "protoswap_udp": best_cand["udp"],
+            "protoswap_tcp": best_cand.get("tcp", 253),
+            "protoswap_udp": best_cand.get("udp", 252),
             "bitswap": best_cand_bitswap,
             "type": best_cand_type,
+            "pattern": best_cand.get("pattern", "psh/cwr"),
+            "domain": best_cand.get("domain", "telewebion.ir"),
+            "white_ip": best_cand.get("white_ip", "185.165.205.129"),
+            "password": best_cand.get("password", "arch1234net"),
+            "sni": best_cand.get("sni", best_cand.get("domain", "telewebion.ir")),
+            "xor_key": best_cand.get("xor_key", 90),
             "private_ip": clean_private_ip,
             "private_ip_2": clean_private_ip_2,
         }

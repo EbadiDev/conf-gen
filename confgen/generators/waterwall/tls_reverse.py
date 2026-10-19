@@ -153,18 +153,26 @@ def generate_waterwall_tls_reverse_kharej(
                 },
             },
             {
-                "name": "germany_reverse_tls_client",
-                "type": "ReverseClient",
+                "name": "bridge_local_side",
+                "type": "Bridge",
                 "settings": {
-                    "min-held": "$min_held$",
+                    "pair": "bridge_reverse_client_side",
                 },
                 "next": "tcp_to_app",
             },
             {
-                "name": "bridge_reverse_side",
+                "name": "bridge_reverse_client_side",
                 "type": "Bridge",
                 "settings": {
-                    "pair": "germany_reverse_tls_client",
+                    "pair": "bridge_local_side",
+                },
+                "next": "reverse_client",
+            },
+            {
+                "name": "reverse_client",
+                "type": "ReverseClient",
+                "settings": {
+                    "minimum-unused": "$min_held$",
                 },
                 "next": "tls_client",
             },

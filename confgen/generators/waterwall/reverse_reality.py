@@ -262,7 +262,7 @@ def generate_reverse_reality_tcp_kharej(
             }
         )
 
-    reverse_settings: Dict[str, Any] = {"min-held": "$min_held_connections$"}
+    reverse_settings: Dict[str, Any] = {"minimum-unused": "$min_held_connections$"}
     if reverse_secret_length:
         reverse_settings["reverse-secret-length"] = reverse_secret_length
     if reverse_secret:
@@ -271,15 +271,15 @@ def generate_reverse_reality_tcp_kharej(
     nodes.extend(
         [
             {
-                "name": "germany_reverse_tls_client",
-                "type": "ReverseClient",
-                "settings": reverse_settings,
-                "next": "bridge_local_side",
-            },
-            {
                 "name": "bridge_reverse_client_side",
                 "type": "Bridge",
-                "settings": {"pair": "germany_reverse_tls_client"},
+                "settings": {"pair": "bridge_local_side"},
+                "next": "reverse_client",
+            },
+            {
+                "name": "reverse_client",
+                "type": "ReverseClient",
+                "settings": reverse_settings,
                 "next": "reality-client",
             },
             {
@@ -287,6 +287,7 @@ def generate_reverse_reality_tcp_kharej(
                 "type": "RealityClient",
                 "settings": {
                     "sni": "$domain_to_handshake_reality$",
+                    "verify": True,
                     "password": "$password$",
                     "algorithm": "chacha20-poly1305",
                     "kdf-iterations": 12000,

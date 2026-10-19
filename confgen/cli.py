@@ -194,6 +194,21 @@ def _handle_v3(args: argparse.Namespace) -> int:
             xor_key=xor_key,
         )
         save_waterwall_config(cfg, name=name, auto_core=not args.no_core)
+        from confgen.core.link import encode_setup_link, print_setup_box
+        payload = {
+            "type": "protoswap",
+            "name": name,
+            "iran_ip": iran_ip,
+            "kharej_ip": kharej_ip,
+            "tcp_ports": [args.listen_port],
+            "tcp_tunnel_port": args.target_port,
+            "protoswap_tcp": proto_tcp,
+            "protoswap_udp": proto_udp,
+            "private_ip": private_ip,
+            "xor_key": xor_key,
+        }
+        link = encode_setup_link(payload)
+        print_setup_box(link, name, f"V3 ProtoSwap ({proto_tcp}/{proto_udp})")
         return 0
 
     elif side in ("client", "kharej"):
@@ -256,7 +271,7 @@ def _add_finder_subparser(finder_p: argparse.ArgumentParser) -> None:
     f_cli.add_argument("-p", "--port", "--tcp-port", dest="port", type=int, default=9001, help="WaterWall tunnel benchmarking port (default: 9001)")
     f_cli.add_argument("-n", "--name", default="finder-tunnel", help="Tunnel configuration name (default: finder-tunnel)")
     f_cli.add_argument("-t", "-d", "--duration", type=int, default=5, help="Test duration in seconds per direction (default: 5)")
-    f_cli.add_argument("--preset", choices=["top", "fast", "combo", "all"], default="top", help="Candidate protocol preset (default: top)")
+    f_cli.add_argument("--preset", choices=["methods", "top", "fast", "combo", "all"], default="top", help="Candidate protocol preset (default: top)")
     f_cli.add_argument("--protocols", help="Custom comma-separated protocol pairs (e.g. 50/51,51/52,47/136)")
     f_cli.add_argument("--bitswap", action="store_true", help="Force TCP BitSwap on all tested protocols")
     f_cli.add_argument("--include-bitswap", action="store_true", help="Include BitSwap variants for custom protocols or preset")
@@ -316,6 +331,37 @@ def create_parser() -> argparse.ArgumentParser:
         formatter_class=CustomFormatter,
     )
     _add_v3_subparser(v3_top_p)
+
+    # =========================================================================
+    # 0.0 LINK (One-line Kharej setup like BackPack)
+    # =========================================================================
+    link_p = subparsers.add_parser(
+        "link",
+        help="Tunnel setup link manager (one-line Kharej setup like BackPack)",
+        formatter_class=CustomFormatter,
+    )
+    link_sub = link_p.add_subparsers(dest="link_cmd", help="Link actions (apply)")
+    link_apply_p = link_sub.add_parser(
+        "apply",
+        help="Apply a setup link on Kharej server to bring up matching tunnel",
+        formatter_class=CustomFormatter,
+        epilog="""Examples:
+  ./confgen.py link apply 'confgen://...'
+  confgen link apply 'confgen://...' -ki 203.0.113.20
+""",
+    )
+    link_apply_p.add_argument("link", help="confgen://... setup link or full curl command line")
+    link_apply_p.add_argument("-ki", "--kharej-ip", help="Kharej server public IP (auto-detected if omitted)")
+    link_apply_p.add_argument("--final-ip", default="127.0.0.1", help="Target service destination IP (default: 127.0.0.1)")
+    link_apply_p.add_argument("-o", "--output-dir", help="Output directory path")
+    link_apply_p.add_argument("--no-restart", action="store_true", help="Do not restart waterwall systemd service")
+
+    # =========================================================================
+    # 0.01 UPDATE & OPTIMIZE & MENU
+    # =========================================================================
+    subparsers.add_parser("update", help="Update ConfGen to latest version from GitHub", formatter_class=CustomFormatter)
+    subparsers.add_parser("optimize", help="Apply system-wide network optimizations (BBR, sysctl, rp_filter)", formatter_class=CustomFormatter)
+    subparsers.add_parser("menu", help="Open interactive BackPack-style terminal wizard", formatter_class=CustomFormatter)
 
     # =========================================================================
     # 0.1 FINDER (Top-level alias)
@@ -786,12 +832,42 @@ def main(argv: Optional[List[str]] = None) -> int:
     args = parser.parse_args(argv)
 
     if not args.command:
+        if (argv is None and sys.stdin.isatty()) or getattr(args, "command", None) == "menu":
+            from confgen.core.menu import run_interactive_menu
+            return run_interactive_menu()
         parser.print_help()
         return 1
 
     try:
+        # Route Menu & Update & Optimize & Link
+        if args.command == "menu":
+            from confgen.core.menu import run_interactive_menu
+            return run_interactive_menu()
+
+        elif args.command == "update":
+            from confgen.core.menu import update_app
+            return update_app()
+
+        elif args.command == "optimize":
+            from confgen.core.menu import optimize_server
+            optimize_server()
+            return 0
+
+        elif args.command == "link":
+            if getattr(args, "link_cmd", None) == "apply":
+                from confgen.core.link import apply_setup_link
+                return apply_setup_link(
+                    link_str=args.link,
+                    kharej_ip=args.kharej_ip,
+                    final_ip=args.final_ip,
+                    output_dir=args.output_dir,
+                    auto_restart=not args.no_restart,
+                )
+            parser.print_help()
+            return 1
+
         # Route V3 top-level alias
-        if args.command == "v3":
+        elif args.command == "v3":
             return _handle_v3(args)
 
         # Route Finder top-level alias
@@ -875,6 +951,20 @@ def main(argv: Optional[List[str]] = None) -> int:
                         key_path=args.tls_key,
                     )
                     save_waterwall_config(cfg, name=name, auto_core=not args.no_core)
+                    from confgen.core.link import encode_setup_link, print_setup_box
+                    payload = {
+                        "type": "reverse_reality",
+                        "name": name,
+                        "iran_ip": iran_ip,
+                        "kharej_ip": kharej_ip,
+                        "tcp_ports": [port],
+                        "tcp_tunnel_port": port,
+                        "domain": domain,
+                        "password": args.password,
+                        "float_ips": args.float,
+                    }
+                    link = encode_setup_link(payload)
+                    print_setup_box(link, name, f"Reverse Reality ({domain})")
                     return 0
 
                 elif args.side == "kharej":
@@ -1003,6 +1093,23 @@ def main(argv: Optional[List[str]] = None) -> int:
                         custom_private_ip_2=args.private_ip_2,
                     )
                     save_waterwall_config(cfg, name=name, auto_core=not args.no_core)
+                    from confgen.core.link import encode_setup_link, print_setup_box
+                    payload = {
+                        "type": "bitswap",
+                        "name": name,
+                        "iran_ip": iran_ip,
+                        "kharej_ip": kharej_ip,
+                        "tcp_ports": tcp_ports,
+                        "udp_ports": udp_ports,
+                        "float_ips": float_ips,
+                        "tcp_tunnel_port": tcp_tunnel_port,
+                        "udp_tunnel_port": args.udp_tunnel_port,
+                        "xor_key": args.xor_key,
+                        "private_ip": args.private_ip,
+                        "private_ip_2": args.private_ip_2,
+                    }
+                    link = encode_setup_link(payload)
+                    print_setup_box(link, name, "BitSwap")
                     return 0
 
                 elif args.side == "kharej":
@@ -1071,6 +1178,26 @@ def main(argv: Optional[List[str]] = None) -> int:
                         enable_bitswap=args.bitswap,
                     )
                     save_waterwall_config(cfg, name=name, auto_core=not args.no_core)
+                    from confgen.core.link import encode_setup_link, print_setup_box
+                    payload = {
+                        "type": "protoswap",
+                        "name": name,
+                        "iran_ip": iran_ip,
+                        "kharej_ip": kharej_ip,
+                        "tcp_ports": tcp_ports,
+                        "udp_ports": udp_ports,
+                        "float_ips": float_ips,
+                        "protoswap_tcp": args.protoswap_tcp,
+                        "protoswap_udp": args.protoswap_udp,
+                        "tcp_tunnel_port": tcp_tunnel_port,
+                        "udp_tunnel_port": args.udp_tunnel_port,
+                        "xor_key": args.xor_key,
+                        "private_ip": args.private_ip,
+                        "private_ip_2": args.private_ip_2,
+                        "bitswap": args.bitswap,
+                    }
+                    link = encode_setup_link(payload)
+                    print_setup_box(link, name, f"ProtoSwap ({args.protoswap_tcp}/{args.protoswap_udp})")
                     return 0
 
                 elif args.side == "kharej":

@@ -6,9 +6,30 @@ Unified generator supporting:
 - Pure Python standard library implementation.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from confgen.core.validator import validate_ip, validate_port
 from confgen.core.utils import resolve_variables
+
+VALID_TCP_FLAGS = {"cwr", "ece", "urg", "ack", "psh", "rst", "syn", "fin"}
+
+
+def parse_bitswap_pair(pattern: str = "psh/cwr") -> Tuple[str, str]:
+    """Parse and validate two distinct TCP flags from a pattern string (e.g. 'psh/cwr', 'psh/rst', 'ack/fin')."""
+    raw = (pattern or "psh/cwr").strip().lower()
+    if "/" in raw:
+        f1, f2 = raw.split("/", 1)
+    elif "-" in raw:
+        f1, f2 = raw.split("-", 1)
+    else:
+        f1, f2 = "psh", raw
+    f1, f2 = f1.strip(), f2.strip()
+    if f1 not in VALID_TCP_FLAGS or f2 not in VALID_TCP_FLAGS:
+        raise ValueError(
+            f"Invalid TCP flags in '{pattern}'. Supported flags: {', '.join(sorted(VALID_TCP_FLAGS))}"
+        )
+    if f1 == f2:
+        raise ValueError(f"BitSwap flags must be distinct, got '{f1}' and '{f2}'")
+    return f1, f2
 
 
 def generate_bitswap_iran(
@@ -28,6 +49,8 @@ def generate_bitswap_iran(
     xor_key: int = 90,
     custom_private_ip: Optional[str] = None,
     custom_private_ip_2: Optional[str] = None,
+    bitswap_pattern: str = "psh/cwr",
+    preserve_bitflags: bool = False,
 ) -> Dict[str, Any]:
     """Generate unified Iran server BitSwap configuration.
 
@@ -462,6 +485,19 @@ def generate_bitswap_iran(
     else:
         rd2_settings["capture-ip"] = "$ip_server_kharej$"
 
+    f1, f2 = parse_bitswap_pair(bitswap_pattern)
+    up_bit_settings: Dict[str, Any] = {
+        f"up-tcp-bit-{f1}": f"packet->{f2}",
+        f"up-tcp-bit-{f2}": f"packet->{f1}",
+    }
+    dw_bit_settings: Dict[str, Any] = {
+        f"dw-tcp-bit-{f1}": f"packet->{f2}",
+        f"dw-tcp-bit-{f2}": f"packet->{f1}",
+    }
+    if preserve_bitflags:
+        up_bit_settings["preserve-tcp-bitflags"] = True
+        dw_bit_settings["preserve-tcp-bitflags"] = True
+
     nodes.extend(
         [
             {
@@ -509,10 +545,7 @@ def generate_bitswap_iran(
             {
                 "name": "ip-manipulator-up",
                 "type": "IpManipulator",
-                "settings": {
-                    "up-tcp-bit-psh": "packet->cwr",
-                    "up-tcp-bit-cwr": "packet->psh",
-                },
+                "settings": up_bit_settings,
                 "next": "rd",
             },
             {
@@ -536,10 +569,7 @@ def generate_bitswap_iran(
             {
                 "name": "ip-manipulator",
                 "type": "IpManipulator",
-                "settings": {
-                    "dw-tcp-bit-psh": "packet->cwr",
-                    "dw-tcp-bit-cwr": "packet->psh",
-                },
+                "settings": dw_bit_settings,
                 "next": "rd2",
             },
             {
@@ -570,6 +600,8 @@ def generate_bitswap_kharej(
     xor_key: int = 90,
     custom_private_ip: Optional[str] = None,
     custom_private_ip_2: Optional[str] = None,
+    bitswap_pattern: str = "psh/cwr",
+    preserve_bitflags: bool = False,
 ) -> Dict[str, Any]:
     """Generate unified Kharej server BitSwap configuration.
 
@@ -873,6 +905,19 @@ def generate_bitswap_kharej(
         f"$ip_server_kharej_float_{i + 1}$" for i in range(len(float_ips))
     ] if is_multi_ip else "$ip_server_kharej$"
 
+    f1, f2 = parse_bitswap_pair(bitswap_pattern)
+    in_bit_settings: Dict[str, Any] = {
+        f"dw-tcp-bit-{f1}": f"packet->{f2}",
+        f"dw-tcp-bit-{f2}": f"packet->{f1}",
+    }
+    out_bit_settings: Dict[str, Any] = {
+        f"up-tcp-bit-{f1}": f"packet->{f2}",
+        f"up-tcp-bit-{f2}": f"packet->{f1}",
+    }
+    if preserve_bitflags:
+        in_bit_settings["preserve-tcp-bitflags"] = True
+        out_bit_settings["preserve-tcp-bitflags"] = True
+
     nodes.extend(
         [
             {
@@ -912,10 +957,7 @@ def generate_bitswap_kharej(
             {
                 "name": "ip-manipulator-in",
                 "type": "IpManipulator",
-                "settings": {
-                    "dw-tcp-bit-psh": "packet->cwr",
-                    "dw-tcp-bit-cwr": "packet->psh",
-                },
+                "settings": in_bit_settings,
                 "next": "rdin",
             },
             {
@@ -963,10 +1005,7 @@ def generate_bitswap_kharej(
             {
                 "name": "ip-manipulator",
                 "type": "IpManipulator",
-                "settings": {
-                    "up-tcp-bit-psh": "packet->cwr",
-                    "up-tcp-bit-cwr": "packet->psh",
-                },
+                "settings": out_bit_settings,
                 "next": "rd",
             },
             {

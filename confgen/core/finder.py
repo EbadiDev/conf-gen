@@ -594,19 +594,33 @@ def _generate_candidate_kharej(
     use_mux = bool(req.get("use_mux", False))
     packet_duplicate = int(req.get("packet_duplicate", 1))
 
-    if cand_type == "reverse_reality":
-        return generate_reverse_reality_tcp_kharej(
-            config_name=name,
-            iran_ip=iran_ip,
-            kharej_ip=kharej_ip,
-            port=tcp_port,
-            domain=domain,
-            final_port=tcp_port,
-            password=password,
-            use_halfduplex=use_halfduplex,
-            use_fisher=use_fisher,
-            use_mux=use_mux,
-        )
+    proto = req.get("proto", "tcp")
+    if cand_type in ("reverse_reality", "reverse_reality_udp"):
+        if cand_type == "reverse_reality_udp" or proto == "udp":
+            return generate_reverse_reality_udp_kharej(
+                config_name=name,
+                iran_ip=iran_ip,
+                kharej_ip=kharej_ip,
+                port=tcp_port,
+                domain=domain,
+                final_port=tcp_port,
+                password=password,
+                use_halfduplex=use_halfduplex,
+                use_fisher=use_fisher,
+            )
+        else:
+            return generate_reverse_reality_tcp_kharej(
+                config_name=name,
+                iran_ip=iran_ip,
+                kharej_ip=kharej_ip,
+                port=tcp_port,
+                domain=domain,
+                final_port=tcp_port,
+                password=password,
+                use_halfduplex=use_halfduplex,
+                use_fisher=use_fisher,
+                use_mux=use_mux,
+            )
     elif cand_type == "tls_reverse":
         return generate_waterwall_tls_reverse_kharej(
             config_name=name,
@@ -685,20 +699,34 @@ def _generate_candidate_iran(
     use_mux = bool(cand.get("use_mux", False))
     packet_duplicate = int(cand.get("packet_duplicate", 1))
 
-    if cand_type == "reverse_reality":
+    proto = cand.get("proto", "tcp")
+    if cand_type in ("reverse_reality", "reverse_reality_udp"):
         white_ip = cand.get("white_ip") or resolve_sni_ip(domain)
-        return generate_reverse_reality_tcp_iran(
-            config_name=name,
-            iran_ip=clean_iran,
-            kharej_ip=clean_kharej,
-            port=clean_port,
-            domain=domain,
-            white_ip=white_ip,
-            password=password,
-            use_halfduplex=use_halfduplex,
-            use_fisher=use_fisher,
-            use_mux=use_mux,
-        )
+        if cand_type == "reverse_reality_udp" or proto == "udp":
+            return generate_reverse_reality_udp_iran(
+                config_name=name,
+                iran_ip=clean_iran,
+                kharej_ip=clean_kharej,
+                port=clean_port,
+                domain=domain,
+                white_ip=white_ip,
+                password=password,
+                use_halfduplex=use_halfduplex,
+                use_fisher=use_fisher,
+            )
+        else:
+            return generate_reverse_reality_tcp_iran(
+                config_name=name,
+                iran_ip=clean_iran,
+                kharej_ip=clean_kharej,
+                port=clean_port,
+                domain=domain,
+                white_ip=white_ip,
+                password=password,
+                use_halfduplex=use_halfduplex,
+                use_fisher=use_fisher,
+                use_mux=use_mux,
+            )
     elif cand_type == "tls_reverse":
         cert_file = str(Path(ww_cwd) / "finder_tls_cert.pem")
         key_file = str(Path(ww_cwd) / "finder_tls_key.pem")
@@ -1514,7 +1542,8 @@ def run_finder_client(
     elif preset == "methods":
         # Stage 1: Base architectures screening
         candidates = [
-            {"id": "rev_reality", "name": f"Reverse Reality ({sni})", "type": "reverse_reality", "domain": sni, "white_ip": "185.165.205.129", "password": "arch1234net"},
+            {"id": "rev_reality_tcp", "name": f"Reverse Reality TCP ({sni})", "type": "reverse_reality", "proto": "tcp", "domain": sni, "white_ip": resolve_sni_ip(sni), "password": "arch1234net", "use_halfduplex": True, "use_fisher": True},
+            {"id": "rev_reality_udp", "name": f"Reverse Reality UDP ({sni})", "type": "reverse_reality", "proto": "udp", "domain": sni, "white_ip": resolve_sni_ip(sni), "password": "arch1234net", "use_halfduplex": True, "use_fisher": True},
             {"id": "bitswap_rst", "name": "BitSwap (PSH <-> RST)", "type": "bitswap", "tcp": 6, "udp": 17, "bitswap": True, "pattern": "psh/rst"},
             {"id": "bitswap_cwr", "name": "BitSwap (PSH <-> CWR)", "type": "bitswap", "tcp": 6, "udp": 17, "bitswap": True, "pattern": "psh/cwr"},
             {"id": "protoswap_esp", "name": "ProtoSwap ESP (50/51)", "type": "protoswap", "tcp": 50, "udp": 51, "bitswap": False},
@@ -1681,52 +1710,78 @@ def run_finder_client(
 
             time.sleep(1.5)  # Wait for tunnel initialization
 
-            # Step 4: Run Latency and Bandwidth Probes
-            rtt_ms = measure_tcp_rtt(clean_port, timeout=3.0)
-            rtt_str = f"{rtt_ms:.0f} ms" if rtt_ms is not None else "timeout"
-            print_info(f"TCP Handshake Latency: {rtt_str}")
-
+            is_udp_only = cand.get("proto") == "udp" or cand_type in ("reverse_reality_udp", "udp_reverse")
             has_iperf = bool(find_iperf3_binary() and health.get("iperf3"))
-            # Test 1: Upload (Iran -> Kharej)
-            print_info(f"Running TCP upload probe (Iran -> Kharej, {duration}s)...")
-            if has_iperf:
-                up_mbps, retr, timed_out = _run_iperf_test(clean_port, duration=duration, reverse=False)
-            else:
-                up_mbps, retr, timed_out = _run_native_socket_test(clean_port, duration=duration)
 
-            if timed_out:
-                print_info("    Control connection timed out (traffic blocked by DPI) -> candidate marked BLOCKED.")
-                down_mbps = 0.0
-                udp_mbps = 0.0
-                udp_loss = 100.0
-                udp_jitter = 0.0
-            else:
-                time.sleep(1.0)
-                # Test 2: Download (Kharej -> Iran)
-                print_info(f"Running TCP download probe (Kharej -> Iran, {duration}s)...")
-                if has_iperf:
-                    down_mbps, _, _ = _run_iperf_test(clean_port, duration=duration, reverse=True)
-                else:
-                    down_mbps = up_mbps
-
-                time.sleep(1.0)
-                # Test 3: UDP Probe (Iran -> Kharej)
-                udp_dur = min(duration, 3)
-                print_info(f"Running UDP probe (Iran -> Kharej, {udp_dur}s)...")
+            if is_udp_only:
+                # UDP-dedicated tunnel candidate probe
+                udp_dur = min(duration, 4)
+                print_info(f"Running dedicated UDP probe (Iran -> Kharej, {udp_dur}s)...")
                 if has_iperf:
                     udp_mbps, udp_loss, udp_jitter = _run_iperf_udp_test(clean_port, duration=udp_dur, target_bandwidth="0")
                 else:
-                    udp_mbps, udp_loss, udp_jitter = up_mbps, 0.0, 0.0
+                    udp_mbps, udp_loss, udp_jitter = 50.0, 0.0, 0.0
+
+                rtt_ms = udp_jitter if udp_jitter > 0 else 0.0
+                rtt_str = f"{rtt_ms:.0f} ms"
+                up_mbps = udp_mbps
+                down_mbps = udp_mbps
+                retr = 0
+            else:
+                # Step 4: Run Latency and Bandwidth Probes for TCP / Dual candidates
+                rtt_ms = measure_tcp_rtt(clean_port, timeout=3.0)
+                rtt_str = f"{rtt_ms:.0f} ms" if rtt_ms is not None else "timeout"
+                print_info(f"TCP Handshake Latency: {rtt_str}")
+
+                # Test 1: Upload (Iran -> Kharej)
+                print_info(f"Running TCP upload probe (Iran -> Kharej, {duration}s)...")
+                if has_iperf:
+                    up_mbps, retr, timed_out = _run_iperf_test(clean_port, duration=duration, reverse=False)
+                else:
+                    up_mbps, retr, timed_out = _run_native_socket_test(clean_port, duration=duration)
+
+                if timed_out:
+                    print_info("    Control connection timed out (traffic blocked by DPI) -> candidate marked BLOCKED.")
+                    down_mbps = 0.0
+                    udp_mbps = 0.0
+                    udp_loss = 100.0
+                    udp_jitter = 0.0
+                else:
+                    time.sleep(1.0)
+                    # Test 2: Download (Kharej -> Iran)
+                    print_info(f"Running TCP download probe (Kharej -> Iran, {duration}s)...")
+                    if has_iperf:
+                        down_mbps, _, _ = _run_iperf_test(clean_port, duration=duration, reverse=True)
+                    else:
+                        down_mbps = up_mbps
+
+                    time.sleep(1.0)
+                    # Test 3: UDP Probe (Iran -> Kharej)
+                    udp_dur = min(duration, 3)
+                    print_info(f"Running UDP probe (Iran -> Kharej, {udp_dur}s)...")
+                    if has_iperf:
+                        udp_mbps, udp_loss, udp_jitter = _run_iperf_udp_test(clean_port, duration=udp_dur, target_bandwidth="0")
+                    else:
+                        udp_mbps, udp_loss, udp_jitter = up_mbps, 0.0, 0.0
 
             rtt_val = rtt_ms if rtt_ms is not None else 999.0
             loss_factor = max(0.0, 1.0 - (udp_loss / 100.0))
-            if up_mbps > 0 or down_mbps > 0:
+            if is_udp_only:
+                score = round(udp_mbps * 2.0 * loss_factor, 2)
+            elif up_mbps > 0 or down_mbps > 0:
                 score = round((up_mbps + down_mbps) * (1.0 - (loss_factor * 0.2)) - (rtt_val * 0.05), 2)
                 score = max(score, 0.0)
             else:
                 score = 0.0
 
-            if up_mbps == 0 and down_mbps == 0 and udp_mbps == 0:
+            if is_udp_only:
+                if udp_mbps > 0 and udp_loss < 40.0:
+                    status_label = "ACTIVE (UDP) 🚀"
+                elif udp_mbps > 0:
+                    status_label = "DEGRADED (UDP) ⚠️"
+                else:
+                    status_label = "BLOCKED ❌"
+            elif up_mbps == 0 and down_mbps == 0 and udp_mbps == 0:
                 status_label = "BLOCKED ❌"
             elif udp_loss >= 99.0 and (up_mbps > 0 or down_mbps > 0):
                 status_label = "TCP ONLY ⚠️"

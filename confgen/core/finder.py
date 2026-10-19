@@ -550,10 +550,9 @@ def _generate_candidate_kharej(
     sni = req.get("sni", domain)
     xor_key = int(req.get("xor_key", 90))
     use_halfduplex = bool(req.get("use_halfduplex", False))
-    use_grpc = bool(req.get("use_grpc", False))
-    grpc_concurrency = int(req.get("grpc_concurrency", 64))
+    use_fisher = bool(req.get("use_fisher", False))
+    use_mux = bool(req.get("use_mux", False))
     packet_duplicate = int(req.get("packet_duplicate", 1))
-    use_mux = bool(req.get("use_mux", True))
 
     if cand_type == "reverse_reality":
         return generate_reverse_reality_tcp_kharej(
@@ -565,8 +564,8 @@ def _generate_candidate_kharej(
             final_port=tcp_port,
             password=password,
             use_halfduplex=use_halfduplex,
-            use_grpc=use_grpc,
-            grpc_concurrency=grpc_concurrency,
+            use_fisher=use_fisher,
+            use_mux=use_mux,
         )
     elif cand_type == "tls_reverse":
         return generate_waterwall_tls_reverse_kharej(
@@ -642,12 +641,12 @@ def _generate_candidate_iran(
     sni = cand.get("sni", domain)
     xor_key = int(cand.get("xor_key", 90))
     use_halfduplex = bool(cand.get("use_halfduplex", False))
-    use_grpc = bool(cand.get("use_grpc", False))
-    grpc_concurrency = int(cand.get("grpc_concurrency", 64))
+    use_fisher = bool(cand.get("use_fisher", False))
+    use_mux = bool(cand.get("use_mux", False))
     packet_duplicate = int(cand.get("packet_duplicate", 1))
-    use_mux = bool(cand.get("use_mux", True))
 
     if cand_type == "reverse_reality":
+        white_ip = cand.get("white_ip") or resolve_sni_ip(domain)
         return generate_reverse_reality_tcp_iran(
             config_name=name,
             iran_ip=clean_iran,
@@ -657,8 +656,8 @@ def _generate_candidate_iran(
             white_ip=white_ip,
             password=password,
             use_halfduplex=use_halfduplex,
-            use_grpc=use_grpc,
-            grpc_concurrency=grpc_concurrency,
+            use_fisher=use_fisher,
+            use_mux=use_mux,
         )
     elif cand_type == "tls_reverse":
         cert_file = str(Path(ww_cwd) / "finder_tls_cert.pem")
@@ -805,6 +804,14 @@ def parse_custom_protocols(
 # TEARDOWN & CLEANUP HELPERS
 # =============================================================================
 
+def resolve_sni_ip(domain: str, fallback: str = "185.165.205.129") -> str:
+    """Dynamically resolve real IPv4 address behind SNI domain for dest-visitor."""
+    try:
+        return socket.gethostbyname(domain)
+    except Exception:
+        return fallback
+
+
 def stop_waterwall_and_test(
     proc: Optional[subprocess.Popen] = None,
     name: Optional[str] = None,
@@ -814,30 +821,60 @@ def stop_waterwall_and_test(
 
     CRITICAL: Never kills production WaterWall ('waterwall' / 'Waterwall');
     only targets 'Waterwall-test' and 'iperf3'.
+    Gracefully sends SIGTERM first so WaterWall unhooks NFQUEUE iptables rules.
     """
-    # 1. Terminate provided process and its process group
+    # 1. Gracefully terminate provided process so exit handlers run
     if proc:
         try:
             pgid = os.getpgid(proc.pid)
-            os.killpg(pgid, signal.SIGKILL)
+            os.killpg(pgid, signal.SIGTERM)
         except Exception:
             pass
         try:
-            proc.kill()
-            proc.wait(timeout=0.5)
+            proc.wait(timeout=0.4)
         except Exception:
-            pass
+            try:
+                proc.kill()
+            except Exception:
+                pass
 
-    # 2. Kill ONLY isolated test instances (Waterwall-test) & iperf3
+    # 2. Terminate isolated test instances (Waterwall-test) & iperf3
     for pat in [WATERWALL_TEST_BIN_NAME, "iperf3"]:
         try:
-            subprocess.run(["pkill", "-9", "-f", pat], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.0)
+            subprocess.run(["pkill", "-15", "-f", pat], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=0.5)
+        except Exception:
+            pass
+    time.sleep(0.2)
+    for pat in [WATERWALL_TEST_BIN_NAME, "iperf3"]:
+        try:
+            subprocess.run(["pkill", "-9", "-f", pat], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=0.5)
         except Exception:
             pass
 
-    time.sleep(0.2)
+    # 3. Clean any leftover iptables NFQUEUE / CT rules created by WaterWall RawSocket
+    try:
+        res = subprocess.run(["iptables", "-S", "INPUT"], capture_output=True, text=True, timeout=1.0)
+        for line in res.stdout.splitlines():
+            if "WWCAP_" in line:
+                rule_parts = line.split()[1:]
+                subprocess.run(["iptables", "-D"] + rule_parts, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.0)
+        res_raw = subprocess.run(["iptables", "-t", "raw", "-S", "PREROUTING"], capture_output=True, text=True, timeout=1.0)
+        for line in res_raw.stdout.splitlines():
+            if "WWCAP_NOTRACK" in line:
+                rule_parts = line.split()[1:]
+                subprocess.run(["iptables", "-t", "raw", "-D"] + rule_parts, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.0)
+    except Exception:
+        pass
 
-    # 3. Clean temporary test config files in test working directory
+    # 4. Clean test TUN devices if present
+    for t_name in (name, f"{name}2", "finder-tunnel", "wtun1", "wtun2"):
+        if t_name:
+            try:
+                subprocess.run(["ip", "link", "delete", str(t_name)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=0.5)
+            except Exception:
+                pass
+
+    # 5. Clean temporary test config files in test working directory
     if ww_cwd and name:
         for f in (Path(ww_cwd) / f"_tmp_{name}.json", Path(ww_cwd) / f"_core_{name}.json", Path(ww_cwd) / f"{name}.json"):
             if f.exists():
@@ -1476,15 +1513,14 @@ def run_finder_client(
                 "type": cand_type,
                 "pattern": cand.get("pattern", "psh/cwr"),
                 "domain": cand.get("domain", "telewebion.ir"),
-                "white_ip": cand.get("white_ip", "185.165.205.129"),
+                "white_ip": cand.get("white_ip") or resolve_sni_ip(cand.get("domain", "telewebion.ir")),
                 "password": cand.get("password", "arch1234net"),
                 "sni": cand.get("sni", cand.get("domain", "telewebion.ir")),
                 "xor_key": cand.get("xor_key", 90),
-                "use_grpc": bool(cand.get("use_grpc", False)),
                 "use_halfduplex": bool(cand.get("use_halfduplex", False)),
-                "grpc_concurrency": int(cand.get("grpc_concurrency", 64)),
+                "use_fisher": bool(cand.get("use_fisher", False)),
+                "use_mux": bool(cand.get("use_mux", False)),
                 "packet_duplicate": int(cand.get("packet_duplicate", 1)),
-                "use_mux": bool(cand.get("use_mux", True)),
                 "duration": duration,
                 "private_ip": clean_private_ip,
                 "private_ip_2": clean_private_ip_2,
@@ -1640,21 +1676,25 @@ def run_finder_client(
         stage2_cands = []
         if "reverse_reality" in working_types:
             stage2_cands.extend([
-                {"id": "rev_reality_hd", "name": f"Reverse Reality + HD ({sni})", "type": "reverse_reality", "domain": sni, "white_ip": "185.165.205.129", "password": "arch1234net", "use_halfduplex": True},
-                {"id": "rev_reality_grpc", "name": f"Reverse Reality + gRPC ({sni})", "type": "reverse_reality", "domain": sni, "white_ip": "185.165.205.129", "password": "arch1234net", "use_grpc": True},
-                {"id": "rev_reality_grpc_hd", "name": f"Reverse Reality + gRPC+HD ({sni})", "type": "reverse_reality", "domain": sni, "white_ip": "185.165.205.129", "password": "arch1234net", "use_grpc": True, "use_halfduplex": True},
-                {"id": "rev_reality_bazaar", "name": "Reverse Reality (cafebazaar.ir)", "type": "reverse_reality", "domain": "cafebazaar.ir", "white_ip": "185.165.205.129", "password": "arch1234net"},
+                {"id": "rev_reality_hd", "name": f"Reverse Reality + HD ({sni})", "type": "reverse_reality", "domain": sni, "white_ip": resolve_sni_ip(sni), "password": "arch1234net", "use_halfduplex": True},
+                {"id": "rev_reality_fisher", "name": f"Reverse Reality + Fisher ({sni})", "type": "reverse_reality", "domain": sni, "white_ip": resolve_sni_ip(sni), "password": "arch1234net", "use_fisher": True},
+                {"id": "rev_reality_mux", "name": f"Reverse Reality + MUX ({sni})", "type": "reverse_reality", "domain": sni, "white_ip": resolve_sni_ip(sni), "password": "arch1234net", "use_mux": True},
+                {"id": "rev_reality_hd_cf", "name": f"Reverse Reality + HD + Fisher ({sni})", "type": "reverse_reality", "domain": sni, "white_ip": resolve_sni_ip(sni), "password": "arch1234net", "use_halfduplex": True, "use_fisher": True},
+                {"id": "rev_reality_hd_mux", "name": f"Reverse Reality + HD + MUX ({sni})", "type": "reverse_reality", "domain": sni, "white_ip": resolve_sni_ip(sni), "password": "arch1234net", "use_halfduplex": True, "use_mux": True},
+                {"id": "rev_reality_bazaar", "name": "Reverse Reality + HD (cafebazaar.ir)", "type": "reverse_reality", "domain": "cafebazaar.ir", "white_ip": resolve_sni_ip("cafebazaar.ir"), "password": "arch1234net", "use_halfduplex": True},
+                {"id": "rev_reality_snapp", "name": "Reverse Reality + HD (snapp.ir)", "type": "reverse_reality", "domain": "snapp.ir", "white_ip": resolve_sni_ip("snapp.ir"), "password": "arch1234net", "use_halfduplex": True},
+                {"id": "rev_reality_divar", "name": "Reverse Reality + HD (divar.ir)", "type": "reverse_reality", "domain": "divar.ir", "white_ip": resolve_sni_ip("divar.ir"), "password": "arch1234net", "use_halfduplex": True},
             ])
         if "bitswap" in working_types:
             stage2_cands.extend([
-                {"id": "bitswap_rst_dup2", "name": "BitSwap (PSH<->RST + Dup 2)", "type": "bitswap", "tcp": 6, "udp": 17, "bitswap": True, "pattern": "psh/rst", "packet_duplicate": 2},
-                {"id": "bitswap_rst_dup3", "name": "BitSwap (PSH<->RST + Dup 3)", "type": "bitswap", "tcp": 6, "udp": 17, "bitswap": True, "pattern": "psh/rst", "packet_duplicate": 3},
-                {"id": "bitswap_v2", "name": "BitSwap V2 (URG/ECE + Dup 3)", "type": "bitswap", "tcp": 6, "udp": 17, "bitswap": True, "pattern": "variant2"},
+                {"id": "bitswap_rst", "name": "BitSwap (PSH <-> RST)", "type": "bitswap", "tcp": 6, "udp": 17, "bitswap": True, "pattern": "psh/rst"},
+                {"id": "bitswap_cwr_ece", "name": "BitSwap (CWR <-> ECE)", "type": "bitswap", "tcp": 6, "udp": 17, "bitswap": True, "pattern": "cwr/ece"},
+                {"id": "bitswap_ack_fin", "name": "BitSwap (ACK <-> FIN)", "type": "bitswap", "tcp": 6, "udp": 17, "bitswap": True, "pattern": "ack/fin"},
             ])
         if "protoswap" in working_types:
             stage2_cands.extend([
-                {"id": "protoswap_esp_rst", "name": "ProtoSwap 50 + BitSwap RST", "type": "protoswap", "tcp": 50, "udp": 51, "bitswap": True, "pattern": "psh/rst"},
                 {"id": "protoswap_direct", "name": "ProtoSwap 50 (Direct No-Mux)", "type": "protoswap", "tcp": 50, "udp": 51, "use_mux": False},
+                {"id": "protoswap_esp_rst", "name": "ProtoSwap 50 + BitSwap RST", "type": "protoswap", "tcp": 50, "udp": 51, "bitswap": True, "pattern": "psh/rst"},
             ])
 
         if stage2_cands:

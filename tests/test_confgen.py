@@ -1084,20 +1084,20 @@ class TestFinder(unittest.TestCase):
         self.assertEqual(k_cfg["nodes"][0]["next"], "tcp-out")
 
     def test_reverse_reality_grpc_and_hd_profiles(self):
-        """Verify Reverse Reality gRPC + HalfDuplex node pipeline."""
+        """Verify Reverse Reality HalfDuplex, Fisher, and Mux node pipeline."""
         from confgen.generators.waterwall.reverse_reality import generate_reverse_reality_tcp_iran, generate_reverse_reality_tcp_kharej
 
-        i_cfg = generate_reverse_reality_tcp_iran("rr_grpc_i", "1.1.1.1", "2.2.2.2", 443, "telewebion.ir", "3.3.3.3", use_halfduplex=True, use_grpc=True)
+        i_cfg = generate_reverse_reality_tcp_iran("rr_hd_i", "1.1.1.1", "2.2.2.2", 443, "telewebion.ir", "3.3.3.3", use_halfduplex=True, use_fisher=True, use_mux=True)
         i_types = [n["type"] for n in i_cfg["nodes"]]
         self.assertIn("HalfDuplexServer", i_types)
-        self.assertIn("HttpServer", i_types)
-        self.assertIn("ProtoBufServer", i_types)
+        self.assertIn("ConnectionFisherServer", i_types)
+        self.assertIn("MuxClient", i_types)
 
-        k_cfg = generate_reverse_reality_tcp_kharej("rr_grpc_k", "1.1.1.1", "2.2.2.2", 443, "telewebion.ir", 8080, use_halfduplex=True, use_grpc=True)
+        k_cfg = generate_reverse_reality_tcp_kharej("rr_hd_k", "1.1.1.1", "2.2.2.2", 443, "telewebion.ir", 8080, use_halfduplex=True, use_fisher=True, use_mux=True)
         k_types = [n["type"] for n in k_cfg["nodes"]]
         self.assertIn("HalfDuplexClient", k_types)
-        self.assertIn("HttpClient", k_types)
-        self.assertIn("ProtoBufClient", k_types)
+        self.assertIn("ConnectionFisherClient", k_types)
+        self.assertIn("MuxServer", k_types)
 
 
 if __name__ == "__main__":

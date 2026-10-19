@@ -146,7 +146,7 @@ def get_waterwall_release_url() -> str:
     arch = get_cpu_architecture()
     base = "https://github.com/radkesvat/WaterWall/releases/download/v1.46.94"
     if arch == "arm64":
-        return f"{base}/Waterwall-linux-gcc-arm64-old-cpu.zip"
+        return f"{base}/Waterwall-linux-gcc-arm64.zip"
     else:
         return f"{base}/Waterwall-linux-gcc-x64-old-cpu.zip"
 
@@ -191,12 +191,13 @@ def download_and_extract_waterwall(target_dir: str) -> Optional[str]:
     zip_path = os.path.join(target_dir, "waterwall.zip")
     bin_test = os.path.join(target_dir, WATERWALL_TEST_BIN_NAME)
 
-    # Clean any stale zip or broken test binary
-    if os.path.exists(zip_path):
-        try:
-            os.remove(zip_path)
-        except Exception:
-            pass
+    # Clean any stale zip or broken/unrunnable binaries
+    for b_file in [zip_path, bin_test, os.path.join(target_dir, "Waterwall"), os.path.join(target_dir, "waterwall")]:
+        if os.path.exists(b_file) and (b_file == zip_path or not is_binary_runnable(b_file)):
+            try:
+                os.remove(b_file)
+            except Exception:
+                pass
 
     arch = get_cpu_architecture()
     release_url = get_waterwall_release_url()
@@ -1169,10 +1170,17 @@ def _run_iperf_test(
     try:
         proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=duration + 8)
         if proc.returncode != 0:
-            err = (proc.stderr or proc.stdout or "").strip()
-            if err:
-                first_line = err.splitlines()[0]
-                print_warning(f"iperf3 returned code {proc.returncode}: {first_line}")
+            err_msg = ""
+            try:
+                err_data = json.loads(proc.stdout)
+                err_msg = err_data.get("error", "")
+            except Exception:
+                pass
+            if not err_msg:
+                err_msg = (proc.stderr or proc.stdout or "").strip()
+                if err_msg:
+                    err_msg = err_msg.splitlines()[0]
+            print_warning(f"iperf3 returned code {proc.returncode}: {err_msg}")
             return 0.0, 0, False
         data = json.loads(proc.stdout)
         end = data.get("end", {})
@@ -1228,10 +1236,17 @@ def _run_iperf_udp_test(
     try:
         proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=duration + 8)
         if proc.returncode != 0:
-            err = (proc.stderr or proc.stdout or "").strip()
-            if err:
-                first_line = err.splitlines()[0]
-                print_warning(f"iperf3 UDP returned code {proc.returncode}: {first_line}")
+            err_msg = ""
+            try:
+                err_data = json.loads(proc.stdout)
+                err_msg = err_data.get("error", "")
+            except Exception:
+                pass
+            if not err_msg:
+                err_msg = (proc.stderr or proc.stdout or "").strip()
+                if err_msg:
+                    err_msg = err_msg.splitlines()[0]
+            print_warning(f"iperf3 UDP returned code {proc.returncode}: {err_msg}")
             return 0.0, 100.0, 0.0
         data = json.loads(proc.stdout)
         end = data.get("end", {})

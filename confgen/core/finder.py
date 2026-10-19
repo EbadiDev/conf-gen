@@ -817,13 +817,15 @@ def stop_waterwall_and_test(
     name: Optional[str] = None,
     ww_cwd: Optional[str] = None,
 ) -> None:
-    """Deterministically terminate test WaterWall and test processes.
+    """Deterministically terminate ONLY the isolated test WaterWall process.
 
-    CRITICAL: Never kills production WaterWall ('waterwall' / 'Waterwall');
-    only targets 'Waterwall-test' and 'iperf3'.
-    Gracefully sends SIGTERM first so WaterWall unhooks NFQUEUE iptables rules.
+    CRITICAL SAFETY INVARIANT:
+    Never kills or touches production WaterWall or other live tunnels.
+    Never wipes system-wide iptables rules.
+    Never touches production TUN devices (e.g. wtun1, manual-proto, etc.).
+    Only targets the explicit test process (proc) and test directory files.
     """
-    # 1. Gracefully terminate provided process so exit handlers run
+    # 1. Gracefully terminate provided test process by its explicit PID/pgid
     if proc:
         try:
             pgid = os.getpgid(proc.pid)
@@ -838,7 +840,7 @@ def stop_waterwall_and_test(
             except Exception:
                 pass
 
-    # 2. Terminate isolated test instances (Waterwall-test) & iperf3
+    # 2. Terminate isolated test instances (Waterwall-test) & test iperf3 only
     for pat in [WATERWALL_TEST_BIN_NAME, "iperf3"]:
         try:
             subprocess.run(["pkill", "-15", "-f", pat], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=0.5)
@@ -851,30 +853,7 @@ def stop_waterwall_and_test(
         except Exception:
             pass
 
-    # 3. Clean any leftover iptables NFQUEUE / CT rules created by WaterWall RawSocket
-    try:
-        res = subprocess.run(["iptables", "-S", "INPUT"], capture_output=True, text=True, timeout=1.0)
-        for line in res.stdout.splitlines():
-            if "WWCAP_" in line:
-                rule_parts = line.split()[1:]
-                subprocess.run(["iptables", "-D"] + rule_parts, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.0)
-        res_raw = subprocess.run(["iptables", "-t", "raw", "-S", "PREROUTING"], capture_output=True, text=True, timeout=1.0)
-        for line in res_raw.stdout.splitlines():
-            if "WWCAP_NOTRACK" in line:
-                rule_parts = line.split()[1:]
-                subprocess.run(["iptables", "-t", "raw", "-D"] + rule_parts, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1.0)
-    except Exception:
-        pass
-
-    # 4. Clean test TUN devices if present
-    for t_name in (name, f"{name}2", "finder-tunnel", "wtun1", "wtun2"):
-        if t_name:
-            try:
-                subprocess.run(["ip", "link", "delete", str(t_name)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=0.5)
-            except Exception:
-                pass
-
-    # 5. Clean temporary test config files in test working directory
+    # 3. Clean temporary test config files in test working directory ONLY
     if ww_cwd and name:
         for f in (Path(ww_cwd) / f"_tmp_{name}.json", Path(ww_cwd) / f"_core_{name}.json", Path(ww_cwd) / f"{name}.json"):
             if f.exists():

@@ -1090,13 +1090,13 @@ class TestFinder(unittest.TestCase):
         i_cfg = generate_reverse_reality_tcp_iran("rr_grpc_i", "1.1.1.1", "2.2.2.2", 443, "telewebion.ir", "3.3.3.3", use_halfduplex=True, use_grpc=True)
         i_types = [n["type"] for n in i_cfg["nodes"]]
         self.assertIn("HalfDuplexServer", i_types)
-        self.assertIn("Http2Server", i_types)
+        self.assertIn("HttpServer", i_types)
         self.assertIn("ProtoBufServer", i_types)
 
         k_cfg = generate_reverse_reality_tcp_kharej("rr_grpc_k", "1.1.1.1", "2.2.2.2", 443, "telewebion.ir", 8080, use_halfduplex=True, use_grpc=True)
         k_types = [n["type"] for n in k_cfg["nodes"]]
         self.assertIn("HalfDuplexClient", k_types)
-        self.assertIn("Http2Client", k_types)
+        self.assertIn("HttpClient", k_types)
         self.assertIn("ProtoBufClient", k_types)
 
 

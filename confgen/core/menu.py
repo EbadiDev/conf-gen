@@ -376,6 +376,13 @@ def run_interactive_menu() -> int:
                 print_info(f"  On Kharej, run: confgen finder server --port 8088")
                 print_info(f"  Or one-line: bash <(curl -fsSL {GITHUB_ZIP_URL}) finder server --port 8088\n")
                 preset = prompt_string("Preset (methods | top | fast | combo | all)", default="methods")
+                sni = prompt_string("Reality SNI Domain", default="telewebion.ir")
+                has_tls = prompt_string("Do you have a domain + SSL cert to test TLS Reverse? (y/N)", default="n").lower() in ("y", "yes")
+                tls_domain, tls_cert, tls_key = None, None, None
+                if has_tls:
+                    tls_domain = prompt_string("TLS Domain (e.g. domain.com)")
+                    tls_cert = prompt_string("Path to fullchain.pem", default="/root/fullchain.pem")
+                    tls_key = prompt_string("Path to privkey.pem", default="/root/privkey.pem")
                 dur = prompt_int("Duration per test in seconds", default=5, min_val=2, max_val=30)
                 apply_win = prompt_string("Auto-apply winning configuration? (y/N)", default="n").lower() in ("y", "yes")
                 run_finder_client(
@@ -384,6 +391,10 @@ def run_interactive_menu() -> int:
                     duration=dur,
                     preset=preset,
                     auto_apply=apply_win,
+                    sni=sni,
+                    tls_domain=tls_domain,
+                    tls_cert=tls_cert,
+                    tls_key=tls_key,
                 )
                 input("\nPress Enter to return to menu...")
             else:

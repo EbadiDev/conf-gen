@@ -285,6 +285,10 @@ def _add_finder_subparser(finder_p: argparse.ArgumentParser) -> None:
     f_cli.add_argument("--test-dir", help="Isolated directory for test WaterWall instance (default: /root/waterwall-test)")
     f_cli.add_argument("--private-ip", default="10.99.0.1", help="Custom base private IP for TUN test adapter (default: 10.99.0.1)")
     f_cli.add_argument("--private-ip-2", help="Optional secondary private IP for dual TUN")
+    f_cli.add_argument("--tls-domain", help="Domain for TLS Reverse benchmark")
+    f_cli.add_argument("--tls-cert", help="Path to TLS certificate (fullchain.pem) for TLS Reverse")
+    f_cli.add_argument("--tls-key", help="Path to TLS private key (privkey.pem) for TLS Reverse")
+    f_cli.add_argument("--sni", default="telewebion.ir", help="Reality SNI domain (default: telewebion.ir)")
 
 
 def _handle_finder(args: argparse.Namespace) -> int:
@@ -313,6 +317,10 @@ def _handle_finder(args: argparse.Namespace) -> int:
             test_dir=getattr(args, "test_dir", None),
             private_ip=getattr(args, "private_ip", "10.99.0.1") or "10.99.0.1",
             private_ip_2=getattr(args, "private_ip_2", None),
+            tls_domain=getattr(args, "tls_domain", None),
+            tls_cert=getattr(args, "tls_cert", None),
+            tls_key=getattr(args, "tls_key", None),
+            sni=getattr(args, "sni", "telewebion.ir"),
         )
     else:
         print_error("Invalid finder role. Choose 'server' or 'client'.")

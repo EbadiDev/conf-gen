@@ -551,6 +551,9 @@ def _generate_candidate_kharej(
     xor_key = int(req.get("xor_key", 90))
     use_halfduplex = bool(req.get("use_halfduplex", False))
     use_grpc = bool(req.get("use_grpc", False))
+    grpc_concurrency = int(req.get("grpc_concurrency", 64))
+    packet_duplicate = int(req.get("packet_duplicate", 1))
+    use_mux = bool(req.get("use_mux", True))
 
     if cand_type == "reverse_reality":
         return generate_reverse_reality_tcp_kharej(
@@ -563,6 +566,7 @@ def _generate_candidate_kharej(
             password=password,
             use_halfduplex=use_halfduplex,
             use_grpc=use_grpc,
+            grpc_concurrency=grpc_concurrency,
         )
     elif cand_type == "tls_reverse":
         return generate_waterwall_tls_reverse_kharej(
@@ -594,6 +598,7 @@ def _generate_candidate_kharej(
             custom_private_ip=private_ip,
             custom_private_ip_2=private_ip_2,
             bitswap_pattern=pattern,
+            packet_duplicate=packet_duplicate,
         )
     else:
         return generate_protoswap_kharej(
@@ -609,6 +614,7 @@ def _generate_candidate_kharej(
             final_ip="127.0.0.1",
             enable_bitswap=enable_bitswap,
             bitswap_pattern=pattern,
+            use_mux=use_mux,
             custom_private_ip=private_ip,
             custom_private_ip_2=private_ip_2,
         )
@@ -637,6 +643,9 @@ def _generate_candidate_iran(
     xor_key = int(cand.get("xor_key", 90))
     use_halfduplex = bool(cand.get("use_halfduplex", False))
     use_grpc = bool(cand.get("use_grpc", False))
+    grpc_concurrency = int(cand.get("grpc_concurrency", 64))
+    packet_duplicate = int(cand.get("packet_duplicate", 1))
+    use_mux = bool(cand.get("use_mux", True))
 
     if cand_type == "reverse_reality":
         return generate_reverse_reality_tcp_iran(
@@ -649,6 +658,7 @@ def _generate_candidate_iran(
             password=password,
             use_halfduplex=use_halfduplex,
             use_grpc=use_grpc,
+            grpc_concurrency=grpc_concurrency,
         )
     elif cand_type == "tls_reverse":
         cert_file = str(Path(ww_cwd) / "finder_tls_cert.pem")
@@ -683,6 +693,7 @@ def _generate_candidate_iran(
             custom_private_ip=clean_private_ip,
             custom_private_ip_2=clean_private_ip_2,
             bitswap_pattern=pattern,
+            packet_duplicate=packet_duplicate,
         )
     else:
         return generate_protoswap_iran(
@@ -697,6 +708,7 @@ def _generate_candidate_iran(
             protoswap_udp=p_udp,
             enable_bitswap=cand_bitswap,
             bitswap_pattern=pattern,
+            use_mux=use_mux,
             custom_private_ip=clean_private_ip,
             custom_private_ip_2=clean_private_ip_2,
         )
@@ -1313,6 +1325,10 @@ def run_finder_client(
     test_dir: Optional[str] = None,
     private_ip: str = "10.99.0.1",
     private_ip_2: Optional[str] = None,
+    tls_domain: Optional[str] = None,
+    tls_cert: Optional[str] = None,
+    tls_key: Optional[str] = None,
+    sni: str = "telewebion.ir",
 ) -> int:
     """Orchestrate protocol sweep against Kharej agent."""
     # Ensure local iperf3 is available on Iran (fallback to native socket if missing)
@@ -1356,6 +1372,28 @@ def run_finder_client(
             include_bitswap=include_bitswap,
             force_bitswap=bitswap,
         )
+    elif preset == "methods":
+        # Stage 1: Base architectures screening
+        candidates = [
+            {"id": "rev_reality", "name": f"Reverse Reality ({sni})", "type": "reverse_reality", "domain": sni, "white_ip": "185.165.205.129", "password": "arch1234net"},
+            {"id": "bitswap_rst", "name": "BitSwap (PSH <-> RST)", "type": "bitswap", "tcp": 6, "udp": 17, "bitswap": True, "pattern": "psh/rst"},
+            {"id": "bitswap_cwr", "name": "BitSwap (PSH <-> CWR)", "type": "bitswap", "tcp": 6, "udp": 17, "bitswap": True, "pattern": "psh/cwr"},
+            {"id": "protoswap_esp", "name": "ProtoSwap ESP (50/51)", "type": "protoswap", "tcp": 50, "udp": 51, "bitswap": False},
+            {"id": "protoswap_gre", "name": "ProtoSwap GRE (47/136)", "type": "protoswap", "tcp": 47, "udp": 136, "bitswap": False},
+            {"id": "protoswap_253", "name": "ProtoSwap 253/252", "type": "protoswap", "tcp": 253, "udp": 252, "bitswap": False},
+            {"id": "udp_reverse", "name": "UDP Reverse", "type": "udp_reverse", "xor_key": 153},
+        ]
+        if tls_domain and tls_cert:
+            candidates.append({
+                "id": "tls_reverse",
+                "name": f"TLS Reverse ({tls_domain})",
+                "type": "tls_reverse",
+                "sni": tls_domain,
+                "cert": tls_cert,
+                "key": tls_key or tls_cert,
+            })
+        else:
+            print_info("TLS Reverse skipped from sweep (supply --tls-domain and --tls-cert to benchmark).")
     else:
         candidates = list(CANDIDATES_PRESETS.get(preset, CANDIDATES_PRESETS["top"]))
         if bitswap:
@@ -1396,8 +1434,8 @@ def run_finder_client(
     print_info(f"Using isolated WaterWall test binary: {ww_bin} (working dir: {ww_cwd})")
     results: List[Dict[str, Any]] = []
 
-    # 3. Execution Sweep Loop
-    for idx, cand in enumerate(candidates, 1):
+    # 3. Execution Sweep Loop Helper
+    def _test_candidate(idx: int, total_count: int, cand: Dict[str, Any]) -> None:
         cid = cand["id"]
         cname = cand["name"]
         p_tcp = cand.get("tcp", 6)
@@ -1407,7 +1445,7 @@ def run_finder_client(
         bs_str = "YES" if cand_bitswap else "NO"
 
         print(f"\n{'=' * 76}")
-        print(f"[*] [{idx}/{total}] Testing {cname} (type: {cand_type}, TCP: {p_tcp}, UDP: {p_udp}, BitSwap: {bs_str})...")
+        print(f"[*] [{idx}/{total_count}] Testing {cname} (type: {cand_type}, TCP: {p_tcp}, UDP: {p_udp}, BitSwap: {bs_str})...")
         print(f"{'=' * 76}")
 
         # Step 2: Ensure Kharej Agent is responsive before signaling /prepare
@@ -1423,7 +1461,7 @@ def run_finder_client(
 
         if not kharej_ready:
             print_error(f"    Kharej agent not responding at {agent_url}/health after wait. Skipping candidate.")
-            continue
+            return
 
         print_info(f"Signaling Kharej Agent to prepare candidate (TCP: {p_tcp}, UDP: {p_udp}, BitSwap: {bs_str})...")
         try:
@@ -1445,6 +1483,8 @@ def run_finder_client(
                 "use_grpc": bool(cand.get("use_grpc", False)),
                 "use_halfduplex": bool(cand.get("use_halfduplex", False)),
                 "grpc_concurrency": int(cand.get("grpc_concurrency", 64)),
+                "packet_duplicate": int(cand.get("packet_duplicate", 1)),
+                "use_mux": bool(cand.get("use_mux", True)),
                 "duration": duration,
                 "private_ip": clean_private_ip,
                 "private_ip_2": clean_private_ip_2,
@@ -1454,10 +1494,10 @@ def run_finder_client(
             prep = _post_json(f"{agent_url}/prepare", prep_payload, timeout=15.0)
             if prep.get("status") != "ready":
                 print_warning(f"    Kharej failed to prepare: {prep}")
-                continue
+                return
         except Exception as e:
             print_error(f"    Failed to contact Kharej agent: {e}")
-            continue
+            return
 
         # Step 3: Generate Iran configuration and start local WaterWall SECOND
         Path(ww_cwd, "log").mkdir(parents=True, exist_ok=True)
@@ -1499,7 +1539,7 @@ def run_finder_client(
             time.sleep(0.5)
             if local_ww.poll() is not None:
                 print_error(f"    WaterWall on Iran exited prematurely (code {local_ww.returncode})! Check {ww_bin}")
-                continue
+                return
 
             time.sleep(1.5)  # Wait for tunnel initialization
 
@@ -1523,9 +1563,7 @@ def run_finder_client(
                 udp_loss = 100.0
                 udp_jitter = 0.0
             else:
-                # Pause so listener can reset cleanly
                 time.sleep(1.0)
-
                 # Test 2: Download (Kharej -> Iran)
                 print_info(f"Running TCP download probe (Kharej -> Iran, {duration}s)...")
                 if has_iperf:
@@ -1533,9 +1571,7 @@ def run_finder_client(
                 else:
                     down_mbps = up_mbps
 
-                # Pause so listener can reset cleanly
                 time.sleep(1.0)
-
                 # Test 3: UDP Probe (Iran -> Kharej)
                 udp_dur = min(duration, 3)
                 print_info(f"Running UDP probe (Iran -> Kharej, {udp_dur}s)...")
@@ -1577,7 +1613,6 @@ def run_finder_client(
             print(f"\n    -> TCP Up: {up_mbps:6.2f} Mbps | TCP Down: {down_mbps:6.2f} Mbps | UDP: {udp_mbps:6.2f} Mbps (Loss: {udp_loss:4.1f}%) | RTT: {rtt_str} | {status_label}")
 
         finally:
-            # Step 5: Teardown: First Iran, then Kharej
             print_info(f"Resetting WaterWall on Iran...")
             stop_waterwall_and_test(local_ww, name, ww_cwd)
             local_ww = None
@@ -1594,6 +1629,42 @@ def run_finder_client(
                     time.sleep(1.0)
 
         time.sleep(0.5)
+
+    # Run Stage 1 candidates
+    for idx, cand in enumerate(candidates, 1):
+        _test_candidate(idx, total, cand)
+
+    # Adaptive Stage 2: Deep Optimization of working tunnels
+    if preset == "methods":
+        working_types = {r["cand"].get("type") for r in results if r["upload"] > 0 or r["download"] > 0}
+        stage2_cands = []
+        if "reverse_reality" in working_types:
+            stage2_cands.extend([
+                {"id": "rev_reality_hd", "name": f"Reverse Reality + HD ({sni})", "type": "reverse_reality", "domain": sni, "white_ip": "185.165.205.129", "password": "arch1234net", "use_halfduplex": True},
+                {"id": "rev_reality_grpc", "name": f"Reverse Reality + gRPC ({sni})", "type": "reverse_reality", "domain": sni, "white_ip": "185.165.205.129", "password": "arch1234net", "use_grpc": True},
+                {"id": "rev_reality_grpc_hd", "name": f"Reverse Reality + gRPC+HD ({sni})", "type": "reverse_reality", "domain": sni, "white_ip": "185.165.205.129", "password": "arch1234net", "use_grpc": True, "use_halfduplex": True},
+                {"id": "rev_reality_bazaar", "name": "Reverse Reality (cafebazaar.ir)", "type": "reverse_reality", "domain": "cafebazaar.ir", "white_ip": "185.165.205.129", "password": "arch1234net"},
+            ])
+        if "bitswap" in working_types:
+            stage2_cands.extend([
+                {"id": "bitswap_rst_dup2", "name": "BitSwap (PSH<->RST + Dup 2)", "type": "bitswap", "tcp": 6, "udp": 17, "bitswap": True, "pattern": "psh/rst", "packet_duplicate": 2},
+                {"id": "bitswap_rst_dup3", "name": "BitSwap (PSH<->RST + Dup 3)", "type": "bitswap", "tcp": 6, "udp": 17, "bitswap": True, "pattern": "psh/rst", "packet_duplicate": 3},
+                {"id": "bitswap_v2", "name": "BitSwap V2 (URG/ECE + Dup 3)", "type": "bitswap", "tcp": 6, "udp": 17, "bitswap": True, "pattern": "variant2"},
+            ])
+        if "protoswap" in working_types:
+            stage2_cands.extend([
+                {"id": "protoswap_esp_rst", "name": "ProtoSwap 50 + BitSwap RST", "type": "protoswap", "tcp": 50, "udp": 51, "bitswap": True, "pattern": "psh/rst"},
+                {"id": "protoswap_direct", "name": "ProtoSwap 50 (Direct No-Mux)", "type": "protoswap", "tcp": 50, "udp": 51, "use_mux": False},
+            ])
+
+        if stage2_cands:
+            print("\n" + "=" * 76)
+            print("⚡ STAGE 2: DEEP OPTIMIZATION OF WORKING ARCHITECTURES")
+            print("=" * 76)
+            print_info(f"Testing {len(stage2_cands)} variations of the working tunnels...\n")
+            s2_total = len(stage2_cands)
+            for s2_idx, s2_cand in enumerate(stage2_cands, 1):
+                _test_candidate(s2_idx, s2_total, s2_cand)
 
     # 4. Results & Leaderboard
     if not results:
@@ -1694,4 +1765,3 @@ def run_finder_client(
         print_info("To automatically apply the winning configuration in the isolated test directory, re-run with '--apply'.")
 
     return 0
-

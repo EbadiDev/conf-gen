@@ -144,8 +144,8 @@ def generate_reverse_reality_tcp_iran(
                 },
                 {
                     "name": "h2server",
-                    "type": "Http2Server",
-                    "settings": {},
+                    "type": "HttpServer",
+                    "settings": {"http-version": "2"},
                     "next": "pbserver",
                 },
                 {
@@ -162,8 +162,8 @@ def generate_reverse_reality_tcp_iran(
             [
                 {
                     "name": "h2server",
-                    "type": "Http2Server",
-                    "settings": {},
+                    "type": "HttpServer",
+                    "settings": {"http-version": "2"},
                     "next": "pbserver",
                 },
                 {
@@ -326,8 +326,9 @@ def generate_reverse_reality_tcp_kharej(
                 },
                 {
                     "name": "h2client",
-                    "type": "Http2Client",
+                    "type": "HttpClient",
                     "settings": {
+                        "http-version": "2",
                         "host": "$domain_to_handshake_reality$",
                         "port": "$connect_to_iran_port$",
                         "path": "/",
@@ -356,8 +357,9 @@ def generate_reverse_reality_tcp_kharej(
                 },
                 {
                     "name": "h2client",
-                    "type": "Http2Client",
+                    "type": "HttpClient",
                     "settings": {
+                        "http-version": "2",
                         "host": "$domain_to_handshake_reality$",
                         "port": "$connect_to_iran_port$",
                         "path": "/",

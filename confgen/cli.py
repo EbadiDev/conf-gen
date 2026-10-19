@@ -1080,10 +1080,11 @@ def main(argv: Optional[List[str]] = None) -> int:
                     kharej_ip = args.kharej_ip or args.pos_kharej_ip
                     port = args.port if args.port != 443 or not args.pos_port else args.pos_port
                     domain = args.domain or args.pos_domain or "telewebion.ir"
-                    white_ip = args.white_ip or args.pos_white_ip
+                    from confgen.core.finder import resolve_sni_ip
+                    white_ip = args.white_ip or args.pos_white_ip or resolve_sni_ip(domain)
 
                     if not (name and iran_ip and kharej_ip and white_ip):
-                        print_error("Missing required parameters for Iran Reverse Reality (-n, -ii, -ki, -wi)")
+                        print_error("Missing required parameters for Iran Reverse Reality (-n, -ii, -ki)")
                         return 1
 
                     cfg = generate_reverse_reality_tcp_iran(
@@ -1113,6 +1114,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                         "domain": domain,
                         "password": args.password,
                         "float_ips": args.float,
+                        "use_halfduplex": args.halfduplex,
+                        "use_fisher": args.fisher,
                     }
                     link = encode_setup_link(payload)
                     print_setup_box(link, name, f"Reverse Reality ({domain})")

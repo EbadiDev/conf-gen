@@ -122,6 +122,9 @@ def apply_setup_link(
         domain = data.get("domain", "telewebion.ir")
         password = data.get("password", "arch1234net")
         final_port = tcp_ports[0] if tcp_ports else 443
+        use_hd = bool(data.get("use_halfduplex", False))
+        use_cf = bool(data.get("use_fisher", False))
+        use_mux = bool(data.get("use_mux", False))
         cfg = generate_reverse_reality_tcp_kharej(
             config_name=name,
             iran_ip=iran_ip,
@@ -131,6 +134,9 @@ def apply_setup_link(
             final_port=final_port,
             password=password,
             float_ips=float_ips,
+            use_halfduplex=use_hd,
+            use_fisher=use_cf,
+            use_mux=use_mux,
         )
     elif method == "reverse_reality_dual":
         from confgen.generators.waterwall.reverse_reality import generate_reverse_reality_dual_kharej

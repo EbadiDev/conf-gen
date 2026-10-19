@@ -348,10 +348,11 @@ def run_interactive_menu() -> int:
         print("  3) Apply Setup Link (confgen://...)")
         print("  4) Manage Tunnels & Service Status")
         print("  5) Server Network Optimization (BBR, rp_filter, sysctl)")
-        print("  6) Update ConfGen")
+        print("  6) Native Stream SpeedTest (Zero-Dependency, iperf3-Free)")
+        print("  7) Update ConfGen")
         print("  q) Exit")
         print()
-        choice = input("Select an option [0-6, q]: ").strip().lower()
+        choice = input("Select an option [0-7, q]: ").strip().lower()
 
         if choice in ("q", "exit", "quit"):
             print("Goodbye!")
@@ -403,7 +404,24 @@ def run_interactive_menu() -> int:
             optimize_server()
             input("\nPress Enter to return to menu...")
         elif choice == "6":
+            from confgen.core.speedtest import run_speedtest_server, run_speedtest_client
+            print("\n--- NATIVE STREAM SPEEDTEST ---")
+            print("Select role:")
+            print("  1) Client (Run speedtest from Iran)")
+            print("  2) Server (Start receiver daemon on Kharej)")
+            print("  0) Back")
+            st_choice = prompt_string("Choose [0-2]", default="1")
+            if st_choice == "2":
+                p = prompt_int("Listen Port", default=9001)
+                run_speedtest_server(port=p)
+            elif st_choice == "1":
+                h = prompt_string("Target Host (IP or 127.0.0.1)", default="127.0.0.1")
+                p = prompt_int("Target Port", default=9001)
+                d = prompt_int("Duration in seconds", default=5, min_val=2, max_val=30)
+                run_speedtest_client(host=h, port=p, duration=d)
+                input("\nPress Enter to return to menu...")
+        elif choice == "7":
             update_app()
             input("\nPress Enter to return to menu...")
         else:
-            print_error("Invalid option. Please enter 0-6 or q.")
+            print_error("Invalid option. Please enter 0-7 or q.")

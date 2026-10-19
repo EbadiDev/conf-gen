@@ -357,11 +357,22 @@ def create_parser() -> argparse.ArgumentParser:
     link_apply_p.add_argument("--no-restart", action="store_true", help="Do not restart waterwall systemd service")
 
     # =========================================================================
-    # 0.01 UPDATE & OPTIMIZE & MENU
+    # 0.01 UPDATE & OPTIMIZE & MENU & TEST
     # =========================================================================
     subparsers.add_parser("update", help="Update ConfGen to latest version from GitHub", formatter_class=CustomFormatter)
     subparsers.add_parser("optimize", help="Apply system-wide network optimizations (BBR, sysctl, rp_filter)", formatter_class=CustomFormatter)
     subparsers.add_parser("menu", help="Open interactive BackPack-style terminal wizard", formatter_class=CustomFormatter)
+
+    test_p = subparsers.add_parser("test", aliases=["speedtest"], help="Native zero-dependency stream benchmark", formatter_class=CustomFormatter)
+    test_sub = test_p.add_subparsers(dest="test_cmd", help="Role (server | client)")
+    t_srv = test_sub.add_parser("server", help="Start native SpeedTest server daemon", formatter_class=CustomFormatter)
+    t_srv.add_argument("-p", "--port", type=int, default=9001, help="Listen port (default: 9001)")
+    t_srv.add_argument("--bind", default="0.0.0.0", help="Bind IP address (default: 0.0.0.0)")
+
+    t_cli = test_sub.add_parser("client", help="Run native SpeedTest against server", formatter_class=CustomFormatter)
+    t_cli.add_argument("-t", "--host", default="127.0.0.1", help="Target host (default: 127.0.0.1)")
+    t_cli.add_argument("-p", "--port", type=int, default=9001, help="Target port (default: 9001)")
+    t_cli.add_argument("-d", "--duration", type=int, default=5, help="Test duration in seconds per direction (default: 5)")
 
     # =========================================================================
     # 0.1 FINDER (Top-level alias)
@@ -852,6 +863,16 @@ def main(argv: Optional[List[str]] = None) -> int:
             from confgen.core.menu import optimize_server
             optimize_server()
             return 0
+
+        elif args.command in ("test", "speedtest"):
+            from confgen.core.speedtest import run_speedtest_server, run_speedtest_client
+            if getattr(args, "test_cmd", None) == "server":
+                return run_speedtest_server(port=args.port, bind=args.bind)
+            elif getattr(args, "test_cmd", None) == "client":
+                run_speedtest_client(host=args.host, port=args.port, duration=args.duration)
+                return 0
+            parser.print_help()
+            return 1
 
         elif args.command == "link":
             if getattr(args, "link_cmd", None) == "apply":

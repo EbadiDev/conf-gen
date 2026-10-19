@@ -250,7 +250,7 @@ def generate_reverse_reality_tcp_kharej(
     clean_iran_ip = validate_ip(iran_ip)
     clean_kharej_ip = validate_ip(kharej_ip)
     validated_port = validate_port(port)
-    validated_final_port = validate_port(final_port)
+    validated_final_port = validate_port(final_port) if (final_port and int(final_port) != 0) else 0
 
     variables: Dict[str, Any] = {
         "ip_server_iran": clean_iran_ip,
@@ -265,10 +265,11 @@ def generate_reverse_reality_tcp_kharej(
             "connect_to_iran_port": validated_port,
             "domain_to_handshake_reality": domain,
             "password": password,
-            "final_port": validated_final_port,
             "min_held_connections": min_held,
         }
     )
+    if validated_final_port != 0:
+        variables["final_port"] = validated_final_port
 
     is_preserve_ports = (validated_final_port == 0)
     if is_preserve_ports:
@@ -605,7 +606,7 @@ def generate_reverse_reality_udp_kharej(
     clean_iran_ip = validate_ip(iran_ip)
     clean_kharej_ip = validate_ip(kharej_ip)
     validated_port = validate_port(port)
-    validated_final_port = validate_port(final_port)
+    validated_final_port = validate_port(final_port) if (final_port and int(final_port) != 0) else 0
 
     variables: Dict[str, Any] = {
         "ip_server_iran": clean_iran_ip,
@@ -613,9 +614,10 @@ def generate_reverse_reality_udp_kharej(
         "connect_to_iran_port": validated_port,
         "domain_to_handshake_reality": domain,
         "password": password,
-        "final_port": validated_final_port,
         "min_held_connections": min_held,
     }
+    if validated_final_port != 0:
+        variables["final_port"] = validated_final_port
 
     for idx, fip in enumerate(float_ips):
         variables[f"ip_server_kharej_float_{idx + 1}"] = validate_ip(fip)

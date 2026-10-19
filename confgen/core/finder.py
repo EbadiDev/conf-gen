@@ -839,13 +839,14 @@ def _run_native_udp_test(
             except Exception:
                 pass
 
-            # 2. UDP transmission
+            # 2. High-throughput UDP burst transmission
             t_start = time.perf_counter()
             t_end = t_start + duration
+            burst_count = 32
             while time.perf_counter() < t_end:
-                s.sendto(chunk, (host, port))
-                total_bytes += len(chunk)
-                time.sleep(0.00005)
+                for _ in range(burst_count):
+                    s.sendto(chunk, (host, port))
+                    total_bytes += len(chunk)
         elapsed = time.perf_counter() - t_start
         mbps = round((total_bytes * 8) / (elapsed * 1_000_000.0), 2) if elapsed > 0 else 0.0
         return mbps, 0.0, rtt_ms

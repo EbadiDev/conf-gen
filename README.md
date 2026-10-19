@@ -1,980 +1,284 @@
-# Configuration Generators
+# ⚡ ConfGen: Next-Gen Tunnel Generator & Autonomous Benchmark Sweeper
 
-This repository contains configuration generators for various tunneling and load balancing solutions.
+ConfGen is an all-in-one, zero-dependency Python framework for high-throughput cross-border tunneling with **WaterWall** and **Xray**, designed specifically for deep packet inspection (DPI) circumvention between Iran and foreign servers (Kharej).
 
-## Scripts
+It achieved an all-time verified record of **4.74 Gbps wire speed** (2.11 Gbps UP / 2.63 Gbps DOWN) with **0ms added latency** and **0.0% packet loss** using Reverse Reality + HalfDuplex + ConnectionFisher on whitelisted Iranian hospital infrastructure.
 
-### 1. Load Balancer Configuration Generator (Modular)
+---
 
-**New Modular Structure**: The configuration generator has been restructured into a modular system for better maintainability and organization.
+## 🚀 Key Features
 
-#### Main Scripts:
-- **`main.sh`** - New modular main script with improved organization
-- **`create_lb_config.sh`** - Legacy monolithic script (still functional)
+- **⚡ Record-Breaking Speeds**: Squeezes up to 4.7+ Gbps aggregate throughput on 10G/virtualized NIC interfaces across the national border.
+- **🏆 Autonomous Protocol Sweeper (`confgen finder`)**: Tests multiple tunnel architectures and SNIs head-to-head in real time, automatically ranking them on an RTT/throughput leaderboard.
+- **🏥 Iranian Hospital SNI Benchmark**: Pre-configured with 10+ verified, active Iranian medical institutions (`shariati.tums.ac.ir`, `rhc.ac.ir`, `tums.ac.ir`) with Let's Encrypt TLS 443 certificates that bypass national QoS throttling.
+- **🔄 Two-Stage Adaptive Testing**:
+  - *Stage 1*: Tests base architectures (Reverse Reality, BitSwap, ProtoSwap, UDP Reverse, TLS Reverse).
+  - *Stage 2*: Automatically branches into deep variations of the working tunnels (HalfDuplex, ConnectionFisher, Mux, custom TCP bit swapping, alternative SNIs).
+- **📦 BackPack-Style Setup Links (`confgen://...`)**: Generates single-line copy-paste commands so Kharej servers can be completely deployed in seconds without typing IPs or ports.
+- **📊 Native MUX Scaling Benchmark (`confgen test`)**: Pure-Python stream benchmark testing parallel child streams (1, 2, 8, 16 connections) to evaluate multiplexing efficiency without iperf3.
+- **🛡️ Strict Process & System Isolation**: Test instances run in isolated sandboxes (`Waterwall-test`) without ever touching production systemd services, active tunnels, or host iptables rules.
+- **🐍 Pure Python (Zero Dependencies)**: Runs everywhere with standard Python 3.6+. No external pip packages needed.
 
-#### Waterwall Modules:
-- **`waterwall/server_client_config.sh`** - Server and client configurations
-- **`waterwall/simple_config.sh`** - Simple port forwarding
-- **`waterwall/half_config.sh`** - Reality/gRPC tunneling  
-- **`waterwall/v2_config.sh`** - Advanced V2 configurations with TUN devices
-- **`waterwall/v3_config.sh`** - Advanced V3 configurations with UDP support
-- **`waterwall/bitswap_config.sh`** - Bit-swapping MUX configurations with single/multi floating IPs and native Proxy Protocol
-- **`waterwall/reverse_reality_config.sh`** - Reverse tunneling with Reality encryption
-- **`waterwall/tls_reverse_config.sh`** - Reverse TLS tunneling with multi-kharej IP whitelist
-- **`waterwall/udp_reverse_config.sh`** - Reverse UDP tunneling with RawSockets and XOR obfuscation
-- **`waterwall/xray_reverse_config.sh`** - Xray VLESS Reverse tunneling (WS / WS+TLS)
-- **`waterwall/haproxy.sh`** - HAProxy integration module
-- **`waterwall/common.sh`** - Shared utilities and functions
+---
 
-Both scripts generate JSON configuration files for client and server-side setups with support for multiple configuration types including simple port forwarding and advanced Reality/gRPC tunneling, now with optional HAProxy integration for real IP forwarding and load balancing.
+## 📥 Installation & Updating
 
-### 2. Rathole Configuration Generator (`rathole.sh`)
+Run this **one command** on both your **Iran** and **Kharej** servers:
 
-This script generates rathole server and client configurations with systemd services and optional HAProxy integration for real IP logging and load balancing.
-
-### 3. Ultimate Configuration Generator (`ultimate.sh`) ⭐
-
-**The Ultimate Solution**: Combines Waterwall V2 + Rathole + GOST for the most secure and flexible tunneling setup. This script automates the entire process of creating a layered tunnel with private networking, automatic health monitoring, and port range support.
-
-#### Features:
-- **Layered Security**: Waterwall V2 tunnel + Rathole encryption + GOST proxy
-- **Private Networking**: Creates isolated private IP space (e.g., 30.6.0.1)
-- **Port Range Support**: Handle multiple ports efficiently 
-- **Auto Bug-Fix**: Automatically fixes rathole client configuration issues
-- **Health Monitoring**: Installs automatic service monitoring and recovery
-- **Modern CLI**: Supports both short (-n) and long (--name) options
-- **One-Command Setup**: Complete tunnel setup in a single command
-
-#### Usage:
 ```bash
-# Server (with short options)
-./ultimate.sh server -n gehetz -pr 801-802 -ni 203.0.113.50 -ii 198.51.100.20 -pi 30.6.0.1 -rp 800 -p 27 -t strongpass -gr 1200-1299 -gp 30121
+bash <(curl -fsSL https://raw.githubusercontent.com/EbadiDev/conf-gen/feat/confgen-python-protoswap-benchmark/install.sh)
+```
 
-# Client (with long options)  
-./ultimate.sh client --name mahannet --non-iran-ip 203.0.113.50 --iran-ip 198.51.100.20 --private-ip 30.6.0.1 --waterwall-port 30122 --protocol 27 --rathole-server-port 800 --app-port 30120 --token strongpass --gost-port 30120
+This installs the standalone executable `confgen` in `/usr/local/bin/confgen`.
+
+### Quick Commands
+
+```bash
+# Open the interactive BackPack-style terminal menu wizard:
+confgen
+
+# Check or update ConfGen to the latest version on GitHub:
+confgen update
+
+# Apply system-wide networking optimizations (BBR, buffer ceilings, sysctl):
+confgen optimize
 ```
 
 ---
 
-## Rathole Configuration Generator
+## 🖥️ BackPack-Style Interactive Menu
 
-The `rathole.sh` script provides an easy way to generate rathole tunnel configurations with automatic key generation, systemd service creation, and optional HAProxy integration for real IP preservation.
+Simply run `confgen` (or `confgen menu`) on any server to launch the interactive terminal wizard:
 
-### Features
-
-- **Automatic Key Generation**: Uses rathole binary to generate secure noise protocol keys
-- **Interactive Setup**: Guides you through the configuration process
-- **Systemd Integration**: Automatically creates and installs systemd service files
-- **HAProxy Support**: Optional HAProxy integration for real IP logging and load balancing
-- **Multi-Service Management**: Supports multiple services in a single HAProxy configuration
-- **Performance Optimized**: HAProxy configurations are optimized for maximum speed
-- **Automatic Backup**: Creates timestamped backups before modifying existing configurations
-
-### Prerequisites
-
-- `rathole` binary in the current directory
-- Root/sudo access for system configuration
-- HAProxy installed (if using haproxy option)
-
-### Usage
-
-```bash
-# Server Configuration
-./rathole.sh server <name> <port> <default_token> <client_port> <tcp|udp> <nodelay> [haproxy]
-
-# Client Configuration  
-./rathole.sh client <name> <domain/ip:port> <default_token> <client_port> <tcp|udp> <nodelay> [haproxy]
+```text
+============================================================================
+              ⚡ CONFGEN - WATERWALL & XRAY CONFIG WIZARD ⚡
+============================================================================
+1) Setup Iran Server Tunnel (Wizard)
+2) Apply Setup Link on Kharej (Single-command activation)
+3) Manage Active Tunnels & Inspect Status
+4) System Optimizer (TCP BBR, Splicing & Buffers)
+5) Native Stream SpeedTest (1, 2, 8, 16 Parallel Child Streams)
+6) Benchmark & Autonomous Protocol Sweeper
+7) Update ConfGen from GitHub
+0) Exit
+============================================================================
 ```
-
-### Parameters
-
-- `name` - Configuration name (used for files and service names)
-- `port` - Server bind port (server only)
-- `domain/ip:port` - Server address (client only)
-- `default_token` - Authentication token (must match on both sides)
-- `client_port` - Client service port
-- `tcp|udp` - Protocol type
-- `nodelay` - Enable/disable TCP nodelay (true/false)
-- `haproxy` - Optional: Enable HAProxy integration
-
-### Examples
-
-#### Basic Configuration
-
-**Server:**
-```bash
-./rathole.sh server myapp 2333 mysecrettoken 8080 tcp true
-```
-
-**Client:**
-```bash
-./rathole.sh client myapp example.com:2333 mysecrettoken 8080 tcp false
-```
-
-#### With HAProxy (Real IP Logging)
-
-**Server:**
-```bash
-./rathole.sh server webapp 2333 mysecrettoken 8080 tcp true haproxy
-```
-
-**Client:**
-```bash
-./rathole.sh client webapp example.com:2333 mysecrettoken 8080 tcp false haproxy
-```
-
-### HAProxy Integration
-
-When using the `haproxy` option, the script:
-
-1. **Server Side:**
-   - External clients connect to port 8080 (HAProxy)
-   - HAProxy forwards to rathole on port 9080
-   - Real client IPs are logged in HAProxy logs
-
-2. **Client Side:**
-   - Rathole forwards to HAProxy on port 9080
-   - HAProxy forwards to your service on port 8080
-   - Your service receives traffic normally
-
-3. **Configuration Management:**
-   - Creates/updates `/etc/haproxy/haproxy.cfg`
-   - Supports multiple services in one config
-   - Overwrites existing service with same name
-   - Creates timestamped backups
-
-### Multi-Service Example
-
-```bash
-# First service
-./rathole.sh server webapp1 2333 secret1 8080 tcp true haproxy
-
-# Second service (adds to existing HAProxy config)
-./rathole.sh server webapp2 2334 secret2 8081 tcp true haproxy
-
-# Update first service (overwrites webapp1 config)
-./rathole.sh server webapp1 2333 newsecret1 8080 tcp true haproxy
-```
-
-### Generated Files
-
-- `<name>_server.toml` or `<name>_client.toml` - Rathole configuration
-- `/etc/rathole/<name>_server.toml` - Installed rathole config
-- `/etc/systemd/system/ratholes@.service` - Server systemd template
-- `/etc/systemd/system/ratholec@.service` - Client systemd template
-- `/etc/haproxy/haproxy.cfg` - HAProxy configuration (if enabled)
-
-### Service Management
-
-```bash
-# Check service status
-sudo systemctl status ratholes@myapp
-sudo systemctl status ratholec@myapp
-
-# View logs
-sudo journalctl -u ratholes@myapp -f
-sudo journalctl -u ratholec@myapp -f
-
-# Start/stop/restart
-sudo systemctl start ratholes@myapp
-sudo systemctl stop ratholes@myapp
-sudo systemctl restart ratholes@myapp
-```
-
-### HAProxy Performance Optimizations
-
-The generated HAProxy configurations include:
-
-- **Multi-threading**: Uses all available CPU cores
-- **Memory optimization**: Larger buffers (32KB, 256KB receive/send buffers)
-- **TCP optimizations**: Smart accept/connect, keep-alive
-- **Fast timeouts**: 2s connect, aggressive health checks
-- **Disabled logging**: For maximum performance (can be re-enabled)
-- **Load balancing**: Optimized roundrobin algorithm
 
 ---
 
-## Ultimate Configuration Generator
+## 🏆 Autonomous Protocol Sweeper (`confgen finder`)
 
-The `ultimate.sh` script is the most comprehensive solution that combines **Waterwall V2 + Rathole + GOST** into a single automated setup. It creates a multi-layered secure tunnel with private networking, automatic health monitoring, and intelligent port management.
+The automated sweeper deploys candidates sequentially in an isolated sandbox, runs TCP upload, TCP download, and UDP throughput/loss probes, and prints a real-time leaderboard.
 
-### Architecture Overview
-
-```
-[Client App] → [Client GOST] → [Client Rathole] → [Waterwall V2 Tunnel] → [Server Rathole] → [Server GOST] → [Server Ports]
-     ↓              ↓               ↓                    ↓                      ↓              ↓             ↓
-  Local Port    Port Range      Private Net         Encrypted Tunnel      Private Net    Port Range   Target Services
-```
-
-### What It Does Automatically
-
-1. **Creates Waterwall V2 Tunnel**: Establishes encrypted tunnel with private networking
-2. **Sets up Rathole**: Installs rathole server/client with noise protocol encryption  
-3. **Configures GOST**: Sets up GOST proxy with Shadowsocks for port range handling
-4. **Fixes Configuration Bugs**: Automatically patches known rathole client issues
-5. **Installs Monitoring**: Sets up automatic health checking and service recovery
-6. **Starts All Services**: Enables and starts all systemd services
-7. **Verifies Setup**: Checks that all components are running correctly
-
-### Command Line Options
-
-#### Short Options:
-- `-n, --name` - Configuration name
-- `-pr, --port-range` - External port range (e.g., 801-802)
-- `-ni, --non-iran-ip` - Non-Iran server IP
-- `-ii, --iran-ip` - Iran server IP
-- `-pi, --private-ip` - Private network IP (e.g., 30.6.0.1)
-- `-rp, --rathole-port` - Rathole communication port (server only)
-- `-wp, --waterwall-port` - Waterwall internal port (client only)
-- `-p, --protocol` - Protocol number for waterwall
-- `-rsp, --rathole-server-port` - Remote rathole server port (client only)
-- `-ap, --app-port` - Local application port (client only)
-- `-t, --token` - Rathole authentication token
-- `-gr, --gost-range` - GOST port range (server only)
-- `-gp, --gost-port` - GOST port (server: bind port, client: local port)
-- `-ps, --password` - Optional Shadowsocks password
-- `-s, --service` - Optional service name
-
-### Examples
-
-#### Server Setup (Iran):
+### Step 1: Start Agent on Kharej Server
 ```bash
-./ultimate.sh server -n gehetz -pr 801-802 -ni 203.0.113.50 -ii 198.51.100.20 -pi 30.6.0.1 -rp 800 -p 27 -t strongpass -gr 1200-1299 -gp 30121
+confgen finder server --port 8088
 ```
 
-#### Client Setup:
+### Step 2: Run Sweep from Iran Server
+
+#### Mode A: Full Multi-Method Sweep (Methods + Two-Stage Deep Optimization)
 ```bash
-./ultimate.sh client -n mahannet -ni 203.0.113.50 -ii 198.51.100.20 -pi 30.6.0.1 -wp 30122 -p 27 -rsp 800 -ap 30120 -t strongpass -gp 30120
+confgen finder client -ii <IRAN_IP> -ki <KHAREJ_IP> --preset methods
 ```
 
-#### With Custom Password:
+#### Mode B: Iranian Hospital SNI Benchmark (`--preset hospital`)
+Benchmarks verified Iranian medical institutions against each other using the 4.7 Gbps architecture (`Reverse Reality + HD + Fisher`):
 ```bash
-./ultimate.sh server -n gehetz -pr 801-802 -ni 203.0.113.50 -ii 198.51.100.20 -pi 30.6.0.1 -rp 800 -p 27 -t strongpass -gr 1200-1299 -gp 30121 -ps mySecretPass
+confgen finder client -ii <IRAN_IP> -ki <KHAREJ_IP> --preset hospital
 ```
 
-### Traffic Flow
-
-1. **Client Side**: Application connects to `127.0.0.1:30120` (GOST port)
-2. **GOST Client**: Handles traffic and forwards to rathole via `127.0.0.1:30120` (app port)
-3. **Rathole Client**: Encrypts and sends through Waterwall tunnel to `30.6.0.2:800` (rathole server port)
-4. **Waterwall Tunnel**: Carries traffic through private network `30.6.0.1`
-5. **Rathole Server**: Receives on port 800, forwards to local GOST on port 30121
-6. **GOST Server**: Distributes traffic across port range `1200-1299`
-7. **Target Services**: Receive traffic on final destination ports
-
-### Monitoring & Health Checks
-
-The ultimate script automatically installs:
-- **Rathole Monitor**: Cron job every 6 hours checking for connection timeouts
-- **Service Recovery**: Automatic restart of failed services
-- **Log Monitoring**: Centralized logging at `/var/log/rathole_monitor.log`
-- **Status Reporting**: Real-time service status verification
-
-### Troubleshooting
-
-#### Check All Services:
+#### Mode C: Custom SNI Domain List (`--snis` or `--sni-file`)
 ```bash
-# Check service status
-systemctl status waterwall ratholes@gehetz gost-gehetz
-systemctl status waterwall ratholec@mahannet gost-mahannet
+# Comma-separated list:
+confgen finder client -ii <IRAN_IP> -ki <KHAREJ_IP> \
+  --snis shariati.tums.ac.ir,rhc.ac.ir,telewebion.ir,snapp.ir,filimo.com,aparat.com
 
-# View logs
-journalctl -u waterwall -u ratholes@gehetz -u gost-gehetz -f
-journalctl -u waterwall -u ratholec@mahannet -u gost-mahannet -f
+# From a text file (one domain per line):
+confgen finder client -ii <IRAN_IP> -ki <KHAREJ_IP> --sni-file my_domains.txt
 ```
 
-#### Test Connectivity:
+#### Mode D: Include TLS Reverse (Domain + Let's Encrypt SSL)
 ```bash
-# Test private network (on client)
-ping 30.6.0.1
-ping 30.6.0.2
-
-# Test local services
-nc -zv 127.0.0.1 30120  # GOST port
-nc -zv 127.0.0.1 30121  # Rathole port
+confgen finder client -ii <IRAN_IP> -ki <KHAREJ_IP> \
+  --preset methods \
+  --tls-domain mydomain.com \
+  --tls-cert /root/fullchain.pem \
+  --tls-key /root/privkey.pem
 ```
-
-#### Monitor Health:
-```bash
-# View monitor logs
-tail -f /var/log/rathole_monitor.log
-
-# Manual health check
-sudo /usr/local/bin/rathole_monitor.sh
-```
-
-### Security Features
-
-- **Encrypted Tunnel**: Waterwall V2 with protocol obfuscation
-- **Noise Protocol**: Rathole uses modern cryptographic protocols
-- **Shadowsocks**: GOST layer with additional encryption
-- **Private Networking**: Isolated IP space prevents direct access
-- **Key Exchange**: Secure automatic key generation and exchange
-- **Health Monitoring**: Automatic detection and mitigation of attacks/failures
 
 ---
 
-## Load Balancer Configuration Generator
+## 📊 Sample Sweeper Leaderboard Results
 
-This script generates JSON configuration files for client and server-side setups of a load balancer system with support for multiple configuration types including simple port forwarding and advanced Reality/gRPC tunneling.
-
-## Quick Install & Usage
-
-**Both scripts now support direct execution via curl:**
-- **Modular Script (`main.sh`)**: Now supports curl execution with auto-download
-- **Legacy Script (`create_lb_config.sh`)**: Single file, no dependencies
-
-You can use either the new modular script or the legacy script:
-
-### Using New Modular Script (Recommended)
-
-**Direct execution (auto-downloads modules):**
-```bash
-# V2 Server Configuration with HAProxy (your example)
-bash <(curl -4 -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/main.sh) v2 haproxy server geovh 450 499 203.0.113.50 198.51.100.20 10.110.0.1 10311 103
-
-# Client Configuration (when all servers use the same port)
-bash <(curl -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/main.sh) server triple_tunnel -p 20631 192.168.1.100 10.0.0.50 2001:db8::1234
+```text
+===================================================================================================================
+🏆 WATERWALL BENCHMARK & PROTOCOL SWEEP LEADERBOARD
+===================================================================================================================
+Rank  | Candidate                                          | Type            | TCP Up       | TCP Down     | Loss   | RTT | Status
+--------------------------------------------------------------------------------------------------------------------------------------
+#1    | Reverse Reality + HD (shariati.tums.ac.ir)         | reverse_reality | 2111.53 Mbps | 2632.92 Mbps |   0.0% | 0ms | BEST ⭐
+#2    | Reverse Reality + HD (snapp.ir)                    | reverse_reality | 1999.46 Mbps | 2545.88 Mbps |   0.0% | 0ms | TCP ONLY ⚠️
+#3    | Reverse Reality + HD + Fisher (shariati.tums.ac.ir)| reverse_reality | 2001.34 Mbps | 2523.06 Mbps |   0.0% | 0ms | TCP ONLY ⚠️
+#4    | Reverse Reality + Fisher (shariati.tums.ac.ir)     | reverse_reality | 2170.20 Mbps | 2207.55 Mbps |   0.0% | 0ms | TCP ONLY ⚠️
+#5    | Reverse Reality TCP (shariati.tums.ac.ir)          | reverse_reality | 2125.90 Mbps | 2200.00 Mbps |   0.0% | 0ms | TCP ONLY ⚠️
+#6    | Reverse Reality UDP (shariati.tums.ac.ir)          | reverse_reality |  850.12 Mbps |  850.12 Mbps |   0.0% | 0ms | ACTIVE (UDP) 🚀
+#7    | BitSwap (PSH <-> RST)                              | bitswap         |  379.41 Mbps |  392.56 Mbps |  63.8% | 1ms | DEGRADED ⚠️
+===================================================================================================================
 ```
 
-**Local installation (clone repository):**
-```bash
-# Clone the repository for development/multiple uses
-git clone https://github.com/EbadiDev/conf-gen.git
-cd conf-gen
-chmod +x main.sh
+---
 
-# Client Configuration (when all servers use the same port)
-./main.sh server triple_tunnel -p 20631 192.168.1.100 10.0.0.50 2001:db8::1234
+## 🛠️ Deploying Production Tunnels
 
-# Client Configuration with HAProxy
-./main.sh haproxy server tcp triple_tunnel -p 20631 192.168.1.100
+### 1. Reverse Reality (4.7 Gbps Champion)
 
-# Server Configuration
-./main.sh client config1 14000 14999 192.168.1.100 13787
-
-# Server Configuration with HAProxy
-./main.sh haproxy client tcp config1 14000 14999 192.168.1.100 13787
-
-# Simple TCP Port Forwarding
-./main.sh simple tcp server tr 300 399 10.0.0.10 10410
-
-# Half Reality/gRPC Configuration (Server side)
-./main.sh half web-cdn.snapp.ir mypassword server ru -p 10010 198.51.100.4
-
-# Half Reality/gRPC Configuration with HAProxy (Internal port: 11010)
-./main.sh half web-cdn.snapp.ir mypassword haproxy tcp server ru -p 10010 198.51.100.4 11010
-
-# V2 Server Configuration (Advanced TUN + IP Manipulation)
-./main.sh v2 server v2_config 100 199 203.0.113.100 10.80.0.1 10.80.0.2 10010 146
-
-# V2 Server Configuration with HAProxy
-./main.sh v2 haproxy server v2_config 100 199 203.0.113.100 10.80.0.1 10.80.0.2 10010 146
-
-# V2 Client Configuration (Advanced TUN + IP Manipulation)
-./main.sh v2 client v2_client 203.0.113.100 10.80.0.1 10.10.0.1 10311 146 10310
-
-# V2 Client Configuration with HAProxy
-./main.sh v2 haproxy client v2_client 203.0.113.100 10.80.0.1 10.10.0.1 10311 146 10310
-```
-
-### Using Legacy Script (curl direct execution)
-
-**For direct execution without cloning:** Use the legacy monolithic script which contains all functionality in a single file.
+Disguises cross-border traffic as Google Chrome TLS traffic to an Iranian national host:
 
 ```bash
-# Client Configuration (when all servers use the same port)
-bash <(curl -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/create_lb_config.sh) client triple_tunnel -p 20631 192.168.1.100 10.0.0.50 2001:db8::1234
+# On Iran Server:
+confgen waterwall reverse-reality iran \
+  -n champion-tunnel \
+  -ii <IRAN_IP> \
+  -ki <KHAREJ_IP> \
+  -p 443 \
+  -d shariati.tums.ac.ir \
+  -wi 185.143.234.132 \
+  --halfduplex \
+  --fisher
 
-# Client Configuration with HAProxy
-bash <(curl -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/create_lb_config.sh) haproxy client tcp triple_tunnel -p 20631 192.168.1.100
-
-# Server Configuration
-bash <(curl -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/create_lb_config.sh) server config1 14000 14999 192.168.1.100 13787
-
-# Server Configuration with HAProxy
-bash <(curl -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/create_lb_config.sh) haproxy server tcp config1 14000 14999 192.168.1.100 13787
-
-# Simple TCP Port Forwarding
-bash <(curl -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/create_lb_config.sh) simple tcp server tr 300 399 10.0.0.10 10410
-
-# Half Reality/gRPC Configuration (Server side)
-bash <(curl -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/create_lb_config.sh) half web-cdn.snapp.ir mypassword server ru 100 199 198.51.100.4 10010
-
-# Half Reality/gRPC Configuration with HAProxy
-bash <(curl -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/create_lb_config.sh) half haproxy web-cdn.snapp.ir mypassword tcp server ru 100 199 198.51.100.4 10010
-
-# V2 Server Configuration (Advanced TUN + IP Manipulation)
-bash <(curl -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/create_lb_config.sh) v2 server v2_config 100 199 203.0.113.100 10.80.0.1 10.80.0.2 10010 146
-
-# V2 Server Configuration with HAProxy
-bash <(curl -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/create_lb_config.sh) v2 haproxy server v2_config 100 199 203.0.113.100 10.80.0.1 10.80.0.2 10010 146
-
-# V2 Client Configuration (Advanced TUN + IP Manipulation)
-bash <(curl -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/create_lb_config.sh) v2 client v2_client 203.0.113.100 10.80.0.1 10.10.0.1 10311 146 10310
-
-# V2 Client Configuration with HAProxy
-bash <(curl -Ls https://raw.githubusercontent.com/EbadiDev/conf-gen/main/create_lb_config.sh) v2 haproxy client v2_client 203.0.113.100 10.80.0.1 10.10.0.1 10311 146 10310
+# Copy the ONE-LINE setup command printed by ConfGen and paste it on Kharej:
+confgen link apply 'confgen://...'
 ```
 
-## Configuration Types
+### 2. Reverse Reality UDP (0.0% Packet Loss for Gaming & Voice)
 
-The script supports nine main configuration types:
-
-1. **Server Configuration** - Load-balanced server setups
-2. **Client Configuration** - Client-side reverse proxy setups  
-3. **Simple Configuration** - Direct port-to-port forwarding
-4. **Half Configuration** - Reality/gRPC tunneling with advanced features
-5. **V2 Configuration** - Advanced TUN device with IP manipulation and packet capture
-6. **Bitswap Configuration (`bitswap`)** - Bit-swapping MUX configurations with single/multi floating IPs, native Proxy Protocol (`HeaderClient`), and TLS options
-7. **Reverse Reality Configuration (`reverse-reality`)** - Reverse tunneling with Reality encryption and ConnectionFisher for UDP
-8. **TLS Reverse Configuration (`tls-reverse`)** - Reverse TLS tunneling with multi-kharej IP whitelist
-9. **UDP Reverse Configuration (`udp-reverse`)** - Reverse UDP tunneling with RawSockets and XOR obfuscation
-
-## Usage
-
-### New Modular Script
+Transports UDP datagrams over the high-speed Reality TLS carrier using `UdpOverTcpClient` & `UdpOverTcpServer`:
 
 ```bash
-./main.sh <type> <config_name> [parameters...]
+# On Iran Server:
+confgen waterwall reverse-reality iran \
+  -n champion-udp \
+  -ii <IRAN_IP> \
+  -ki <KHAREJ_IP> \
+  -p 443 \
+  -d shariati.tums.ac.ir \
+  -wi 185.143.234.132 \
+  --udp \
+  --halfduplex \
+  --fisher
 
-# With HAProxy integration (for supported configurations):
-./main.sh haproxy <type> <protocol> <config_name> [parameters...]
-./main.sh v2 haproxy <type> <config_name> [parameters...]
-./main.sh half <website> <password> haproxy <protocol> <type> <config_name> [parameters...]
+# On Kharej: Run the generated setup link or:
+confgen waterwall reverse-reality kharej \
+  -n champion-udp \
+  -ii <IRAN_IP> \
+  -ki <KHAREJ_IP> \
+  -p 443 \
+  -d shariati.tums.ac.ir \
+  -fp 443 \
+  --udp \
+  --halfduplex \
+  --fisher
 ```
 
-### Legacy Script
+### 3. V3 ProtoSwap (Raw Protocol Replacement)
+
+Swaps standard TCP and UDP IP headers with raw protocol numbers (e.g. Protocol 50 [ESP], 47 [GRE], or 253):
 
 ```bash
-./create_lb_config.sh <type> <config_name> [parameters...]
+# Iran Server (supports --no-mux for raw direct mode):
+confgen v3 server my-proto <KHAREJ_IP> <IRAN_IP> 10.40.0.1 50 -l 443 -f 443 --no-mux
 
-# With HAProxy integration (for supported configurations):
-./create_lb_config.sh haproxy <type> <protocol> <config_name> [parameters...]
-./create_lb_config.sh v2 haproxy <type> <config_name> [parameters...]
-./create_lb_config.sh half haproxy <website> <password> <protocol> <type> <config_name> [parameters...]
+# Kharej Server (via setup link or manual):
+confgen v3 client my-proto <KHAREJ_IP> <IRAN_IP> 10.40.0.1 50 -l 443 -f 443 --no-mux
 ```
 
-### Server Configuration
+### 4. BitSwap (Configurable TCP Flag Swapping)
 
-For creating a server-side configuration with multiple balanced servers:
+Swaps specified TCP header bitflags (e.g. `psh/rst`, `psh/cwr`, `cwr/ece`, `ack/fin`):
 
-```bash
-# When servers have different ports
-./main.sh server <config_name> <server1_address> <server1_port> [<server2_address> <server2_port> ...]
-
-# When all servers use the same port
-./main.sh server <config_name> -p <port> <server1_address> [<server2_address> ...]
-
-# With HAProxy integration (recommended for production)
-./main.sh haproxy server tcp <config_name> -p <port> <server_address> [haproxy_port]
-```
-
-Example:
-```bash
-# Example with both IPv4 and IPv6 servers using the same port
-./main.sh server triple_tunnel -p 20631 192.168.1.100 10.0.0.50 2001:db8::1234
-
-# Example with HAProxy for real IP preservation
-./main.sh haproxy server tcp myapp -p 8080 192.168.1.100 9080
-```
-
-This will create a load-balanced configuration with multiple servers. With HAProxy, clients connect to the external port, HAProxy handles load balancing and forwards to the waterwall with real IP information.
-
-### Client Configuration
-
-For creating a client-side configuration:
-
-```bash
-./main.sh client <config_name> <start_port> <end_port> <kharej_ip> <kharej_port>
-
-# With HAProxy integration for client IP preservation
-./main.sh haproxy client tcp <config_name> <start_port> <end_port> <kharej_ip> <kharej_port> [haproxy_port]
-```
-
-Example:
-```bash
-# Example with IPv4
-./main.sh client config1 14000 14999 192.168.1.100 13787
-
-# Example with HAProxy (tunnel connects to HAProxy, which forwards to your service)
-./main.sh haproxy client tcp config1 14000 14999 192.168.1.100 13787 15000
-```
-
-This will create a configuration with:
-- Port range for incoming connections: 14000-14999
-- Connection to kharej server at 192.168.1.100:13787
-- With HAProxy: traffic flows from tunnel → HAProxy (port 15000) → your service (port 14000)
-
-### Simple Configuration
-
-For creating simple port-to-port forwarding configurations:
-
-```bash
-# TCP forwarding (explicit protocol)
-./main.sh simple tcp server <config_name> <start_port> <end_port> <destination_ip> <destination_port>
-
-# UDP forwarding (explicit protocol)
-./main.sh simple udp server <config_name> <start_port> <end_port> <destination_ip> <destination_port>
-
-# TCP forwarding (default protocol)
-./main.sh simple server <config_name> <start_port> <end_port> <destination_ip> <destination_port>
-```
-
-Examples:
-```bash
-# Forward TCP traffic from ports 300-399 to 10.0.0.10:10410
-./main.sh simple tcp server tr 300 399 10.0.0.10 10410
-
-# Forward UDP traffic from ports 500-599 to 10.0.0.10:10510  
-./main.sh simple udp server tr_udp 500 599 10.0.0.10 10510
-```
-
-### Half Configuration (Reality/gRPC)
-
-For creating advanced Reality/gRPC tunneling configurations:
-
-#### Client Side:
-```bash
-# With explicit protocol
-./main.sh half <website> <password> [tcp|udp] client <config_name> <start_port> <end_port> <kharej_ip> <kharej_port>
-
-# With default TCP protocol
-./main.sh half <website> <password> client <config_name> <start_port> <end_port> <kharej_ip> <kharej_port>
-
-# With HAProxy integration
-./main.sh half <website> <password> haproxy [tcp|udp] client <config_name> <start_port> <end_port> <kharej_ip> <kharej_port> [haproxy_port]
-```
-
-#### Server Side:
-```bash
-# With explicit protocol
-./main.sh half <website> <password> [tcp|udp] server <config_name> -p <port> <client_ip>
-
-# With default TCP protocol
-./main.sh half <website> <password> server <config_name> -p <port> <client_ip>
-
-# With HAProxy integration (internal port defaults to external_port + 1000)
-./main.sh half <website> <password> haproxy [tcp|udp] server <config_name> -p <external_port> <client_ip> [internal_port]
-```
-
-Examples:
-```bash
-# Client side Reality/gRPC configuration
-./main.sh half web-cdn.snapp.ir mypassword123 client reverse_reality_client 100 199 198.51.100.4 10010
-
-# Server side Reality/gRPC configuration with HAProxy
-# External port: 10010, Internal port: 11010 (10010 + 1000)
-./main.sh half web-cdn.snapp.ir mypassword123 haproxy tcp server reverse_reality_server -p 10010 203.0.113.50
-
-# Server side with custom internal port
-# External port: 10010, Internal port: 12000 (custom)
-./main.sh half web-cdn.snapp.ir mypassword123 haproxy tcp server reverse_reality_server -p 10010 203.0.113.50 12000
-```
-
-**Half Configuration Internal Ports:**
-- **Default**: `external_port + 1000` (e.g., 10010 → 11010)
-- **Custom**: Specify as the last parameter
-- **Traffic Flow**: External clients → HAProxy (external_port) → Waterwall (internal_port) → [Tunnel] → Destination
-
-### V2 Configuration (Advanced TUN + IP Manipulation)
-
-For creating advanced V2 configurations with TUN devices, IP manipulation, and packet capture:
-
-#### V2 Client Side:
-```bash
-./main.sh v2 client <config_name> <non_iran_ip> <iran_ip> <private_ip> <haproxy_port> <protocol> <app_port>
-
-# With HAProxy integration
-./main.sh v2 haproxy client <config_name> <non_iran_ip> <iran_ip> <private_ip> <haproxy_port> <protocol> <app_port>
-```
-
-#### V2 Server Side:
-```bash
-./main.sh v2 server <config_name> <start_port> <end_port> <non_iran_ip> <iran_ip> <private_ip> <haproxy_port> <protocol>
-
-# With HAProxy integration
-./main.sh v2 haproxy server <config_name> <start_port> <end_port> <non_iran_ip> <iran_ip> <private_ip> <haproxy_port> <protocol>
-```
-
-Examples:
-```bash
-# V2 Server configuration with TUN device and IP manipulation
-./main.sh v2 server v2_config 100 199 203.0.113.50 10.80.0.1 10.80.0.2 10311 146
-
-# V2 Client configuration with HAProxy and TUN device (HAProxy binds to private IP)
-./main.sh v2 haproxy client v2_client 203.0.113.50 10.80.0.1 10.10.0.1 10311 146 10310
-```
-
-**V2 Configuration Features:**
-- **TUN Device**: Creates a virtual network interface with the config name
-- **IP Manipulation**: Uses IpOverrider and IpManipulator for packet modification
-- **Raw Socket Capture**: Captures packets based on source IP filtering
-- **Automatic IP Calculation**: Automatically calculates PRIVATE_IP+1 for internal routing
-- **Configurable Protocol Swapping**: Uses protoswap-tcp with your desired protocol number (e.g., 146)
-- **HAProxy Integration**: Optional real IP forwarding with automatic port management
-- **No Interactive Prompts**: All parameters are provided via command line
-
-**Note:** V2 Client configurations bind HAProxy to the private IP instead of wildcard (*) for better security and network isolation.
-
-### V3 Configuration (`v3` / Protoswap)
-
-For creating advanced protocol swapping (`IpManipulator`) TUN configurations with UDP support, optional TCP TLS termination, and Proxy Protocol header injection:
-
-#### Command Syntax:
-```bash
-./main.sh v3 server <config_name> <non_iran_ip> <iran_ip> <private_ip> <protocol> [udp_protocol] [options]
-./main.sh v3 client <config_name> <non_iran_ip> <iran_ip> <private_ip> <protocol> [udp_protocol]
-```
-
-#### Server Options:
-- `--tls <cert_path> <key_path>` - Enable TLS termination on Iran side (`TlsServer` node)
-- `--proxy-protocol` - Enable Proxy Protocol header injection (`HeaderClient` node)
-- `--listen-port, -p <port>` - Port to listen on Iran side (default: `443`)
-- `--target-port, -t <port>` - Target backend port on Kharej server across TUN interface (default: `443`)
-
-#### Examples:
-```bash
-# Basic L3 Protoswap tunnel
-./main.sh v3 server sweden 1.2.3.4 5.6.7.8 30.6.0.1 27
-
-# Protoswap tunnel with TLS termination and Proxy Protocol on Iran server
-./main.sh v3 server sweden 1.2.3.4 5.6.7.8 30.6.0.1 27 --tls "/etc/letsencrypt/live/example.com/fullchain.pem" "/etc/letsencrypt/live/example.com/privkey.pem" --proxy-protocol -p 443 -t 2059
-
-# Kharej client configuration
-./main.sh v3 client iran 1.2.3.4 5.6.7.8 30.6.0.1 27
-```
-
-### Bitswap Configuration (`bitswap`)
-
-For creating bit-swapping MUX configurations supporting single or multiple floating IPs, native Proxy Protocol, optional TLS termination, and **multi-service port-preserving TCP multiplexing + UDP-over-TCP**:
-
-#### Command Syntax:
-```bash
-# Multi-Service Hybrid Mode (Recommended for multi-port setups)
-./main.sh bitswap hybrid <single|multi> <iran|kharej> <config_name> <iran_ip> <kharej_ip> [options]
-
-# Interactive Service Wizard
-./main.sh bitswap hybrid <single|multi> <iran|kharej> <config_name> <iran_ip> <kharej_ip> -i
-
-# Legacy Single-Port Mode
-./main.sh bitswap <tcp|udp> <single|multi> <iran|kharej> <config_name> <iran_ip> <kharej_ip> <listen_port> <fwd_or_final_port> [mux_count] [options]
-```
-
-#### Parameters:
-- `tcp|udp|hybrid` - Transport mode:
-  - `tcp`: Single TCP service port forwarding
-  - `udp`: Single UDP-over-TCP service port forwarding
-  - `hybrid`: Multi-service forwarding (multiplexes multiple TCP service ports with port preservation and separate UDP-over-TCP streams)
-- `single|multi` - IP mode (`single` for 1-to-1 IP, `multi` when foreign server uses floating IPs)
-- `iran|kharej` - Server role in the tunnel setup
-- `config_name` - Output JSON filename and TUN device interface name
-- `iran_ip` - Public IPv4 address of the Iran server
-- `kharej_ip` - Primary public IPv4 address of the foreign (Kharej) server
-- `listen_port` / `fwd_or_final_port` - In legacy mode: listen and forward ports; in hybrid mode: optional overrides for TCP and UDP tunnel transport ports (defaults: `8443` and `8444`)
-- `mux_count` - Number of multiplexed connection streams per worker (default: `8`)
-
-#### Multi-Service Options:
-- `--tcp <port1,port2,...>` - Comma-separated list of TCP service ports (e.g. `--tcp 2087,9444`). Uses `HeaderClient` (`src_context->port`) and `HeaderServer` (`dest_context->port`) to preserve destination ports over a single tunnel port.
-- `--udp <port1,port2,...>` - Comma-separated list of UDP service ports (e.g. `--udp 27015`). Forwarded via dedicated UDP-over-TCP chains.
-- `--services <spec>` - Composite service definition (e.g. `--services 2087:tcp,9444:tcp,27015:udp`).
-- `--service <port>:<proto>` - Add individual service (can be repeated, e.g. `--service 2087:tcp --service 27015:udp`).
-- `--tcp-tunnel-port <port>` - Transport port for TCP multiplexed traffic across the tunnel (default: `8443`).
-- `--udp-tunnel-port <port>` - Transport port for UDP-over-TCP traffic across the tunnel (default: `8444`).
-- `-i`, `--interactive` - Interactive wizard prompting for each service port and asking whether it is TCP or UDP.
-- `--private-ip <ip>` - Base internal private IP subnet (default: `10.10.0.1`).
-- `--private-ip-2 <ip>` - Secondary private IP for Kharej `tun2` (default: second octet + 10).
-- `--proxy-protocol` - Enable native Proxy Protocol header (`HeaderClient` node on Iran server).
-- `--tls "<cert_path>" "<key_path>"` - Enable TLS termination on Iran TCP server (note: wrap paths in double quotes `""`).
-- `--final-ip <ip>` - Final target destination IP for Kharej server (default: `127.0.0.1`).
-- `--xor-key <N>` - XOR key for obfuscator (default: `90`).
-- `--float <ip1> [ip2...]` - Additional floating IP addresses for Kharej server (multi mode).
-
-#### Examples:
-```bash
-# 1. Multi-Service (Iran Server: TCP 2087, 9444 + UDP 27015 with Floating IP)
-./main.sh bitswap hybrid multi iran fin-bit 109.94.164.214 65.109.219.10 \
-    --tcp 2087,9444 --udp 27015 --float 212.87.199.206
-
-# 2. Multi-Service (Kharej Server: TCP 2087, 9444 + UDP 27015 with Floating IP)
-./main.sh bitswap hybrid multi kharej mobi1-bit 109.94.164.214 65.109.219.10 \
-    --tcp 2087,9444 --udp 27015 --float 212.87.199.206
-
-# 3. Interactive Service Wizard
-./main.sh bitswap hybrid multi iran fin-bit 109.94.164.214 65.109.219.10 -i
-
-# 4. Legacy Single TCP Port (Iran Server with Native Proxy Protocol)
-./main.sh bitswap tcp single iran bitswap_iran 37.152.190.24 91.107.187.253 443 443 8 --proxy-protocol
-
-# 5. Legacy Single UDP Port (Iran Server)
-./main.sh bitswap udp single iran bitswap_udp_iran 37.152.190.24 91.107.187.253 8443 8443 16
-```
-
-### Reverse Reality Configuration (`reverse-reality`)
-
-For creating reverse tunnels with Reality encryption (`chacha20-poly1305`) and ConnectionFisher support for UDP:
-
-#### Command Syntax:
-```bash
-./main.sh reverse-reality <tcp|udp> <iran|kharej> <config_name> <iran_ip> <kharej_ip> <port> <domain> <white_ip_or_final_port> [password] [min_held_connections] [--proxy-protocol] [--float <ip1> ...]
-```
-
-#### Parameters:
-- `tcp|udp` - Transport protocol
-- `iran|kharej` - Server role
-- `config_name` - Output JSON filename
-- `iran_ip` - Public IP address of the Iran server
-- `kharej_ip` - Public IP address of the foreign server
-- `port` - Tunnel listening port on Iran server / connection port for Kharej client
-- `domain` - Masquerade website domain for Reality handshake (e.g. `live.telewebion.ir`)
-- `white_ip_or_final_port` - Clean IP behind domain for Iran server fallback (e.g. `185.112.32.68`), or final local service port for Kharej client (e.g. `8081`)
-- `password` - Secret key for Reality encryption authentication (default: `arch1234net`)
-- `min_held_connections` - Minimum held unused connection pool size (Kharej client, default: `8`)
-
-#### Options:
-- `--proxy-protocol` - Enable native Proxy Protocol header (`HeaderClient` node on Iran server)
-- `--tls <cert_path> <key_path>` - Enable TLS termination on user-facing side (Iran TCP only, inserts `TlsServer` node)
-- `--float <ip1> [ip2...]` - Additional floating IP addresses for Kharej server
-
-#### Examples:
-```bash
-# TCP Reverse Reality (Iran Server with Native Proxy Protocol)
-./main.sh reverse-reality tcp iran rev_real_iran 1.1.1.1 2.2.2.2 443 live.telewebion.ir 185.112.32.68 arch1234net --proxy-protocol
-
-# TCP Reverse Reality (Iran Server with TLS Termination)
-./main.sh reverse-reality tcp iran rev_real_iran 1.1.1.1 2.2.2.2 443 live.telewebion.ir 185.112.32.68 arch1234net --tls /etc/ssl/cert.crt /etc/ssl/key.key
-
-# TCP Reverse Reality (Kharej Client with Floating IPs)
-./main.sh reverse-reality tcp kharej rev_real_kharej 1.1.1.1 2.2.2.2 443 live.telewebion.ir 8081 arch1234net 8 --float 2.2.2.3 2.2.2.4
-
-# UDP Reverse Reality (Iran Server)
-./main.sh reverse-reality udp iran rev_real_udp_iran 1.1.1.1 2.2.2.2 443 live.telewebion.ir 185.112.32.68 arch1234net
-```
-
-### TLS Reverse Configuration (`tls-reverse`)
-
-For creating reverse TLS configurations supporting multi-kharej IP whitelisting on Iran servers:
-
-#### Command Syntax:
 ```bash
 # Iran Server:
-./main.sh tls-reverse iran <config_name> <iran_ip> <port> <cert_path> <key_path> <kharej_ip1> [kharej_ip2...] [--proxy-protocol]
+confgen waterwall bitswap iran \
+  -n my-bitswap \
+  -ii <IRAN_IP> \
+  -ki <KHAREJ_IP> \
+  -tp 443 \
+  --pattern psh/rst
 
-# Kharej Client / Helper:
-./main.sh tls-reverse kharej <config_name> <iran_ip> <port> <sni> <final_port> [final_ip] [min_held]
+# Kharej Server:
+confgen waterwall bitswap kharej \
+  -n my-bitswap \
+  -ii <IRAN_IP> \
+  -ki <KHAREJ_IP> \
+  -tp 443 \
+  -fp 443 \
+  --pattern psh/rst
 ```
 
-#### Parameters:
-- **Common Parameters**:
-  - `iran_ip` - Public IP address of the Iran server
-  - `port` - External user and tunnel connection port
-- **Iran Server Specific**:
-  - `cert_path` - Path to TLS certificate file (wrap in `""`, e.g. `"/etc/ssl/fullchain.crt"`)
-  - `key_path` - Path to TLS private key file (wrap in `""`, e.g. `"/etc/ssl/private.key"`)
-  - `kharej_ip1 [kharej_ip2...]` - List of allowed foreign server IPs for firewall whitelist
-- **Kharej Client / Helper Specific**:
-  - `sni` - SNI domain name for TLS handshake (e.g. `api.archlix.com`)
-  - `final_port` - Local service target port
-  - `final_ip` - Destination host IP for local service (default: `127.0.0.1`)
-  - `min_held` - Minimum pool connections (default: `8`)
+---
 
-#### Options:
-- `--proxy-protocol` - Enable native Proxy Protocol header (`HeaderClient` node on Iran server)
+## ⚡ Native SpeedTest & MUX Scaling Benchmark
 
-#### Examples:
+Test tunnel bandwidth without depending on external tools like `iperf3` or `curl`.
+
+### 1. Start Server Daemon on Kharej
 ```bash
-# Iran Server with multiple foreign client IPs allowed in whitelist and Proxy Protocol
-./main.sh tls-reverse iran tls_rev_iran 37.152.189.63 443 "/etc/ssl/fullchain.crt" "/etc/ssl/private.key" 91.107.182.121 91.107.183.183 --proxy-protocol
-
-# Kharej Client forwarding to local service on port 80
-./main.sh tls-reverse kharej tls_rev_kharej 37.152.189.63 443 api.archlix.com 80 127.0.0.1 8
+confgen test server --port 9001
 ```
 
-### UDP Reverse Configuration (`udp-reverse`)
-
-For creating UDP reverse tunnels using RawSockets, XOR obfuscation, TUN devices, and ReverseServer/Client bridges:
-
-#### Command Syntax:
+### 2. Run Single Stream Test from Iran
 ```bash
-./main.sh udp-reverse <iran|kharej> <config_name> <iran_public_ip> <kharej_public_ip> <listen_port> [tunnel_port] [tun_ip_iran] [tun_ip_kharej] [xor_key] [reverse_secret]
+confgen test client -t 127.0.0.1 -p 9001 -d 5
 ```
 
-#### Parameters:
-- `iran|kharej` - Node role
-- `config_name` - Output JSON filename and TUN device interface name
-- `iran_public_ip` - Public IP address of Iran server
-- `kharej_public_ip` - Public IP address of Kharej server
-- `listen_port` - Public incoming UDP port (e.g. `11040`)
-- `tunnel_port` - Internal RawSocket tunnel transport port (default: `443`)
-- `tun_ip_iran` - Virtual TUN IP for Iran side (default: `10.20.1.1`)
-- `tun_ip_kharej` - Virtual TUN IP for Kharej side (default: `10.20.1.2`)
-- `xor_key` - Key for XOR header obfuscation (default: `153`)
-- `reverse_secret` - Authentication secret for reverse bridge (default: `begapour`)
-
-#### Examples:
+### 3. Run MUX Multi-Connection Scaling Table (`--matrix`)
+Runs 4 consecutive tests (1, 2, 8, 16 concurrent parallel child connections) through the tunnel to measure multiplexer throughput scaling:
 ```bash
-# Iran Server
-./main.sh udp-reverse iran udp_rev_iran 1.1.1.1 2.2.2.2 11040 443 10.20.1.1 10.20.1.2 153 begapour
-
-# Kharej Client
-./main.sh udp-reverse kharej udp_rev_kharej 1.1.1.1 2.2.2.2 11040 443 10.20.1.1 10.20.1.2 153 begapour
+confgen test client -t 127.0.0.1 -p 9001 --matrix
 ```
 
-## Features
-
-- **Multi-Protocol Support**: Supports both TCP and UDP protocols for simple and half configurations
-- **Advanced V2 Configuration**: TUN devices with IP manipulation, packet capture, and protocol swapping
-- **HAProxy Integration**: Optional real IP forwarding and load balancing with multi-service support
-  - Real client IP preservation using PROXY protocol
-  - Automatic service management and port allocation
-  - Multi-service HAProxy configurations
-  - Firewall integration for opened ports
-- **IPv4/IPv6 Support**: Automatically detects address type and configures appropriate settings
-  - IPv4: Uses "0.0.0.0" as listen address and /32 for whitelist
-  - IPv6: Uses "::" as listen address and /128 for whitelist
-- **Load Balancing**: Creates load-balanced configurations for multiple servers
-- **Port Range Support**: Generates port range configurations for client-side setups
-- **Automatic Firewall Management**: Automatically opens required ports using:
-  - UFW (Ubuntu/Debian)
-  - firewalld (CentOS/RHEL/Fedora)  
-  - iptables (Generic Linux)
-- **Reality/gRPC Tunneling**: Advanced tunneling with website masquerading
-- **Core Integration**: Automatically adds configurations to core.json
-- **Proper Permissions**: Sets correct file permissions (644) for generated files
-- **Modular Architecture**: Clean separation of concerns with dedicated modules
-
-## HAProxy Integration
-
-The script now includes optional HAProxy integration for all configuration types, providing real IP forwarding and load balancing capabilities.
-
-### HAProxy Benefits
-
-- **Real IP Preservation**: Client IPs are forwarded to your application using PROXY protocol
-- **Load Balancing**: Distribute traffic across multiple backend services
-- **SSL Termination**: Can handle SSL/TLS termination if needed
-- **Health Checks**: Monitor backend service health
-- **Performance**: Optimized for high-throughput scenarios
-
-### HAProxy Traffic Flow
-
-#### Server Side (Iran/Kharej serving clients)
-```
-Internet Clients → HAProxy (external port) → Waterwall (internal port) → [Tunnel] → Client Side
+Sample output:
+```text
+================================================================================
+📊 MUX CONCURRENCY SCALING BENCHMARK TABLE
+================================================================================
+Child Connections    | Upload Throughput         | Download Throughput      
+--------------------------------------------------------------------------------
+1                    |  215.10 Mbps (26.9 MB/s)  |  240.20 Mbps (30.0 MB/s) 
+2                    |  420.50 Mbps (52.6 MB/s)  |  460.80 Mbps (57.6 MB/s) 
+8                    |  890.40 Mbps (111.3 MB/s) |  920.20 Mbps (115.0 MB/s) 
+16                   | 1450.15 Mbps (181.3 MB/s) | 1620.40 Mbps (202.6 MB/s)
+================================================================================
 ```
 
-#### Client Side (Iran/Kharej connecting to services)  
-```
-[Tunnel] → Waterwall → HAProxy (tunnel port) → Your Application (service port)
-```
+---
 
-### HAProxy Port Parameters
+## 🔬 Architecture Notes & Lessons Learned
 
-- `haproxy_port` - Optional parameter for custom HAProxy internal port
-- **Default**: `external_port + 1000` for most configurations
-- **Default**: `start_port + 1000` for client configurations  
-- **Purpose**: Allows fine-tuning of internal port allocation to avoid conflicts
+1. **Why Iranian Hospital SNIs Win**:
+   Iranian medical institutions (`shariati.tums.ac.ir`, `rhc.ac.ir`, `tums.ac.ir`) operate on dedicated Ministry of Health and national academic fiber backbones (`185.143.232.0/22` and `194.225.92.0/24`). Traffic to acute cardiology and university hospitals receives top-tier national QoS whitelisting and bypasses commercial stateful DPI filters.
+2. **HalfDuplex Elimination of Connection Tracking**:
+   By splitting upload and download into independent unidirectional TCP streams, stateful firewall inspection algorithms are unable to track complete bilateral connection flows, preventing connection throttling and reset attacks.
+3. **ConnectionFisher Resilience**:
+   Races 3 simultaneous connection attempts across the border and pins the connection to the lowest-jitter socket, eliminating packet loss during network disturbances.
+4. **Isolated Test Sandboxing**:
+   `confgen finder` uses dedicated test tunnel ports (`58443` / `58444`) and targets binary instances named `Waterwall-test` to guarantee your production services (`waterwall.service`, Xray, or production tunnels) are never killed or interrupted.
 
-### HAProxy Configuration Management
+---
 
-- Creates/updates `/etc/haproxy/haproxy.cfg`
-- Supports multiple services in one configuration
-- Preserves existing services when adding new ones
-- Automatic service start/reload
-- Firewall ports automatically opened
+## 📜 Legacy Bash Scripts Reference
 
-### Example HAProxy Setups
+The repository also includes legacy bash scripts maintained for backward compatibility:
+- `main.sh` - Modular bash configuration generator.
+- `ultimate.sh` - Layered WaterWall V2 + Rathole + GOST tunnel setup.
+- `waterwall/` - Individual bash configuration modules (`reverse_reality_config.sh`, `v3_config.sh`, etc.).
 
-```bash
-# V2 Client with HAProxy - clients connect to port 10311 on private IP, forwards to app on 10310
-./main.sh v2 haproxy client myapp 203.0.113.50 198.51.100.20 192.168.1.100 10311 142 10310
+---
 
-# Legacy Client with HAProxy - tunnel forwards to HAProxy on 15000, HAProxy forwards to service on 14000  
-./main.sh haproxy client tcp config1 14000 14999 192.168.1.100 13787 15000
+## ⚖️ License & Credits
 
-# Half Server with HAProxy - external clients → HAProxy (10010) → waterwall (11010)
-./main.sh half web-cdn.snapp.ir mypass haproxy tcp server myapp -p 10010 192.168.1.100 11010
-```
-
-## Output
-
-The script generates:
-- A JSON configuration file named `<config_name>.json` in the current directory
-- HAProxy configuration file `/etc/haproxy/haproxy.cfg` (if using haproxy option)
-- Automatic firewall rules for required ports
-- Integration with existing core.json configuration
-- Systemd service management for HAProxy (if applicable)
-
-## Requirements
-
-- Bash shell
-- Write permissions in the current directory
-- Root/sudo access for firewall configuration (optional but recommended)
-- HAProxy installed (if using haproxy option)
-- Network connectivity for curl-based installation
-
-## Error Handling
-
-The script includes comprehensive validation for:
-- Required number of parameters for each configuration type
-- Valid parameter pairs for server configuration
-- Protocol validation (tcp/udp)
-- IPv4/IPv6 address detection
-- Required parameters for all configuration types
-- Valid configuration type validation
-- Firewall system detection and fallback
-
-## Xray Reverse Tunnel Generator
-
-Generates high-performance VLESS Reverse tunnel configurations using WebSocket (`ws`) or WebSocket + TLS (`tls`), supporting multiple TCP and UDP port forwards.
-
-### Usage
-
-```bash
-# Iran Server (Portal):
-./main.sh xray-reverse iran <config_name> <listen_port> [--tcp <ports>] [--udp <ports>] [options]
-
-# Kharej Server (Bridge):
-./main.sh xray-reverse kharej <config_name> <iran_ip> <connect_port> [options]
-```
-
-### Examples
-
-#### Plain WebSocket Mode:
-```bash
-# On Iran:
-./main.sh xray-reverse iran /root/xray/config 8443 --tcp 8085,8086 --udp 8087 --path /api/v3/live
-
-# On Kharej:
-./main.sh xray-reverse kharej /root/xray/config 109.94.164.214 8443 --path /api/v3/live
-```
-
-#### WebSocket + TLS Mode:
-```bash
-# On Iran:
-./main.sh xray-reverse iran /root/xray/config 8443 --tcp 8085,8086 --tls /etc/xray/cert/fullchain.pem /etc/xray/cert/privkey.pem
-
-# On Kharej:
-./main.sh xray-reverse kharej /root/xray/config 109.94.164.214 8443 --tls france.archlix.com
-```
-
-## Migration Guide
-
-### From Legacy Script to Modular Script
-
-The new modular script maintains backward compatibility with the legacy script syntax. You can migrate by simply replacing `./create_lb_config.sh` with `./main.sh`:
-
-```bash
-# Legacy
-./create_lb_config.sh server myconfig -p 8080 192.168.1.100
-
-# New modular (same syntax)
-./main.sh server myconfig -p 8080 192.168.1.100
-```
-
-### Benefits of Modular Architecture
-
-- **Better Organization**: Each configuration type has its own module
-- **Easier Maintenance**: Changes to one type don't affect others
-- **Improved Testing**: Individual modules can be tested separately
-- **Enhanced Readability**: Smaller, focused files are easier to understand
-- **Extensibility**: New configuration types can be easily added
+- Core WaterWall Engine: [radkesvat/WaterWall](https://github.com/radkesvat/WaterWall)
+- Developed & Maintained by [EbadiDev](https://github.com/EbadiDev) for ConfGen.
+- Licensed under the MIT License.

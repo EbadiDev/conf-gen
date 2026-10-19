@@ -16,6 +16,8 @@ VALID_TCP_FLAGS = {"cwr", "ece", "urg", "ack", "psh", "rst", "syn", "fin"}
 def parse_bitswap_pair(pattern: str = "psh/cwr") -> Tuple[str, str]:
     """Parse and validate two distinct TCP flags from a pattern string (e.g. 'psh/cwr', 'psh/rst', 'ack/fin')."""
     raw = (pattern or "psh/cwr").strip().lower()
+    if raw in ("variant2", "urg/ece", "urg-ece"):
+        return "urg", "ece"
     if "/" in raw:
         f1, f2 = raw.split("/", 1)
     elif "-" in raw:
@@ -51,6 +53,7 @@ def generate_bitswap_iran(
     custom_private_ip_2: Optional[str] = None,
     bitswap_pattern: str = "psh/cwr",
     preserve_bitflags: bool = False,
+    packet_duplicate: int = 1,
 ) -> Dict[str, Any]:
     """Generate unified Iran server BitSwap configuration.
 
@@ -485,15 +488,26 @@ def generate_bitswap_iran(
     else:
         rd2_settings["capture-ip"] = "$ip_server_kharej$"
 
-    f1, f2 = parse_bitswap_pair(bitswap_pattern)
-    up_bit_settings: Dict[str, Any] = {
-        f"up-tcp-bit-{f1}": f"packet->{f2}",
-        f"up-tcp-bit-{f2}": f"packet->{f1}",
-    }
-    dw_bit_settings: Dict[str, Any] = {
-        f"dw-tcp-bit-{f1}": f"packet->{f2}",
-        f"dw-tcp-bit-{f2}": f"packet->{f1}",
-    }
+    if bitswap_pattern in ("variant2", "urg/ece", "urg-ece"):
+        up_bit_settings: Dict[str, Any] = {
+            "packet-duplicate": packet_duplicate if packet_duplicate > 1 else 3,
+            "up-tcp-bit-psh": "packet->urg",
+            "up-tcp-bit-urg": "packet->psh",
+        }
+        dw_bit_settings: Dict[str, Any] = {
+            "dw-tcp-bit-psh": "packet->ece",
+            "dw-tcp-bit-ece": "packet->psh",
+        }
+    else:
+        f1, f2 = parse_bitswap_pair(bitswap_pattern)
+        up_bit_settings = {
+            f"up-tcp-bit-{f1}": f"packet->{f2}",
+            f"up-tcp-bit-{f2}": f"packet->{f1}",
+        }
+        dw_bit_settings = {
+            f"dw-tcp-bit-{f1}": f"packet->{f2}",
+            f"dw-tcp-bit-{f2}": f"packet->{f1}",
+        }
     if preserve_bitflags:
         up_bit_settings["preserve-tcp-bitflags"] = True
         dw_bit_settings["preserve-tcp-bitflags"] = True
@@ -602,6 +616,7 @@ def generate_bitswap_kharej(
     custom_private_ip_2: Optional[str] = None,
     bitswap_pattern: str = "psh/cwr",
     preserve_bitflags: bool = False,
+    packet_duplicate: int = 1,
 ) -> Dict[str, Any]:
     """Generate unified Kharej server BitSwap configuration.
 
@@ -905,15 +920,25 @@ def generate_bitswap_kharej(
         f"$ip_server_kharej_float_{i + 1}$" for i in range(len(float_ips))
     ] if is_multi_ip else "$ip_server_kharej$"
 
-    f1, f2 = parse_bitswap_pair(bitswap_pattern)
-    in_bit_settings: Dict[str, Any] = {
-        f"dw-tcp-bit-{f1}": f"packet->{f2}",
-        f"dw-tcp-bit-{f2}": f"packet->{f1}",
-    }
-    out_bit_settings: Dict[str, Any] = {
-        f"up-tcp-bit-{f1}": f"packet->{f2}",
-        f"up-tcp-bit-{f2}": f"packet->{f1}",
-    }
+    if bitswap_pattern in ("variant2", "urg/ece", "urg-ece"):
+        in_bit_settings: Dict[str, Any] = {
+            "dw-tcp-bit-psh": "packet->urg",
+            "dw-tcp-bit-urg": "packet->psh",
+        }
+        out_bit_settings: Dict[str, Any] = {
+            "up-tcp-bit-psh": "packet->ece",
+            "up-tcp-bit-ece": "packet->psh",
+        }
+    else:
+        f1, f2 = parse_bitswap_pair(bitswap_pattern)
+        in_bit_settings = {
+            f"dw-tcp-bit-{f1}": f"packet->{f2}",
+            f"dw-tcp-bit-{f2}": f"packet->{f1}",
+        }
+        out_bit_settings = {
+            f"up-tcp-bit-{f1}": f"packet->{f2}",
+            f"up-tcp-bit-{f2}": f"packet->{f1}",
+        }
     if preserve_bitflags:
         in_bit_settings["preserve-tcp-bitflags"] = True
         out_bit_settings["preserve-tcp-bitflags"] = True

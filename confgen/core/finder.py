@@ -59,7 +59,9 @@ from confgen.generators.waterwall.udp_reverse import (
 # Standard protocol sweep presets for DPI circumvention (ProtoSwap + BitSwap)
 CANDIDATES_PRESETS: Dict[str, List[Dict[str, Any]]] = {
     "methods": [
+        {"id": "rev_reality_grpc", "name": "Reverse Reality (gRPC+HD)", "type": "reverse_reality", "domain": "telewebion.ir", "white_ip": "185.165.205.129", "password": "arch1234net", "use_grpc": True, "use_halfduplex": True},
         {"id": "rev_reality", "name": "Reverse Reality (telewebion)", "type": "reverse_reality", "domain": "telewebion.ir", "white_ip": "185.165.205.129", "password": "arch1234net"},
+        {"id": "bitswap_v2", "name": "BitSwap V2 (URG/ECE + Dup 3)", "type": "bitswap", "tcp": 6, "udp": 17, "bitswap": True, "pattern": "variant2"},
         {"id": "bitswap_rst", "name": "BitSwap (PSH <-> RST)", "type": "bitswap", "tcp": 6, "udp": 17, "bitswap": True, "pattern": "psh/rst"},
         {"id": "bitswap_cwr", "name": "BitSwap (PSH <-> CWR)", "type": "bitswap", "tcp": 6, "udp": 17, "bitswap": True, "pattern": "psh/cwr"},
         {"id": "protoswap_esp_rst", "name": "ProtoSwap 50 + BitSwap RST", "type": "protoswap", "tcp": 50, "udp": 51, "bitswap": True, "pattern": "psh/rst"},
@@ -547,6 +549,8 @@ def _generate_candidate_kharej(
     password = req.get("password", "arch1234net")
     sni = req.get("sni", domain)
     xor_key = int(req.get("xor_key", 90))
+    use_halfduplex = bool(req.get("use_halfduplex", False))
+    use_grpc = bool(req.get("use_grpc", False))
 
     if cand_type == "reverse_reality":
         return generate_reverse_reality_tcp_kharej(
@@ -557,6 +561,8 @@ def _generate_candidate_kharej(
             domain=domain,
             final_port=tcp_port,
             password=password,
+            use_halfduplex=use_halfduplex,
+            use_grpc=use_grpc,
         )
     elif cand_type == "tls_reverse":
         return generate_waterwall_tls_reverse_kharej(
@@ -629,6 +635,8 @@ def _generate_candidate_iran(
     password = cand.get("password", "arch1234net")
     sni = cand.get("sni", domain)
     xor_key = int(cand.get("xor_key", 90))
+    use_halfduplex = bool(cand.get("use_halfduplex", False))
+    use_grpc = bool(cand.get("use_grpc", False))
 
     if cand_type == "reverse_reality":
         return generate_reverse_reality_tcp_iran(
@@ -639,6 +647,8 @@ def _generate_candidate_iran(
             domain=domain,
             white_ip=white_ip,
             password=password,
+            use_halfduplex=use_halfduplex,
+            use_grpc=use_grpc,
         )
     elif cand_type == "tls_reverse":
         cert_file = str(Path(ww_cwd) / "finder_tls_cert.pem")

@@ -363,19 +363,36 @@ def run_interactive_menu() -> int:
             print("Select mode:")
             print("  1) All Methods Sweep (Reverse Reality, BitSwap, ProtoSwap, UDP/TLS Reverse)")
             print("  2) SNI SpeedTest Sweep (Benchmark Reverse Reality + HD + Fisher across Iranian SNIs)")
-            print("  3) Kharej Agent Server (Start Finder Agent daemon)")
+            print("  3) Iranian Hospitals Sweep (Benchmark top hospital domains: Milad, Rajaie, Farabi, etc.)")
+            print("  4) Kharej Agent Server (Start Finder Agent daemon)")
             print("  0) Back")
-            role_choice = prompt_string("Choose [0-3]", default="1")
-            if role_choice == "3":
+            role_choice = prompt_string("Choose [0-4]", default="1")
+            if role_choice == "4":
                 cp = prompt_int("Kharej Agent Control Port", default=8088)
                 run_finder_server(port=cp)
+            elif role_choice == "3":
+                iran_ip = prompt_ip("Iran Public IP", default=get_public_ip())
+                kharej_ip = prompt_ip("Kharej Public IP")
+                print()
+                print_info(f"Make sure Kharej Agent is running on {kharej_ip} (port 8088):")
+                print_info(f"  On Kharej, run: confgen finder server --port 8088\n")
+                dur = prompt_int("Duration per test in seconds", default=5, min_val=2, max_val=30)
+                apply_win = prompt_string("Auto-apply winning Hospital SNI configuration? (y/N)", default="n").lower() in ("y", "yes")
+                run_finder_client(
+                    iran_ip=iran_ip,
+                    kharej_ip=kharej_ip,
+                    duration=dur,
+                    preset="hospital",
+                    auto_apply=apply_win,
+                )
+                input("\nPress Enter to return to menu...")
             elif role_choice == "2":
                 iran_ip = prompt_ip("Iran Public IP", default=get_public_ip())
                 kharej_ip = prompt_ip("Kharej Public IP")
                 print()
                 print_info(f"Make sure Kharej Agent is running on {kharej_ip} (port 8088):")
                 print_info(f"  On Kharej, run: confgen finder server --port 8088\n")
-                snis_input = prompt_string("Enter SNIs comma-separated (or press Enter for top 15 Iranian domains)", default="")
+                snis_input = prompt_string("Enter SNIs comma-separated (or press Enter for top 25 Iranian national & hospital domains)", default="")
                 dur = prompt_int("Duration per test in seconds", default=5, min_val=2, max_val=30)
                 apply_win = prompt_string("Auto-apply winning SNI configuration? (y/N)", default="n").lower() in ("y", "yes")
                 run_finder_client(

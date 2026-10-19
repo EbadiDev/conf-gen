@@ -57,8 +57,30 @@ from confgen.generators.waterwall.udp_reverse import (
 )
 
 # Standard protocol sweep presets for DPI circumvention (ProtoSwap + BitSwap)
+DEFAULT_HOSPITAL_SNIS: List[str] = [
+    "miladhospital.com",     # Milad Hospital Tehran (Let's Encrypt, TLS OK)
+    "rhc.ac.ir",             # Rajaie Cardiovascular Medical Center (Let's Encrypt, TLS OK)
+    "farabi.tums.ac.ir",     # Farabi Eye Hospital (Let's Encrypt, TLS OK)
+    "sina.tums.ac.ir",       # Sina Hospital (Let's Encrypt, TLS OK)
+    "shariati.tums.ac.ir",   # Shariati Hospital (Let's Encrypt, TLS OK)
+    "bahmanhospital.ir",     # Bahman Hospital (Certum, TLS OK)
+    "pasteur.ac.ir",         # Pasteur Institute of Iran (Certum, TLS OK)
+    "tums.ac.ir",            # Tehran University of Medical Sciences (Let's Encrypt, TLS OK)
+    "sbmu.ac.ir",            # Shahid Beheshti Medical University (Certum, TLS OK)
+    "iums.ac.ir",            # Iran University of Medical Sciences (Certum, TLS OK)
+]
+
 DEFAULT_IRAN_SNIS: List[str] = [
     "telewebion.ir",
+    "miladhospital.com",
+    "rhc.ac.ir",
+    "farabi.tums.ac.ir",
+    "sina.tums.ac.ir",
+    "shariati.tums.ac.ir",
+    "bahmanhospital.ir",
+    "pasteur.ac.ir",
+    "tums.ac.ir",
+    "sbmu.ac.ir",
     "filimo.com",
     "aparat.com",
     "namava.ir",
@@ -1403,7 +1425,7 @@ def run_finder_client(
 
     # 2. Select Candidates
     is_sni_sweep = False
-    if snis or sni_file or preset == "sni":
+    if snis or sni_file or preset in ("sni", "hospital", "hospitals"):
         is_sni_sweep = True
         raw_list = []
         if snis:
@@ -1416,10 +1438,13 @@ def run_finder_client(
             else:
                 print_error(f"SNI file not found: {sni_file}")
                 return 1
+        elif preset in ("hospital", "hospitals"):
+            raw_list = list(DEFAULT_HOSPITAL_SNIS)
         else:
             raw_list = list(DEFAULT_IRAN_SNIS)
 
-        print_info(f"Targeting {len(raw_list)} SNI domain(s) with Reverse Reality + HD + Fisher architecture...")
+        target_label = "Hospital" if preset in ("hospital", "hospitals") else "SNI"
+        print_info(f"Targeting {len(raw_list)} {target_label} domain(s) with Reverse Reality + HD + Fisher architecture...")
         candidates = []
         for d in raw_list:
             origin_ip = resolve_sni_ip(d)

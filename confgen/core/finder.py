@@ -844,12 +844,59 @@ def parse_custom_protocols(
 # TEARDOWN & CLEANUP HELPERS
 # =============================================================================
 
-def resolve_sni_ip(domain: str, fallback: str = "185.165.205.129") -> str:
-    """Dynamically resolve real IPv4 address behind SNI domain for dest-visitor."""
+KNOWN_IRAN_ORIGIN_IPS: Dict[str, str] = {
+    "telewebion.ir": "185.165.205.132",
+    "tums.ac.ir": "185.143.233.132",
+    "shariati.tums.ac.ir": "185.143.234.132",
+    "farabi.tums.ac.ir": "194.225.62.74",
+    "sina.tums.ac.ir": "194.225.62.69",
+    "rhc.ac.ir": "194.225.92.55",
+    "miladhospital.com": "79.175.169.140",
+    "bahmanhospital.ir": "185.88.153.233",
+    "pasteur.ac.ir": "194.225.106.107",
+    "sbmu.ac.ir": "2.188.27.94",
+    "iums.ac.ir": "194.225.184.101",
+    "mums.ac.ir": "185.116.24.163",
+    "sums.ac.ir": "185.143.234.132",
+    "tbzmed.ac.ir": "80.191.203.10",
+    "kmu.ac.ir": "185.144.65.22",
+    "filimo.com": "185.147.178.23",
+    "aparat.com": "185.147.179.11",
+    "namava.ir": "94.182.176.33",
+    "ble.ir": "2.189.68.126",
+    "eitaa.com": "2.189.58.6",
+    "shad.ir": "5.106.11.218",
+    "rubika.ir": "5.106.8.151",
+    "neshan.org": "185.166.104.6",
+    "snapp.ir": "185.143.233.122",
+    "tci.ir": "217.218.86.185",
+    "irancell.ir": "92.42.50.130",
+    "mci.ir": "5.106.4.1",
+    "divar.ir": "185.166.104.6",
+    "cafebazaar.ir": "185.166.104.93",
+}
+
+
+def resolve_sni_ip(domain: str, fallback: Optional[str] = None) -> str:
+    """Dynamically resolve real IPv4 address behind SNI domain with verified fallbacks."""
+    clean = domain.strip().lower()
     try:
-        return socket.gethostbyname(domain)
+        ip = socket.gethostbyname(clean)
+        if ip and ip.count(".") == 3 and not ip.startswith("127."):
+            return ip
     except Exception:
-        return fallback
+        pass
+
+    if clean in KNOWN_IRAN_ORIGIN_IPS:
+        return KNOWN_IRAN_ORIGIN_IPS[clean]
+
+    parts = clean.split(".")
+    if len(parts) > 2:
+        parent = ".".join(parts[1:])
+        if parent in KNOWN_IRAN_ORIGIN_IPS:
+            return KNOWN_IRAN_ORIGIN_IPS[parent]
+
+    return fallback or "185.143.233.132"
 
 
 def stop_waterwall_and_test(

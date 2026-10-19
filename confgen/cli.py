@@ -521,8 +521,8 @@ def create_parser() -> argparse.ArgumentParser:
     w_rr_i.add_argument("-n", "--name", help="Configuration name")
     w_rr_i.add_argument("-ii", "--iran-ip", help="Iran Server public IP")
     w_rr_i.add_argument("-ki", "--kharej-ip", help="Kharej Server main IP")
-    w_rr_i.add_argument("-p", "--port", type=int, default=443, help="Tunnel port")
-    w_rr_i.add_argument("-d", "--domain", default="telewebion.ir", help="Reality SNI domain")
+    w_rr_i.add_argument("-p", "--port", nargs="+", type=int, default=[443], help="Tunnel port(s), e.g. -p 443 or -p 443 8080 5370 9008")
+    w_rr_i.add_argument("-d", "--domain", default="shariati.tums.ac.ir", help="Reality SNI domain (default: shariati.tums.ac.ir)")
     w_rr_i.add_argument("-wi", "--white-ip", help="IP address behind SNI domain")
     w_rr_i.add_argument("--pass", "--password", dest="password", default="arch1234net", help="Reality password")
     w_rr_i.add_argument("--float", nargs="*", default=[], help="Kharej floating IPs")
@@ -539,7 +539,7 @@ def create_parser() -> argparse.ArgumentParser:
         help="Kharej server configuration",
         formatter_class=CustomFormatter,
         epilog="""Example:
-  ./confgen.py waterwall reverse-reality kharej -n rev-kharej -ii 95.38.130.213 -ki 89.36.162.43 -p 443 -d telewebion.ir -fp 8443
+  ./confgen.py waterwall reverse-reality kharej -n rev-kharej -ii 95.38.130.213 -ki 89.36.162.43 -p 443 -d shariati.tums.ac.ir -fp 0
 """,
     )
     w_rr_k.add_argument("pos_name", nargs="?", help="[Positional fallback] Name")
@@ -552,8 +552,8 @@ def create_parser() -> argparse.ArgumentParser:
     w_rr_k.add_argument("-ii", "--iran-ip", help="Iran Server public IP")
     w_rr_k.add_argument("-ki", "--kharej-ip", help="Kharej Server main IP")
     w_rr_k.add_argument("-p", "--port", type=int, default=443, help="Tunnel port")
-    w_rr_k.add_argument("-d", "--domain", default="telewebion.ir", help="Reality SNI domain")
-    w_rr_k.add_argument("-fp", "--final-port", type=int, help="Local service target port on Kharej")
+    w_rr_k.add_argument("-d", "--domain", default="shariati.tums.ac.ir", help="Reality SNI domain (default: shariati.tums.ac.ir)")
+    w_rr_k.add_argument("-fp", "--final-port", type=int, default=0, help="Local service target port on Kharej (default: 0 = preserve port)")
     w_rr_k.add_argument("--pass", "--password", dest="password", default="arch1234net", help="Reality password")
     w_rr_k.add_argument("--min-held", type=int, default=8, help="Minimum held connections")
     w_rr_k.add_argument("--float", nargs="*", default=[], help="Kharej floating IPs")
@@ -1080,12 +1080,12 @@ def main(argv: Optional[List[str]] = None) -> int:
                     name = args.name or args.pos_name
                     iran_ip = args.iran_ip or args.pos_iran_ip
                     kharej_ip = args.kharej_ip or args.pos_kharej_ip
-                    port = args.port if args.port != 443 or not args.pos_port else args.pos_port
-                    domain = args.domain or args.pos_domain or "telewebion.ir"
+                    ports = args.port if isinstance(args.port, list) else [args.port or 443]
+                    domain = args.domain or args.pos_domain or "shariati.tums.ac.ir"
                     from confgen.core.finder import resolve_sni_ip
                     white_ip = args.white_ip or args.pos_white_ip or resolve_sni_ip(domain)
 
-                    if not (name and iran_ip and kharej_ip and white_ip):
+                    if not (name and iran_ip and kharej_ip):
                         print_error("Missing required parameters for Iran Reverse Reality (-n, -ii, -ki)")
                         return 1
 
@@ -1093,7 +1093,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                         config_name=name,
                         iran_ip=iran_ip,
                         kharej_ip=kharej_ip,
-                        port=port,
+                        port=ports,
                         domain=domain,
                         white_ip=white_ip,
                         password=args.password,
@@ -1111,8 +1111,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                         "name": name,
                         "iran_ip": iran_ip,
                         "kharej_ip": kharej_ip,
-                        "tcp_ports": [port],
-                        "tcp_tunnel_port": port,
+                        "tcp_ports": ports,
+                        "tcp_tunnel_port": ports[0],
                         "domain": domain,
                         "password": args.password,
                         "float_ips": args.float,
@@ -1127,12 +1127,12 @@ def main(argv: Optional[List[str]] = None) -> int:
                     name = args.name or args.pos_name
                     iran_ip = args.iran_ip or args.pos_iran_ip
                     kharej_ip = args.kharej_ip or args.pos_kharej_ip
-                    port = args.port if args.port != 443 or not args.pos_port else args.pos_port
-                    domain = args.domain or args.pos_domain or "telewebion.ir"
-                    final_port = args.final_port or args.pos_final_port
+                    port = args.port[0] if isinstance(args.port, list) else (args.port or 443)
+                    domain = args.domain or args.pos_domain or "shariati.tums.ac.ir"
+                    final_port = args.final_port if args.final_port is not None else (args.pos_final_port if args.pos_final_port is not None else 0)
 
-                    if not (name and iran_ip and kharej_ip and final_port):
-                        print_error("Missing required parameters for Kharej Reverse Reality (-n, -ii, -ki, -fp)")
+                    if not (name and iran_ip and kharej_ip):
+                        print_error("Missing required parameters for Kharej Reverse Reality (-n, -ii, -ki)")
                         return 1
 
                     cfg = generate_reverse_reality_tcp_kharej(

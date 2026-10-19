@@ -121,7 +121,7 @@ def apply_setup_link(
     if method == "reverse_reality":
         domain = data.get("domain", "telewebion.ir")
         password = data.get("password", "arch1234net")
-        final_port = tcp_ports[0] if tcp_ports else 443
+        final_port = 0 if len(tcp_ports) > 1 else (tcp_ports[0] if tcp_ports else 443)
         use_hd = bool(data.get("use_halfduplex", False))
         use_cf = bool(data.get("use_fisher", False))
         use_mux = bool(data.get("use_mux", False))

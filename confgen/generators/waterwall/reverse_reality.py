@@ -8,7 +8,7 @@ def generate_reverse_reality_tcp_iran(
     config_name: str,
     iran_ip: str,
     kharej_ip: str,
-    port: int,
+    port: Union[int, List[int]],
     domain: str,
     white_ip: str,
     password: str = "arch1234net",
@@ -23,19 +23,26 @@ def generate_reverse_reality_tcp_iran(
     reverse_secret_length: Optional[int] = None,
     reverse_secret: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Generate Iran server TCP Reverse Reality configuration."""
+    """Generate Iran server TCP Reverse Reality configuration (supports single port or multiport list)."""
     float_ips = float_ips or []
     clean_iran_ip = validate_ip(iran_ip)
     clean_kharej_ip = validate_ip(kharej_ip)
     clean_white_ip = validate_ip(white_ip)
-    validated_port = validate_port(port)
+
+    clean_ports = [validate_port(p) for p in port] if isinstance(port, list) else [validate_port(port)]
+    carrier_port = clean_ports[0]
+    has_multi = len(clean_ports) > 1
 
     variables: Dict[str, Any] = {
         "ip_server_iran": clean_iran_ip,
         "domain_white": domain,
         "ip_behind_domain_white": clean_white_ip,
         "ip_server_kharej": f"{clean_kharej_ip}/32" if "/" not in clean_kharej_ip else clean_kharej_ip,
+        "user_and_server_kharej_port": carrier_port,
+        "password": password,
     }
+    if has_multi:
+        variables["users_listen_ports"] = clean_ports
 
     for idx, fip in enumerate(float_ips):
         clean_fip = validate_ip(fip)
@@ -44,9 +51,6 @@ def generate_reverse_reality_tcp_iran(
     if cert_path and key_path:
         variables["certificate_path"] = cert_path
         variables["key_path"] = key_path
-
-    variables["user_and_server_kharej_port"] = validated_port
-    variables["password"] = password
 
     user_side_entry = "mux-client" if use_mux else "bridge_user_side"
     kharej_listener_next = "fisher_server" if use_fisher else "reality-server"
@@ -57,18 +61,28 @@ def generate_reverse_reality_tcp_iran(
     if cert_path:
         first_next = "tls_termination"
 
+    listen_port_setting = "$users_listen_ports$" if has_multi else "$user_and_server_kharej_port$"
+    inbound_next = "header_client" if has_multi else first_next
     nodes: List[Dict[str, Any]] = [
         {
             "name": "users_inbound",
             "type": "TcpListener",
             "settings": {
                 "address": "0.0.0.0",
-                "port": "$user_and_server_kharej_port$",
+                "port": listen_port_setting,
                 "nodelay": True,
             },
-            "next": first_next,
+            "next": inbound_next,
         }
     ]
+
+    if has_multi:
+        nodes.append({
+            "name": "header_client",
+            "type": "HeaderClient",
+            "settings": {"data": "src_context->port"},
+            "next": first_next,
+        })
 
     if cert_path:
         after_tls = "proxy-header" if use_proxy_protocol else user_side_entry
@@ -256,37 +270,61 @@ def generate_reverse_reality_tcp_kharej(
         }
     )
 
-    bridge_next = "mux-s" if use_mux else "outbound_to_local_service"
-    nodes: List[Dict[str, Any]] = [
-        {
-            "name": "outbound_to_local_service",
-            "type": "TcpConnector",
-            "settings": {
-                "address": "127.0.0.1",
-                "port": "$final_port$",
-                "nodelay": True,
+    is_preserve_ports = (validated_final_port == 0)
+    if is_preserve_ports:
+        nodes: List[Dict[str, Any]] = [
+            {
+                "name": "outbound_to_local_service",
+                "type": "TcpConnector",
+                "settings": {
+                    "address": "127.0.0.1",
+                    "port": "dest_context->port",
+                    "nodelay": True,
+                },
             },
-        },
-    ]
-
-    if use_mux:
+            {
+                "name": "header_server",
+                "type": "HeaderServer",
+                "settings": {"override": "dest_context->port"},
+                "next": "outbound_to_local_service",
+            },
+            {
+                "name": "bridge_local_side",
+                "type": "Bridge",
+                "settings": {"pair": "bridge_reverse_client_side"},
+                "next": "header_server",
+            },
+        ]
+    else:
+        bridge_next = "mux-s" if use_mux else "outbound_to_local_service"
+        nodes = [
+            {
+                "name": "outbound_to_local_service",
+                "type": "TcpConnector",
+                "settings": {
+                    "address": "127.0.0.1",
+                    "port": "$final_port$",
+                    "nodelay": True,
+                },
+            },
+        ]
+        if use_mux:
+            nodes.append(
+                {
+                    "name": "mux-s",
+                    "type": "MuxServer",
+                    "settings": {},
+                    "next": "outbound_to_local_service",
+                }
+            )
         nodes.append(
             {
-                "name": "mux-s",
-                "type": "MuxServer",
-                "settings": {},
-                "next": "outbound_to_local_service",
+                "name": "bridge_local_side",
+                "type": "Bridge",
+                "settings": {"pair": "bridge_reverse_client_side"},
+                "next": bridge_next,
             }
         )
-
-    nodes.append(
-        {
-            "name": "bridge_local_side",
-            "type": "Bridge",
-            "settings": {"pair": "bridge_reverse_client_side"},
-            "next": bridge_next,
-        }
-    )
 
     reverse_settings: Dict[str, Any] = {"minimum-unused": "$min_held_connections$"}
     if reverse_secret_length:

@@ -655,6 +655,7 @@ def create_parser() -> argparse.ArgumentParser:
     w_bit_i.add_argument("--xor-key", type=int, default=90, help="XOR obfuscation key (default: 90)")
     w_bit_i.add_argument("--private-ip", help="Custom base private IP subnet (e.g. 10.10.0.1)")
     w_bit_i.add_argument("--private-ip-2", help="Secondary internal private IP subnet")
+    w_bit_i.add_argument("--pattern", default="psh/rst", help="BitSwap TCP flag pattern (default: psh/rst)")
     w_bit_i.add_argument("--no-core", action="store_true", help="Do not automatically add to core.json")
 
     w_bit_k = ww_bit_sub.add_parser(
@@ -687,6 +688,7 @@ def create_parser() -> argparse.ArgumentParser:
     w_bit_k.add_argument("--xor-key", type=int, default=90, help="XOR obfuscation key (default: 90)")
     w_bit_k.add_argument("--private-ip", help="Custom base private IP subnet (e.g. 10.10.0.1)")
     w_bit_k.add_argument("--private-ip-2", help="Secondary internal private IP subnet")
+    w_bit_k.add_argument("--pattern", default="psh/rst", help="BitSwap TCP flag pattern (default: psh/rst)")
     w_bit_k.add_argument("--no-core", action="store_true", help="Do not automatically add to core.json")
 
     # 2.5 waterwall protoswap
@@ -1228,6 +1230,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                     key_path = args.tls_key or (args.tls[1] if args.tls else None)
                     use_tls = bool(cert_path and key_path)
 
+                    pattern = getattr(args, "pattern", "psh/rst") or "psh/rst"
                     cfg = generate_bitswap_iran(
                         config_name=name,
                         iran_ip=iran_ip,
@@ -1245,6 +1248,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                         xor_key=args.xor_key,
                         custom_private_ip=args.private_ip,
                         custom_private_ip_2=args.private_ip_2,
+                        bitswap_pattern=pattern,
                     )
                     save_waterwall_config(cfg, name=name, auto_core=not args.no_core)
                     from confgen.core.link import encode_setup_link, print_setup_box
@@ -1261,6 +1265,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                         "xor_key": args.xor_key,
                         "private_ip": args.private_ip,
                         "private_ip_2": args.private_ip_2,
+                        "pattern": pattern,
                     }
                     link = encode_setup_link(payload)
                     print_setup_box(link, name, "BitSwap")
@@ -1271,6 +1276,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                         tcp_ports = [args.final_port]
                     tcp_tunnel_port = args.listen_port or args.tcp_tunnel_port
 
+                    pattern = getattr(args, "pattern", "psh/rst") or "psh/rst"
                     cfg = generate_bitswap_kharej(
                         config_name=name,
                         iran_ip=iran_ip,
@@ -1284,6 +1290,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                         xor_key=args.xor_key,
                         custom_private_ip=args.private_ip,
                         custom_private_ip_2=args.private_ip_2,
+                        bitswap_pattern=pattern,
                     )
                     save_waterwall_config(cfg, name=name, auto_core=not args.no_core)
                     return 0

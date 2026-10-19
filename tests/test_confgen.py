@@ -1110,6 +1110,18 @@ class TestFinder(unittest.TestCase):
         resolved_ip = resolve_sni_ip("telewebion.ir")
         self.assertTrue(resolved_ip and resolved_ip.count(".") == 3)
 
+    def test_reverse_reality_udp_generators(self):
+        """Verify dedicated Reverse Reality UDP configuration generator."""
+        from confgen.generators.waterwall.reverse_reality import generate_reverse_reality_udp_iran, generate_reverse_reality_udp_kharej
+
+        i = generate_reverse_reality_udp_iran("u_i", "1.1.1.1", "2.2.2.2", 9001, "telewebion.ir", "185.165.205.132", use_halfduplex=True, use_fisher=True)
+        self.assertEqual(i["nodes"][0]["type"], "UdpListener")
+        self.assertEqual(i["nodes"][1]["type"], "UdpOverTcpClient")
+
+        k = generate_reverse_reality_udp_kharej("u_k", "1.1.1.1", "2.2.2.2", 9001, "telewebion.ir", 9001, use_halfduplex=True, use_fisher=True)
+        self.assertEqual(k["nodes"][0]["type"], "UdpConnector")
+        self.assertEqual(k["nodes"][1]["type"], "UdpOverTcpServer")
+
 
 if __name__ == "__main__":
     unittest.main()

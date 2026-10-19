@@ -582,6 +582,8 @@ def _generate_candidate_kharej(
             kharej_ip=kharej_ip,
             tcp_ports=[tcp_port],
             udp_ports=[tcp_port],
+            tcp_tunnel_port=58443,
+            udp_tunnel_port=58444,
             final_ip="127.0.0.1",
             custom_private_ip=private_ip,
             custom_private_ip_2=private_ip_2,
@@ -594,6 +596,8 @@ def _generate_candidate_kharej(
             kharej_ip=kharej_ip,
             tcp_ports=[tcp_port],
             udp_ports=[tcp_port],
+            tcp_tunnel_port=58443,
+            udp_tunnel_port=58444,
             protoswap_tcp=p_tcp,
             protoswap_udp=p_udp,
             final_ip="127.0.0.1",
@@ -664,6 +668,8 @@ def _generate_candidate_iran(
             kharej_ip=clean_kharej,
             tcp_ports=[clean_port],
             udp_ports=[clean_port],
+            tcp_tunnel_port=58443,
+            udp_tunnel_port=58444,
             custom_private_ip=clean_private_ip,
             custom_private_ip_2=clean_private_ip_2,
             bitswap_pattern=pattern,
@@ -675,6 +681,8 @@ def _generate_candidate_iran(
             kharej_ip=clean_kharej,
             tcp_ports=[clean_port],
             udp_ports=[clean_port],
+            tcp_tunnel_port=58443,
+            udp_tunnel_port=58444,
             protoswap_tcp=p_tcp,
             protoswap_udp=p_udp,
             enable_bitswap=cand_bitswap,
@@ -1656,7 +1664,16 @@ def run_finder_client(
             print_warning(f"Could not apply to Kharej test directory: {e}")
     else:
         print_info(f"\n[INFO] Auto-apply disabled (inspection mode). Production configurations remain untouched.")
-        print_info(f"Top Candidate:  {best_cand['name']} (TCP proto: {best_cand['tcp']}, UDP proto: {best_cand['udp']}, BitSwap: {'YES' if best_cand_bitswap else 'NO'})")
+        top_type = best_cand.get("type", "protoswap")
+        if top_type == "protoswap":
+            proto_info = f" (TCP proto: {best_cand.get('tcp', 253)}, UDP proto: {best_cand.get('udp', 252)}, BitSwap: {'YES' if best_cand_bitswap else 'NO'})"
+        elif top_type == "bitswap":
+            proto_info = f" (BitSwap Pattern: {best_cand.get('pattern', 'psh/rst')})"
+        elif top_type == "reverse_reality":
+            proto_info = f" (Reality SNI: {best_cand.get('domain', 'telewebion.ir')})"
+        else:
+            proto_info = f" (Type: {top_type})"
+        print_info(f"Top Candidate:  {best_cand['name']}{proto_info}")
         print_info("To automatically apply the winning configuration in the isolated test directory, re-run with '--apply'.")
 
     return 0

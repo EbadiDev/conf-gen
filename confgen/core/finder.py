@@ -57,6 +57,24 @@ from confgen.generators.waterwall.udp_reverse import (
 )
 
 # Standard protocol sweep presets for DPI circumvention (ProtoSwap + BitSwap)
+DEFAULT_IRAN_SNIS: List[str] = [
+    "telewebion.ir",
+    "filimo.com",
+    "aparat.com",
+    "namava.ir",
+    "ble.ir",
+    "eitaa.com",
+    "shad.ir",
+    "rubika.ir",
+    "neshan.org",
+    "snapp.ir",
+    "tci.ir",
+    "irancell.ir",
+    "mci.ir",
+    "divar.ir",
+    "cafebazaar.ir",
+]
+
 CANDIDATES_PRESETS: Dict[str, List[Dict[str, Any]]] = {
     "methods": [
         {"id": "rev_reality_grpc", "name": "Reverse Reality (gRPC+HD)", "type": "reverse_reality", "domain": "telewebion.ir", "white_ip": "185.165.205.129", "password": "arch1234net", "use_grpc": True, "use_halfduplex": True},
@@ -1345,6 +1363,8 @@ def run_finder_client(
     tls_cert: Optional[str] = None,
     tls_key: Optional[str] = None,
     sni: str = "telewebion.ir",
+    snis: Optional[str] = None,
+    sni_file: Optional[str] = None,
 ) -> int:
     """Orchestrate protocol sweep against Kharej agent."""
     # Ensure local iperf3 is available on Iran (fallback to native socket if missing)
@@ -1382,7 +1402,38 @@ def run_finder_client(
         return 1
 
     # 2. Select Candidates
-    if custom_protocols:
+    is_sni_sweep = False
+    if snis or sni_file or preset == "sni":
+        is_sni_sweep = True
+        raw_list = []
+        if snis:
+            raw_list = [s.strip() for s in snis.split(",") if s.strip()]
+        elif sni_file:
+            p = Path(sni_file)
+            if p.exists():
+                with open(p, "r", encoding="utf-8") as f:
+                    raw_list = [line.strip() for line in f if line.strip() and not line.startswith("#")]
+            else:
+                print_error(f"SNI file not found: {sni_file}")
+                return 1
+        else:
+            raw_list = list(DEFAULT_IRAN_SNIS)
+
+        print_info(f"Targeting {len(raw_list)} SNI domain(s) with Reverse Reality + HD + Fisher architecture...")
+        candidates = []
+        for d in raw_list:
+            origin_ip = resolve_sni_ip(d)
+            candidates.append({
+                "id": f"rr_hd_cf_{d.replace('.', '_')}",
+                "name": f"RR+HD+Fisher ({d})",
+                "type": "reverse_reality",
+                "domain": d,
+                "white_ip": origin_ip,
+                "password": "arch1234net",
+                "use_halfduplex": True,
+                "use_fisher": True,
+            })
+    elif custom_protocols:
         candidates = parse_custom_protocols(
             custom_protocols,
             include_bitswap=include_bitswap,
@@ -1649,8 +1700,8 @@ def run_finder_client(
     for idx, cand in enumerate(candidates, 1):
         _test_candidate(idx, total, cand)
 
-    # Adaptive Stage 2: Deep Optimization of working tunnels
-    if preset == "methods":
+    # Adaptive Stage 2: Deep Optimization of working tunnels (only for methods sweep)
+    if preset == "methods" and not is_sni_sweep:
         working_types = {r["cand"].get("type") for r in results if r["upload"] > 0 or r["download"] > 0}
         stage2_cands = []
         if "reverse_reality" in working_types:
@@ -1694,17 +1745,29 @@ def run_finder_client(
     results.sort(key=lambda r: r["score"], reverse=True)
 
     print("\n" + "=" * 115)
-    print("🏆 WATERWALL BENCHMARK & PROTOCOL SWEEP LEADERBOARD")
-    print("=" * 115)
-    print(f"{'Rank':<5} | {'Candidate':<28} | {'Type':<15} | {'TCP Up':<11} | {'TCP Down':<11} | {'UDP Up':<11} | {'Loss':<6} | {'RTT':<7} | {'Status'}")
-    print("-" * 115)
-
-    for i, r in enumerate(results, 1):
-        c = r["cand"]
-        ctype = c.get("type", "protoswap")
-        rtt_val = f"{r['rtt']:.0f}ms" if r.get("rtt") is not None else "N/A"
-        badge = "BEST ⭐" if i == 1 and r["score"] > 0 else r["status"]
-        print(f"#{i:<4} | {c['name']:<28} | {ctype:<15} | {r['upload']:>6.2f} Mbps | {r['download']:>6.2f} Mbps | {r['udp']:>6.2f} Mbps | {r['udp_loss']:>5.1f}% | {rtt_val:>7} | {badge}")
+    if is_sni_sweep:
+        print("🏆 WATERWALL SNI BENCHMARK LEADERBOARD (Reverse Reality + HD + Fisher)")
+        print("=" * 115)
+        print(f"{'Rank':<5} | {'SNI Domain':<28} | {'Origin IP':<15} | {'TCP Up':<11} | {'TCP Down':<11} | {'Loss':<6} | {'RTT':<7} | {'Status'}")
+        print("-" * 115)
+        for i, r in enumerate(results, 1):
+            c = r["cand"]
+            sni_name = c.get("domain", c["name"])
+            origin_ip = c.get("white_ip", "N/A")
+            rtt_val = f"{r['rtt']:.0f}ms" if r.get("rtt") is not None else "N/A"
+            badge = "BEST ⭐" if i == 1 and r["score"] > 0 else r["status"]
+            print(f"#{i:<4} | {sni_name:<28} | {origin_ip:<15} | {r['upload']:>6.2f} Mbps | {r['download']:>6.2f} Mbps | {r['udp_loss']:>5.1f}% | {rtt_val:>7} | {badge}")
+    else:
+        print("🏆 WATERWALL BENCHMARK & PROTOCOL SWEEP LEADERBOARD")
+        print("=" * 115)
+        print(f"{'Rank':<5} | {'Candidate':<28} | {'Type':<15} | {'TCP Up':<11} | {'TCP Down':<11} | {'UDP Up':<11} | {'Loss':<6} | {'RTT':<7} | {'Status'}")
+        print("-" * 115)
+        for i, r in enumerate(results, 1):
+            c = r["cand"]
+            ctype = c.get("type", "protoswap")
+            rtt_val = f"{r['rtt']:.0f}ms" if r.get("rtt") is not None else "N/A"
+            badge = "BEST ⭐" if i == 1 and r["score"] > 0 else r["status"]
+            print(f"#{i:<4} | {c['name']:<28} | {ctype:<15} | {r['upload']:>6.2f} Mbps | {r['download']:>6.2f} Mbps | {r['udp']:>6.2f} Mbps | {r['udp_loss']:>5.1f}% | {rtt_val:>7} | {badge}")
 
     print("=" * 115)
 

@@ -277,7 +277,7 @@ def _add_finder_subparser(finder_p: argparse.ArgumentParser) -> None:
     f_cli.add_argument("-p", "--port", "--tcp-port", dest="port", type=int, default=9001, help="WaterWall tunnel benchmarking port (default: 9001)")
     f_cli.add_argument("-n", "--name", default="finder-tunnel", help="Tunnel configuration name (default: finder-tunnel)")
     f_cli.add_argument("-t", "-d", "--duration", type=int, default=5, help="Test duration in seconds per direction (default: 5)")
-    f_cli.add_argument("--preset", choices=["methods", "top", "fast", "combo", "all"], default="top", help="Candidate protocol preset (default: top)")
+    f_cli.add_argument("--preset", choices=["methods", "top", "fast", "combo", "sni", "all"], default="top", help="Candidate protocol preset (default: top)")
     f_cli.add_argument("--protocols", help="Custom comma-separated protocol pairs (e.g. 50/51,51/52,47/136)")
     f_cli.add_argument("--bitswap", action="store_true", help="Force TCP BitSwap on all tested protocols")
     f_cli.add_argument("--include-bitswap", action="store_true", help="Include BitSwap variants for custom protocols or preset")
@@ -289,6 +289,8 @@ def _add_finder_subparser(finder_p: argparse.ArgumentParser) -> None:
     f_cli.add_argument("--tls-cert", help="Path to TLS certificate (fullchain.pem) for TLS Reverse")
     f_cli.add_argument("--tls-key", help="Path to TLS private key (privkey.pem) for TLS Reverse")
     f_cli.add_argument("--sni", default="telewebion.ir", help="Reality SNI domain (default: telewebion.ir)")
+    f_cli.add_argument("--snis", help="Comma-separated list of SNIs to benchmark with Reverse Reality + HD + Fisher")
+    f_cli.add_argument("--sni-file", help="Path to text file containing SNI domains (one per line) to benchmark")
 
 
 def _handle_finder(args: argparse.Namespace) -> int:
@@ -321,6 +323,8 @@ def _handle_finder(args: argparse.Namespace) -> int:
             tls_cert=getattr(args, "tls_cert", None),
             tls_key=getattr(args, "tls_key", None),
             sni=getattr(args, "sni", "telewebion.ir"),
+            snis=getattr(args, "snis", None),
+            sni_file=getattr(args, "sni_file", None),
         )
     else:
         print_error("Invalid finder role. Choose 'server' or 'client'.")

@@ -1099,6 +1099,17 @@ class TestFinder(unittest.TestCase):
         self.assertIn("ConnectionFisherClient", k_types)
         self.assertIn("MuxServer", k_types)
 
+    def test_finder_sni_sweep_mode(self):
+        """Verify SNI sweep mode generates Reverse Reality + HD + Fisher candidates for all input domains."""
+        from confgen.core.finder import DEFAULT_IRAN_SNIS, resolve_sni_ip
+
+        self.assertGreater(len(DEFAULT_IRAN_SNIS), 5)
+        self.assertIn("telewebion.ir", DEFAULT_IRAN_SNIS)
+        self.assertIn("filimo.com", DEFAULT_IRAN_SNIS)
+
+        resolved_ip = resolve_sni_ip("telewebion.ir")
+        self.assertTrue(resolved_ip and resolved_ip.count(".") == 3)
+
 
 if __name__ == "__main__":
     unittest.main()

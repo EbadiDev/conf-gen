@@ -709,7 +709,7 @@ def _run_native_socket_test(
     host: str = "127.0.0.1",
 ) -> Tuple[float, int, bool]:
     """Pure-Python synthetic TCP throughput test against local port (fallback for iperf3)."""
-    chunk = b"\xaa" * 65536  # 64 KB block
+    chunk = b"\xaa" * 1300  # 1300 B chunk fits safely within tunnel MTU without fragmentation
     total_bytes = 0
     t_end = time.perf_counter() + duration
     try:
@@ -1171,7 +1171,7 @@ def _run_iperf_test(
     if not iperf_bin:
         return 0.0, 0, False
 
-    cmd = [iperf_bin, "-c", "127.0.0.1", "-p", str(port), "-t", str(duration), "-J"]
+    cmd = [iperf_bin, "-c", "127.0.0.1", "-p", str(port), "-t", str(duration), "-M", "1300", "-J"]
     if reverse:
         cmd.append("-R")
 
@@ -1236,6 +1236,7 @@ def _run_iperf_udp_test(
         "-c", "127.0.0.1",
         "-p", str(port),
         "-u",
+        "-l", "1200",
         "-b", str(target_bandwidth),
         "-t", str(duration),
         "-J",

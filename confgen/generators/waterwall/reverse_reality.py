@@ -712,3 +712,416 @@ def generate_reverse_reality_udp_kharej(
         "variables": variables,
         "nodes": nodes,
     }
+
+
+def generate_reverse_reality_dual_iran(
+    config_name: str,
+    iran_ip: str,
+    kharej_ip: str,
+    tcp_ports: List[int],
+    tcp_forward_port: int = 10005,
+    udp_port: Optional[int] = 27012,
+    udp_forward_port: Optional[int] = 10006,
+    carrier_port: int = 58443,
+    carrier_udp_port: int = 58444,
+    domain: str = "shariati.tums.ac.ir",
+    white_ip: Optional[str] = None,
+    password: str = "arch1234net",
+    float_ips: Optional[List[str]] = None,
+    use_halfduplex: bool = True,
+    use_fisher: bool = True,
+) -> Dict[str, Any]:
+    """Generate Iran server dual TCP + UDP Reverse Reality configuration."""
+    float_ips = float_ips or []
+    clean_iran = validate_ip(iran_ip)
+    clean_kharej = validate_ip(kharej_ip)
+    clean_white = white_ip or "185.143.234.132"
+    clean_tcp_ports = [validate_port(p) for p in tcp_ports]
+
+    variables: Dict[str, Any] = {
+        "ip_server_iran": clean_iran,
+        "ip_server_kharej": f"{clean_kharej}/32" if "/" not in clean_kharej else clean_kharej,
+        "domain_white": domain,
+        "ip_behind_domain_white": clean_white,
+        "tunnel_carrier_port": carrier_port,
+        "tunnel_carrier_udp_port": carrier_udp_port,
+        "password": password,
+    }
+    for idx, fip in enumerate(float_ips):
+        variables[f"ip_server_kharej_float_{idx + 1}"] = f"{validate_ip(fip)}/32"
+
+    nodes: List[Dict[str, Any]] = [
+        # --- TCP Stream Pipeline ---
+        {
+            "name": "users_inbound_tcp",
+            "type": "TcpListener",
+            "settings": {
+                "address": "0.0.0.0",
+                "port": clean_tcp_ports if len(clean_tcp_ports) > 1 else clean_tcp_ports[0],
+                "nodelay": True,
+            },
+            "next": "bridge_tcp_user",
+        },
+        {
+            "name": "bridge_tcp_user",
+            "type": "Bridge",
+            "settings": {"pair": "bridge_tcp_rev"},
+        },
+        {
+            "name": "bridge_tcp_rev",
+            "type": "Bridge",
+            "settings": {"pair": "bridge_tcp_user"},
+        },
+        {
+            "name": "reverse_server_tcp",
+            "type": "ReverseServer",
+            "settings": {"minimum-unused": 8},
+            "next": "bridge_tcp_rev",
+        },
+    ]
+
+    reality_tcp_next = "halfs_tcp" if use_halfduplex else "reverse_server_tcp"
+    if use_halfduplex:
+        nodes.append({
+            "name": "halfs_tcp",
+            "type": "HalfDuplexServer",
+            "settings": {},
+            "next": "reverse_server_tcp",
+        })
+
+    nodes.extend([
+        {
+            "name": "reality_server_tcp",
+            "type": "RealityServer",
+            "settings": {
+                "destination": "dest_visitor_tcp",
+                "password": "$password$",
+                "algorithm": "chacha20-poly1305",
+                "kdf-iterations": 12000,
+                "sniffing-attempts": 8,
+            },
+            "next": reality_tcp_next,
+        },
+        {
+            "name": "dest_visitor_tcp",
+            "type": "TcpConnector",
+            "settings": {
+                "address": "$ip_behind_domain_white$",
+                "port": 443,
+                "nodelay": True,
+            },
+        },
+    ])
+
+    carrier_tcp_next = "fisher_server_tcp" if use_fisher else "reality_server_tcp"
+    if use_fisher:
+        nodes.append({
+            "name": "fisher_server_tcp",
+            "type": "ConnectionFisherServer",
+            "settings": {},
+            "next": "reality_server_tcp",
+        })
+
+    whitelist = ["$ip_server_kharej$"]
+    for idx in range(len(float_ips)):
+        whitelist.append(f"$ip_server_kharej_float_{idx + 1}$")
+
+    nodes.append({
+        "name": "kharej_inbound_tcp",
+        "type": "TcpListener",
+        "settings": {
+            "address": "0.0.0.0",
+            "port": "$tunnel_carrier_port$",
+            "nodelay": True,
+            "whitelist": whitelist,
+        },
+        "next": carrier_tcp_next,
+    })
+
+    # --- UDP Pipeline (Optional) ---
+    if udp_port:
+        clean_udp_port = validate_port(udp_port)
+        nodes.extend([
+            {
+                "name": "users_inbound_udp",
+                "type": "UdpListener",
+                "settings": {
+                    "address": "0.0.0.0",
+                    "port": clean_udp_port,
+                },
+                "next": "u2t",
+            },
+            {
+                "name": "u2t",
+                "type": "UdpOverTcpClient",
+                "settings": {},
+                "next": "bridge_udp_user",
+            },
+            {
+                "name": "bridge_udp_user",
+                "type": "Bridge",
+                "settings": {"pair": "bridge_udp_rev"},
+            },
+            {
+                "name": "bridge_udp_rev",
+                "type": "Bridge",
+                "settings": {"pair": "bridge_udp_user"},
+            },
+            {
+                "name": "reverse_server_udp",
+                "type": "ReverseServer",
+                "settings": {"minimum-unused": 8},
+                "next": "bridge_udp_rev",
+            },
+        ])
+
+        reality_udp_next = "halfs_udp" if use_halfduplex else "reverse_server_udp"
+        if use_halfduplex:
+            nodes.append({
+                "name": "halfs_udp",
+                "type": "HalfDuplexServer",
+                "settings": {},
+                "next": "reverse_server_udp",
+            })
+
+        nodes.extend([
+            {
+                "name": "reality_server_udp",
+                "type": "RealityServer",
+                "settings": {
+                    "destination": "dest_visitor_udp",
+                    "password": "$password$",
+                    "algorithm": "chacha20-poly1305",
+                    "kdf-iterations": 12000,
+                    "sniffing-attempts": 8,
+                },
+                "next": reality_udp_next,
+            },
+            {
+                "name": "dest_visitor_udp",
+                "type": "TcpConnector",
+                "settings": {
+                    "address": "$ip_behind_domain_white$",
+                    "port": 443,
+                    "nodelay": True,
+                },
+            },
+        ])
+
+        carrier_udp_next = "fisher_server_udp" if use_fisher else "reality_server_udp"
+        if use_fisher:
+            nodes.append({
+                "name": "fisher_server_udp",
+                "type": "ConnectionFisherServer",
+                "settings": {},
+                "next": "reality_server_udp",
+            })
+
+        nodes.append({
+            "name": "kharej_inbound_udp",
+            "type": "TcpListener",
+            "settings": {
+                "address": "0.0.0.0",
+                "port": "$tunnel_carrier_udp_port$",
+                "nodelay": True,
+                "whitelist": whitelist,
+            },
+            "next": carrier_udp_next,
+        })
+
+    return {
+        "name": config_name,
+        "variables": variables,
+        "nodes": nodes,
+    }
+
+
+def generate_reverse_reality_dual_kharej(
+    config_name: str,
+    iran_ip: str,
+    kharej_ip: str,
+    tcp_forward_port: int = 10005,
+    udp_forward_port: Optional[int] = 10006,
+    carrier_port: int = 58443,
+    carrier_udp_port: int = 58444,
+    domain: str = "shariati.tums.ac.ir",
+    password: str = "arch1234net",
+    float_ips: Optional[List[str]] = None,
+    use_halfduplex: bool = True,
+    use_fisher: bool = True,
+) -> Dict[str, Any]:
+    """Generate Kharej server dual TCP + UDP Reverse Reality configuration."""
+    float_ips = float_ips or []
+    clean_iran = validate_ip(iran_ip)
+    clean_kharej = validate_ip(kharej_ip)
+
+    variables: Dict[str, Any] = {
+        "ip_server_iran": clean_iran,
+        "ip_server_kharej": clean_kharej,
+        "tunnel_carrier_port": carrier_port,
+        "tunnel_carrier_udp_port": carrier_udp_port,
+        "domain_to_handshake_reality": domain,
+        "password": password,
+        "final_tcp_port": tcp_forward_port,
+    }
+    if udp_forward_port:
+        variables["final_udp_port"] = udp_forward_port
+
+    for idx, fip in enumerate(float_ips):
+        variables[f"ip_server_kharej_float_{idx + 1}"] = validate_ip(fip)
+
+    nodes: List[Dict[str, Any]] = [
+        # --- TCP Outbound to local Xray (10005) ---
+        {
+            "name": "outbound_tcp",
+            "type": "TcpConnector",
+            "settings": {
+                "address": "127.0.0.1",
+                "port": "$final_tcp_port$",
+                "nodelay": True,
+            },
+        },
+        {
+            "name": "bridge_tcp_local",
+            "type": "Bridge",
+            "settings": {"pair": "bridge_tcp_rev_client"},
+            "next": "outbound_tcp",
+        },
+        {
+            "name": "bridge_tcp_rev_client",
+            "type": "Bridge",
+            "settings": {"pair": "bridge_tcp_local"},
+            "next": "rev_client_tcp",
+        },
+        {
+            "name": "rev_client_tcp",
+            "type": "ReverseClient",
+            "settings": {"minimum-unused": 8},
+            "next": "halfc_tcp" if use_halfduplex else "reality_client_tcp",
+        },
+    ]
+
+    if use_halfduplex:
+        nodes.append({
+            "name": "halfc_tcp",
+            "type": "HalfDuplexClient",
+            "settings": {},
+            "next": "reality_client_tcp",
+        })
+
+    reality_tcp_next = "fisher_client_tcp" if use_fisher else "tcp_to_iran"
+    nodes.append({
+        "name": "reality_client_tcp",
+        "type": "RealityClient",
+        "settings": {
+            "sni": "$domain_to_handshake_reality$",
+            "verify": True,
+            "password": "$password$",
+            "algorithm": "chacha20-poly1305",
+            "kdf-iterations": 12000,
+        },
+        "next": reality_tcp_next,
+    })
+
+    if use_fisher:
+        nodes.append({
+            "name": "fisher_client_tcp",
+            "type": "ConnectionFisherClient",
+            "settings": {},
+            "next": "tcp_to_iran",
+        })
+
+    nodes.append({
+        "name": "tcp_to_iran",
+        "type": "TcpConnector",
+        "settings": {
+            "address": "$ip_server_iran$",
+            "port": "$tunnel_carrier_port$",
+            "nodelay": True,
+            "source_ip": "$ip_server_kharej$",
+        },
+    })
+
+    # --- UDP Outbound (Optional) ---
+    if udp_forward_port:
+        nodes.extend([
+            {
+                "name": "outbound_udp",
+                "type": "UdpConnector",
+                "settings": {
+                    "address": "127.0.0.1",
+                    "port": "$final_udp_port$",
+                },
+            },
+            {
+                "name": "t2u",
+                "type": "UdpOverTcpServer",
+                "settings": {},
+                "next": "outbound_udp",
+            },
+            {
+                "name": "bridge_udp_local",
+                "type": "Bridge",
+                "settings": {"pair": "bridge_udp_rev_client"},
+                "next": "t2u",
+            },
+            {
+                "name": "bridge_udp_rev_client",
+                "type": "Bridge",
+                "settings": {"pair": "bridge_udp_local"},
+                "next": "rev_client_udp",
+            },
+            {
+                "name": "rev_client_udp",
+                "type": "ReverseClient",
+                "settings": {"minimum-unused": 8},
+                "next": "halfc_udp" if use_halfduplex else "reality_client_udp",
+            },
+        ])
+
+        if use_halfduplex:
+            nodes.append({
+                "name": "halfc_udp",
+                "type": "HalfDuplexClient",
+                "settings": {},
+                "next": "reality_client_udp",
+            })
+
+        reality_udp_next = "fisher_client_udp" if use_fisher else "tcp_to_iran_udp"
+        nodes.append({
+            "name": "reality_client_udp",
+            "type": "RealityClient",
+            "settings": {
+                "sni": "$domain_to_handshake_reality$",
+                "verify": True,
+                "password": "$password$",
+                "algorithm": "chacha20-poly1305",
+                "kdf-iterations": 12000,
+            },
+            "next": reality_udp_next,
+        })
+
+        if use_fisher:
+            nodes.append({
+                "name": "fisher_client_udp",
+                "type": "ConnectionFisherClient",
+                "settings": {},
+                "next": "tcp_to_iran_udp",
+            })
+
+        nodes.append({
+            "name": "tcp_to_iran_udp",
+            "type": "TcpConnector",
+            "settings": {
+                "address": "$ip_server_iran$",
+                "port": "$tunnel_carrier_udp_port$",
+                "nodelay": True,
+                "source_ip": "$ip_server_kharej$",
+            },
+        })
+
+    return {
+        "name": config_name,
+        "variables": variables,
+        "nodes": nodes,
+    }

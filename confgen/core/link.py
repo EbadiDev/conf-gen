@@ -132,6 +132,30 @@ def apply_setup_link(
             password=password,
             float_ips=float_ips,
         )
+    elif method == "reverse_reality_dual":
+        from confgen.generators.waterwall.reverse_reality import generate_reverse_reality_dual_kharej
+        domain = data.get("domain", "shariati.tums.ac.ir")
+        password = data.get("password", "arch1234net")
+        tcp_fwd = int(data.get("tcp_forward_port", 10005))
+        udp_fwd = int(data["udp_forward_port"]) if data.get("udp_forward_port") else None
+        carrier_p = int(data.get("carrier_port", 58443))
+        carrier_udp_p = int(data.get("carrier_udp_port", 58444))
+        use_hd = bool(data.get("use_halfduplex", True))
+        use_cf = bool(data.get("use_fisher", True))
+        cfg = generate_reverse_reality_dual_kharej(
+            config_name=name,
+            iran_ip=iran_ip,
+            kharej_ip=clean_kharej,
+            tcp_forward_port=tcp_fwd,
+            udp_forward_port=udp_fwd,
+            carrier_port=carrier_p,
+            carrier_udp_port=carrier_udp_p,
+            domain=domain,
+            password=password,
+            float_ips=float_ips,
+            use_halfduplex=use_hd,
+            use_fisher=use_cf,
+        )
     elif method == "tls_reverse":
         domain = data.get("sni", data.get("domain", "telewebion.ir"))
         final_port = tcp_ports[0] if tcp_ports else 443

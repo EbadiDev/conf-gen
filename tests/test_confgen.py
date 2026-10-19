@@ -1122,6 +1122,29 @@ class TestFinder(unittest.TestCase):
         self.assertEqual(k["nodes"][0]["type"], "UdpConnector")
         self.assertEqual(k["nodes"][1]["type"], "UdpOverTcpServer")
 
+    def test_reverse_reality_dual_generators(self):
+        """Verify dual TCP + UDP Reverse Reality generator with multiple ports."""
+        from confgen.generators.waterwall.reverse_reality import generate_reverse_reality_dual_iran, generate_reverse_reality_dual_kharej
+
+        i = generate_reverse_reality_dual_iran(
+            "dual_i", "1.1.1.1", "2.2.2.2",
+            tcp_ports=[443, 8080, 5370, 9008], tcp_forward_port=10005,
+            udp_port=27012, udp_forward_port=10006
+        )
+        types_i = [n["type"] for n in i["nodes"]]
+        self.assertIn("TcpListener", types_i)
+        self.assertIn("UdpListener", types_i)
+        self.assertIn("UdpOverTcpClient", types_i)
+
+        k = generate_reverse_reality_dual_kharej(
+            "dual_k", "1.1.1.1", "2.2.2.2",
+            tcp_forward_port=10005, udp_forward_port=10006
+        )
+        types_k = [n["type"] for n in k["nodes"]]
+        self.assertIn("TcpConnector", types_k)
+        self.assertIn("UdpConnector", types_k)
+        self.assertIn("UdpOverTcpServer", types_k)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -931,62 +931,13 @@ def generate_protoswap_kharej(
         f1, f2 = parse_bitswap_pair(bitswap_pattern)
         manipulator_in_settings[f"dw-tcp-bit-{f1}"] = f"packet->{f2}"
         manipulator_in_settings[f"dw-tcp-bit-{f2}"] = f"packet->{f1}"
-        manipulator_out_settings[f"up-tcp-bit-{f1}"] = f"packet->{f2}"
-        manipulator_out_settings[f"up-tcp-bit-{f2}"] = f"packet->{f1}"
+        manipulator_in_settings[f"up-tcp-bit-{f1}"] = f"packet->{f2}"
+        manipulator_in_settings[f"up-tcp-bit-{f2}"] = f"packet->{f1}"
         if preserve_bitflags:
             manipulator_in_settings["preserve-tcp-bitflags"] = True
-            manipulator_out_settings["preserve-tcp-bitflags"] = True
 
     nodes.extend(
         [
-            {
-                "name": "my tun2",
-                "type": "TunDevice",
-                "settings": {
-                    "device-name": f"{config_name}2",
-                    "device-ip": f"{tun2_ip1}/24",
-                },
-                "next": "ipcorrect",
-            },
-            {
-                "name": "ipcorrect",
-                "type": "IpOverrider",
-                "settings": {
-                    "up": {
-                        "source-ip": {"ipv4": "$tun_ip_2$"},
-                        "dest-ip": {"ipv4": "$tun_ip_1$"},
-                    },
-                    "down": {
-                        "source-ip": {"ipv4": "$tun_ip_2$"},
-                        "dest-ip": {"ipv4": "$tun_ip_1$"},
-                    },
-                },
-                "next": "obfuscator-s",
-            },
-            {
-                "name": "obfuscator-s",
-                "type": "ObfuscatorServer",
-                "settings": {
-                    "method": "xor",
-                    "xor_key": xor_key,
-                    "skip": "transport",
-                },
-                "next": "ip-manipulator-in",
-            },
-            {
-                "name": "ip-manipulator-in",
-                "type": "IpManipulator",
-                "settings": manipulator_in_settings,
-                "next": "rdin",
-            },
-            {
-                "name": "rdin",
-                "type": "RawSocket",
-                "settings": {
-                    "capture-filter-mode": "source-ip",
-                    "capture-ip": "$ip_server_iran$",
-                },
-            },
             {
                 "name": "my tun",
                 "type": "TunDevice",
@@ -994,10 +945,10 @@ def generate_protoswap_kharej(
                     "device-name": config_name,
                     "device-ip": f"{tun_ip1}/24",
                 },
-                "next": "ipovsrc",
+                "next": "ipcorrect",
             },
             {
-                "name": "ipovsrc",
+                "name": "ipcorrect",
                 "type": "IpOverrider",
                 "settings": {
                     "up": {
@@ -1009,30 +960,30 @@ def generate_protoswap_kharej(
                         "dest-ip": {"ipv4": "$tun_ip_1$"},
                     },
                 },
-                "next": "obfuscator-c",
+                "next": "ip-manipulator-in",
             },
             {
-                "name": "obfuscator-c",
-                "type": "ObfuscatorClient",
+                "name": "ip-manipulator-in",
+                "type": "IpManipulator",
+                "settings": manipulator_in_settings,
+                "next": "obfuscator-s",
+            },
+            {
+                "name": "obfuscator-s",
+                "type": "ObfuscatorServer",
                 "settings": {
                     "method": "xor",
                     "xor_key": xor_key,
                     "skip": "transport",
                 },
-                "next": "ip-manipulator",
+                "next": "rdin",
             },
             {
-                "name": "ip-manipulator",
-                "type": "IpManipulator",
-                "settings": manipulator_out_settings,
-                "next": "rd",
-            },
-            {
-                "name": "rd",
+                "name": "rdin",
                 "type": "RawSocket",
                 "settings": {
                     "capture-filter-mode": "source-ip",
-                    "capture-ip": "12.13.12.13",
+                    "capture-ip": "$ip_server_iran$",
                 },
             },
         ]

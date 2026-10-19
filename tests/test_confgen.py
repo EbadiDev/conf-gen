@@ -1071,6 +1071,34 @@ class TestFinder(unittest.TestCase):
         self.assertIn("tls_reverse", cand_types)
         self.assertIn("udp_reverse", cand_types)
 
+    def test_protoswap_no_mux_direct_mode(self):
+        """Verify that when use_mux is False, MuxClient and MuxServer are omitted for direct connection."""
+        from confgen.generators.waterwall.protoswap import generate_protoswap_iran, generate_protoswap_kharej
+
+        i_cfg = generate_protoswap_iran("p_nomux_i", "1.1.1.1", "2.2.2.2", tcp_ports=[9001], use_mux=False)
+        self.assertFalse(any(n["type"] == "MuxClient" for n in i_cfg["nodes"]))
+        self.assertEqual(i_cfg["nodes"][0]["next"], "tcp-out")
+
+        k_cfg = generate_protoswap_kharej("p_nomux_k", "1.1.1.1", "2.2.2.2", tcp_ports=[9001], use_mux=False)
+        self.assertFalse(any(n["type"] == "MuxServer" for n in k_cfg["nodes"]))
+        self.assertEqual(k_cfg["nodes"][0]["next"], "tcp-out")
+
+    def test_reverse_reality_grpc_and_hd_profiles(self):
+        """Verify Reverse Reality gRPC + HalfDuplex node pipeline."""
+        from confgen.generators.waterwall.reverse_reality import generate_reverse_reality_tcp_iran, generate_reverse_reality_tcp_kharej
+
+        i_cfg = generate_reverse_reality_tcp_iran("rr_grpc_i", "1.1.1.1", "2.2.2.2", 443, "telewebion.ir", "3.3.3.3", use_halfduplex=True, use_grpc=True)
+        i_types = [n["type"] for n in i_cfg["nodes"]]
+        self.assertIn("HalfDuplexServer", i_types)
+        self.assertIn("Http2Server", i_types)
+        self.assertIn("ProtoBufServer", i_types)
+
+        k_cfg = generate_reverse_reality_tcp_kharej("rr_grpc_k", "1.1.1.1", "2.2.2.2", 443, "telewebion.ir", 8080, use_halfduplex=True, use_grpc=True)
+        k_types = [n["type"] for n in k_cfg["nodes"]]
+        self.assertIn("HalfDuplexClient", k_types)
+        self.assertIn("Http2Client", k_types)
+        self.assertIn("ProtoBufClient", k_types)
+
 
 if __name__ == "__main__":
     unittest.main()

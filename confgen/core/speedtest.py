@@ -44,6 +44,7 @@ def run_speedtest_server(port: int = 9001, bind: str = "0.0.0.0") -> int:
                     data, addr = udp_server.recvfrom(65536)
                     if data.startswith(b"PING"):
                         udp_server.sendto(b"PONG0000", addr)
+                        print_info(f"⚡ Handled UDP Ping from {addr[0]}:{addr[1]}")
                 except Exception:
                     break
         threading.Thread(target=_handle_udp, daemon=True).start()
@@ -113,15 +114,18 @@ def run_speedtest_client(
         up_bytes = 0
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-                s.settimeout(1.5)
-                t0 = time.perf_counter()
-                s.sendto(b"PING0000", (host, port))
-                try:
-                    resp, _ = s.recvfrom(1024)
-                    if resp.startswith(b"PONG"):
-                        rtt_ms = round((time.perf_counter() - t0) * 1000.0, 1)
-                except Exception:
-                    pass
+                s.settimeout(3.5)
+                # Send up to 3 pings (the first warms up the reverse tunnel)
+                for _ in range(3):
+                    t0 = time.perf_counter()
+                    s.sendto(b"PING0000", (host, port))
+                    try:
+                        resp, _ = s.recvfrom(1024)
+                        if resp.startswith(b"PONG"):
+                            rtt_ms = round((time.perf_counter() - t0) * 1000.0, 1)
+                            break
+                    except Exception:
+                        time.sleep(0.2)
 
                 rtt_str = f"{rtt_ms:.1f} ms" if rtt_ms is not None else "TIMEOUT"
                 if not quiet:

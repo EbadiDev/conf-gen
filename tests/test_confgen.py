@@ -1159,6 +1159,22 @@ class TestFinder(unittest.TestCase):
                         self.fail(f"Unresolvable annotation in {modname}.{name}: {e}")
 
 
+    def test_bandwidth_tracker_record_and_load(self):
+        """Verify recording and loading bandwidth degradation samples."""
+        import tempfile
+        from confgen.core.tracker import record_sample, load_history, show_bandwidth_history
+
+        with tempfile.NamedTemporaryFile(suffix=".json") as tmp:
+            record_sample(2100.0, 2450.0, 35.0, port=59852, proto="TCP", filepath=tmp.name)
+            record_sample(400.0, 500.0, 95.0, port=59852, proto="TCP", filepath=tmp.name)
+            history = load_history(tmp.name)
+            self.assertEqual(len(history), 2)
+            self.assertEqual(history[0]["up_mbps"], 2100.0)
+            self.assertEqual(history[1]["down_mbps"], 500.0)
+            # Test show_bandwidth_history doesn't throw
+            show_bandwidth_history(filepath=tmp.name)
+
+
 if __name__ == "__main__":
     unittest.main()
 

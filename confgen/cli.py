@@ -395,6 +395,29 @@ def create_parser() -> argparse.ArgumentParser:
     t_cli.add_argument("--udp", action="store_true", help="Run UDP speed test instead of TCP")
     t_cli.add_argument("--matrix", "--scaling", dest="matrix", action="store_true", help="Run MUX multi-connection scaling benchmark table (1, 2, 8, 16 streams)")
 
+    track_p = subparsers.add_parser("track", help="Automated bandwidth tracking & degradation logging", formatter_class=CustomFormatter)
+    track_sub = track_p.add_subparsers(dest="track_cmd", help="Action (run | show | check)")
+
+    tr_run = track_sub.add_parser("run", help="Start periodic bandwidth tracker", formatter_class=CustomFormatter)
+    tr_run.add_argument("-p", "--port", type=int, default=59852, help="Dedicated probe port (default: 59852)")
+    tr_run.add_argument("-t", "--host", default="127.0.0.1", help="Target host (default: 127.0.0.1)")
+    tr_run.add_argument("-i", "--interval", type=int, default=30, help="Interval in minutes between samples (default: 30)")
+    tr_run.add_argument("-d", "--duration", type=int, default=2, help="Burst test duration in seconds (default: 2)")
+    tr_run.add_argument("--udp", action="store_true", help="Track UDP throughput instead of TCP")
+    tr_run.add_argument("-c", "--count", type=int, default=0, help="Max iterations (default: 0 = continuous)")
+    tr_run.add_argument("--file", help="Custom JSON history file path")
+
+    tr_show = track_sub.add_parser("show", help="Display bandwidth history table & degradation trends", formatter_class=CustomFormatter)
+    tr_show.add_argument("-n", "--limit", type=int, default=25, help="Number of recent samples to display (default: 25)")
+    tr_show.add_argument("--file", help="Custom JSON history file path")
+
+    tr_chk = track_sub.add_parser("check", help="Run a single immediate bandwidth check and record sample", formatter_class=CustomFormatter)
+    tr_chk.add_argument("-p", "--port", type=int, default=59852, help="Dedicated probe port (default: 59852)")
+    tr_chk.add_argument("-t", "--host", default="127.0.0.1", help="Target host (default: 127.0.0.1)")
+    tr_chk.add_argument("-d", "--duration", type=int, default=2, help="Burst test duration in seconds (default: 2)")
+    tr_chk.add_argument("--udp", action="store_true", help="Track UDP throughput instead of TCP")
+    tr_chk.add_argument("--file", help="Custom JSON history file path")
+
     # =========================================================================
     # 0.1 FINDER (Top-level alias)
     # =========================================================================
@@ -948,6 +971,39 @@ def main(argv: Optional[List[str]] = None) -> int:
                     run_speedtest_client(host=args.host, port=args.port, duration=args.duration, parallel=args.parallel, use_udp=bool(getattr(args, "udp", False)))
                 return 0
             parser.print_help()
+            return 1
+
+        elif args.command == "track":
+            from confgen.core.tracker import run_bandwidth_tracker, show_bandwidth_history
+            if getattr(args, "track_cmd", None) == "run":
+                run_bandwidth_tracker(
+                    host=args.host,
+                    port=args.port,
+                    interval_minutes=args.interval,
+                    duration=args.duration,
+                    iterations=args.count,
+                    use_udp=bool(getattr(args, "udp", False)),
+                    filepath=getattr(args, "file", None),
+                )
+                return 0
+            elif getattr(args, "track_cmd", None) == "show":
+                show_bandwidth_history(
+                    filepath=getattr(args, "file", None),
+                    limit=args.limit,
+                )
+                return 0
+            elif getattr(args, "track_cmd", None) == "check":
+                run_bandwidth_tracker(
+                    host=args.host,
+                    port=args.port,
+                    interval_minutes=0,
+                    duration=args.duration,
+                    iterations=1,
+                    use_udp=bool(getattr(args, "udp", False)),
+                    filepath=getattr(args, "file", None),
+                )
+                return 0
+            track_p.print_help()
             return 1
 
         elif args.command == "link":

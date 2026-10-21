@@ -13,7 +13,7 @@ import socket
 import sys
 import threading
 import time
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 from confgen.core.utils import print_error, print_info, print_success, print_warning
 
@@ -257,13 +257,12 @@ def run_speedtest_client(
 
 
 def run_mux_scaling_benchmark(
-    host: str = "127.0.0.1",
-    port: int = 9001,
-    duration: int = 5,
-    steps: Optional[List[int]] = None,
+     host: str = "127.0.0.1",
+     port: int = 9001,
+     duration: int = 5,
+     steps: Optional[List[int]] = None,
 ) -> None:
     """Run multi-connection scaling benchmark (1, 2, 8, 16 child connections) matching WaterWall docs."""
-    from typing import List
     steps = steps or [1, 2, 8, 16]
     print("\n" + "=" * 80)
     print("⚡ WATERWALL MUX MULTI-CONNECTION SCALING BENCHMARK")

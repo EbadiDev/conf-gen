@@ -1,6 +1,6 @@
 """Waterwall Reverse Reality Configuration Generator (TCP & UDP)."""
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from confgen.core.validator import validate_ip, validate_port
 
 

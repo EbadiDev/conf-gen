@@ -1145,6 +1145,19 @@ class TestFinder(unittest.TestCase):
         self.assertIn("UdpConnector", types_k)
         self.assertIn("UdpOverTcpServer", types_k)
 
+    def test_all_module_annotations(self):
+        """Verify all functions and classes across all modules have valid, resolvable annotations."""
+        import importlib, pkgutil, inspect, confgen
+        for _, modname, _ in pkgutil.walk_packages(confgen.__path__, confgen.__name__ + '.'):
+            mod = importlib.import_module(modname)
+            for name, obj in inspect.getmembers(mod):
+                if inspect.isfunction(obj) or inspect.isclass(obj):
+                    # In Python 3.10+, accessing __annotations__ directly evaluates type hints
+                    try:
+                        getattr(obj, '__annotations__', None)
+                    except NameError as e:
+                        self.fail(f"Unresolvable annotation in {modname}.{name}: {e}")
+
 
 if __name__ == "__main__":
     unittest.main()

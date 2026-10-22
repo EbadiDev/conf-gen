@@ -399,11 +399,13 @@ def create_parser() -> argparse.ArgumentParser:
     track_sub = track_p.add_subparsers(dest="track_cmd", help="Action (run | show | check)")
 
     tr_run = track_sub.add_parser("run", help="Start periodic bandwidth tracker", formatter_class=CustomFormatter)
-    tr_run.add_argument("-p", "--port", type=int, default=59852, help="Dedicated probe port (default: 59852)")
+    tr_run.add_argument("-p", "--port", type=int, help="Dedicated probe port (auto-detects from active tunnel if omitted)")
     tr_run.add_argument("-t", "--host", default="127.0.0.1", help="Target host (default: 127.0.0.1)")
     tr_run.add_argument("-i", "--interval", type=int, default=30, help="Interval in minutes between samples (default: 30)")
     tr_run.add_argument("-d", "--duration", type=int, default=2, help="Burst test duration in seconds (default: 2)")
-    tr_run.add_argument("--udp", action="store_true", help="Track UDP throughput instead of TCP")
+    tr_run.add_argument("--udp", action="store_true", help="Force UDP throughput test")
+    tr_run.add_argument("--tcp", action="store_true", help="Force TCP throughput test")
+    tr_run.add_argument("--proto", choices=["tcp", "udp", "TCP", "UDP"], help="Protocol to test (TCP or UDP, auto-detected if omitted)")
     tr_run.add_argument("-c", "--count", type=int, default=0, help="Max iterations (default: 0 = continuous)")
     tr_run.add_argument("--file", help="Custom JSON history file path")
 
@@ -412,10 +414,12 @@ def create_parser() -> argparse.ArgumentParser:
     tr_show.add_argument("--file", help="Custom JSON history file path")
 
     tr_chk = track_sub.add_parser("check", help="Run a single immediate bandwidth check and record sample", formatter_class=CustomFormatter)
-    tr_chk.add_argument("-p", "--port", type=int, default=59852, help="Dedicated probe port (default: 59852)")
+    tr_chk.add_argument("-p", "--port", type=int, help="Dedicated probe port (auto-detects from active tunnel if omitted)")
     tr_chk.add_argument("-t", "--host", default="127.0.0.1", help="Target host (default: 127.0.0.1)")
     tr_chk.add_argument("-d", "--duration", type=int, default=2, help="Burst test duration in seconds (default: 2)")
-    tr_chk.add_argument("--udp", action="store_true", help="Track UDP throughput instead of TCP")
+    tr_chk.add_argument("--udp", action="store_true", help="Force UDP throughput test")
+    tr_chk.add_argument("--tcp", action="store_true", help="Force TCP throughput test")
+    tr_chk.add_argument("--proto", choices=["tcp", "udp", "TCP", "UDP"], help="Protocol to test (TCP or UDP, auto-detected if omitted)")
     tr_chk.add_argument("--file", help="Custom JSON history file path")
 
     # =========================================================================
@@ -521,6 +525,8 @@ def create_parser() -> argparse.ArgumentParser:
     w_rr_u.add_argument("--float", nargs="*", default=[], help="Kharej floating IPs")
     w_rr_u.add_argument("--halfduplex", action="store_true", help="Enable HalfDuplex")
     w_rr_u.add_argument("--fisher", action="store_true", help="Enable ConnectionFisher")
+    w_rr_u.add_argument("--probe", action="store_true", help="Automatically include dedicated UDP bandwidth probe port (default: 59853)")
+    w_rr_u.add_argument("--probe-port", type=int, help="Custom dedicated UDP bandwidth probe port (default: 59853)")
     w_rr_u.add_argument("--no-core", action="store_true", help="Do not automatically add to core.json")
 
     # ww rr dual (Champion Multi-Port TCP + UDP)
@@ -982,13 +988,15 @@ def main(argv: Optional[List[str]] = None) -> int:
         elif args.command == "track":
             from confgen.core.tracker import run_bandwidth_tracker, show_bandwidth_history
             if getattr(args, "track_cmd", None) == "run":
+                proto_arg = getattr(args, "proto", None)
+                use_udp = True if (getattr(args, "udp", False) or (proto_arg and proto_arg.lower() == "udp")) else (False if (getattr(args, "tcp", False) or (proto_arg and proto_arg.lower() == "tcp")) else None)
                 run_bandwidth_tracker(
                     host=args.host,
-                    port=args.port,
+                    port=getattr(args, "port", None),
                     interval_minutes=args.interval,
                     duration=args.duration,
                     iterations=args.count,
-                    use_udp=bool(getattr(args, "udp", False)),
+                    use_udp=use_udp,
                     filepath=getattr(args, "file", None),
                 )
                 return 0
@@ -999,13 +1007,15 @@ def main(argv: Optional[List[str]] = None) -> int:
                 )
                 return 0
             elif getattr(args, "track_cmd", None) == "check":
+                proto_arg = getattr(args, "proto", None)
+                use_udp = True if (getattr(args, "udp", False) or (proto_arg and proto_arg.lower() == "udp")) else (False if (getattr(args, "tcp", False) or (proto_arg and proto_arg.lower() == "tcp")) else None)
                 run_bandwidth_tracker(
                     host=args.host,
-                    port=args.port,
+                    port=getattr(args, "port", None),
                     interval_minutes=0,
                     duration=args.duration,
                     iterations=1,
-                    use_udp=bool(getattr(args, "udp", False)),
+                    use_udp=use_udp,
                     filepath=getattr(args, "file", None),
                 )
                 return 0
@@ -1088,6 +1098,14 @@ def main(argv: Optional[List[str]] = None) -> int:
                     kharej_ip = args.kharej_ip
                     port = args.port or 27012
                     final_port = args.final_port or 10006
+                    probe_port = getattr(args, "probe_port", None)
+                    if getattr(args, "probe", False) and not probe_port:
+                        probe_port = 59853
+                    if probe_port:
+                        from confgen.core.tracker import save_probe_config
+                        save_probe_config(probe_port, proto="UDP")
+                        print_info(f"Dedicated UDP bandwidth probe port {probe_port} added to tunnel.")
+
                     domain = args.domain or "shariati.tums.ac.ir"
                     from confgen.core.finder import resolve_sni_ip
                     white_ip = args.white_ip or resolve_sni_ip(domain)
@@ -1112,6 +1130,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                             float_ips=args.float,
                             use_halfduplex=use_hd,
                             use_fisher=use_cf,
+                            probe_port=probe_port,
                         )
                         save_waterwall_config(cfg, name=name, auto_core=not args.no_core)
                         from confgen.core.link import encode_setup_link, print_setup_box
@@ -1123,6 +1142,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                             "tcp_ports": [port],
                             "tcp_tunnel_port": port,
                             "final_port": final_port,
+                            "probe_port": probe_port,
                             "domain": domain,
                             "password": password,
                             "use_halfduplex": use_hd,
@@ -1144,6 +1164,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                             float_ips=args.float,
                             use_halfduplex=use_hd,
                             use_fisher=use_cf,
+                            probe_port=probe_port,
                         )
                         save_waterwall_config(cfg, name=name, auto_core=not args.no_core)
                         return 0
@@ -1159,7 +1180,9 @@ def main(argv: Optional[List[str]] = None) -> int:
                     if probe_port:
                         if probe_port not in tcp_ports:
                             tcp_ports.append(probe_port)
-                        print_info(f"Dedicated bandwidth probe port {probe_port} added to tunnel.")
+                        from confgen.core.tracker import save_probe_config
+                        save_probe_config(probe_port, proto="TCP")
+                        print_info(f"Dedicated TCP bandwidth probe port {probe_port} added to tunnel.")
                     tcp_fwd = args.tcp_forward
                     udp_port = args.udp_port
                     udp_fwd = args.udp_forward
@@ -1246,7 +1269,9 @@ def main(argv: Optional[List[str]] = None) -> int:
                     if probe_port:
                         if probe_port not in ports:
                             ports.append(probe_port)
-                        print_info(f"Dedicated bandwidth probe port {probe_port} added to tunnel.")
+                        from confgen.core.tracker import save_probe_config
+                        save_probe_config(probe_port, proto="TCP")
+                        print_info(f"Dedicated TCP bandwidth probe port {probe_port} added to tunnel.")
                     domain = args.domain or args.pos_domain or "shariati.tums.ac.ir"
                     from confgen.core.finder import resolve_sni_ip
                     white_ip = args.white_ip or args.pos_white_ip or resolve_sni_ip(domain)

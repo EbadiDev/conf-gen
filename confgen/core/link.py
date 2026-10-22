@@ -145,6 +145,7 @@ def apply_setup_link(
         final_port = int(data.get("final_port", data.get("udp_forward_port", 10006)))
         use_hd = bool(data.get("use_halfduplex", False))
         use_cf = bool(data.get("use_fisher", False))
+        probe_p = data.get("probe_port")
         cfg = generate_reverse_reality_udp_kharej(
             config_name=name,
             iran_ip=iran_ip,
@@ -156,6 +157,7 @@ def apply_setup_link(
             float_ips=float_ips,
             use_halfduplex=use_hd,
             use_fisher=use_cf,
+            probe_port=probe_p,
         )
     elif method == "reverse_reality_dual":
         from confgen.generators.waterwall.reverse_reality import generate_reverse_reality_dual_kharej

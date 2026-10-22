@@ -448,6 +448,7 @@ def generate_reverse_reality_udp_iran(
     float_ips: Optional[List[str]] = None,
     use_halfduplex: bool = False,
     use_fisher: bool = False,
+    probe_port: Optional[int] = None,
     reverse_secret_length: Optional[int] = None,
     reverse_secret: Optional[str] = None,
 ) -> Dict[str, Any]:
@@ -579,6 +580,92 @@ def generate_reverse_reality_udp_iran(
             }
         )
 
+    if probe_port:
+        clean_probe = validate_port(probe_port)
+        nodes.extend([
+            {
+                "name": "probe_inbound",
+                "type": "UdpListener",
+                "settings": {
+                    "address": "0.0.0.0",
+                    "port": clean_probe,
+                },
+                "next": "udpovertcp_client_probe",
+            },
+            {
+                "name": "udpovertcp_client_probe",
+                "type": "UdpOverTcpClient",
+                "settings": {},
+                "next": "bridge_user_side_probe",
+            },
+            {
+                "name": "bridge_user_side_probe",
+                "type": "Bridge",
+                "settings": {"pair": "bridge_reverse_side_probe"},
+            },
+            {
+                "name": "bridge_reverse_side_probe",
+                "type": "Bridge",
+                "settings": {"pair": "bridge_user_side_probe"},
+            },
+            {
+                "name": "reverse_server_probe",
+                "type": "ReverseServer",
+                "settings": {"minimum-unused": 8},
+                "next": "bridge_reverse_side_probe",
+            },
+        ])
+        probe_reality_next = "halfs_probe" if use_halfduplex else "reverse_server_probe"
+        if use_halfduplex:
+            nodes.append({
+                "name": "halfs_probe",
+                "type": "HalfDuplexServer",
+                "settings": {},
+                "next": "reverse_server_probe",
+            })
+        nodes.extend([
+            {
+                "name": "reality_server_probe",
+                "type": "RealityServer",
+                "settings": {
+                    "destination": "dest_visitor_probe",
+                    "password": "$password$",
+                    "algorithm": "chacha20-poly1305",
+                    "kdf-iterations": 12000,
+                    "sniffing-attempts": 8,
+                },
+                "next": probe_reality_next,
+            },
+            {
+                "name": "dest_visitor_probe",
+                "type": "TcpConnector",
+                "settings": {
+                    "address": "$ip_behind_domain_white$",
+                    "port": 443,
+                    "nodelay": True,
+                },
+            },
+        ])
+        probe_listener_next = "fisher_server_probe" if use_fisher else "reality_server_probe"
+        if use_fisher:
+            nodes.append({
+                "name": "fisher_server_probe",
+                "type": "ConnectionFisherServer",
+                "settings": {},
+                "next": "reality_server_probe",
+            })
+        nodes.append({
+            "name": "germany_reverse_tls_inbound_probe",
+            "type": "TcpListener",
+            "settings": {
+                "address": "0.0.0.0",
+                "port": clean_probe,
+                "nodelay": True,
+                "whitelist": whitelist,
+            },
+            "next": probe_listener_next,
+        })
+
     return {
         "name": config_name,
         "variables": variables,
@@ -598,6 +685,7 @@ def generate_reverse_reality_udp_kharej(
     float_ips: Optional[List[str]] = None,
     use_halfduplex: bool = False,
     use_fisher: bool = False,
+    probe_port: Optional[int] = None,
     reverse_secret_length: Optional[int] = None,
     reverse_secret: Optional[str] = None,
 ) -> Dict[str, Any]:
@@ -744,6 +832,79 @@ def generate_reverse_reality_udp_kharej(
                 },
             }
         )
+
+    if probe_port:
+        clean_probe = validate_port(probe_port)
+        nodes.extend([
+            {
+                "name": "outbound_to_local_probe",
+                "type": "UdpConnector",
+                "settings": {
+                    "address": "127.0.0.1",
+                    "port": clean_probe,
+                },
+            },
+            {
+                "name": "udpovertcp_server_probe",
+                "type": "UdpOverTcpServer",
+                "settings": {},
+                "next": "outbound_to_local_probe",
+            },
+            {
+                "name": "bridge_local_side_probe",
+                "type": "Bridge",
+                "settings": {"pair": "bridge_reverse_client_side_probe"},
+                "next": "udpovertcp_server_probe",
+            },
+            {
+                "name": "bridge_reverse_client_side_probe",
+                "type": "Bridge",
+                "settings": {"pair": "bridge_local_side_probe"},
+                "next": "reverse_client_probe",
+            },
+            {
+                "name": "reverse_client_probe",
+                "type": "ReverseClient",
+                "settings": {"minimum-unused": 8},
+                "next": "halfc_probe" if use_halfduplex else "reality_client_probe",
+            },
+        ])
+        if use_halfduplex:
+            nodes.append({
+                "name": "halfc_probe",
+                "type": "HalfDuplexClient",
+                "settings": {},
+                "next": "reality_client_probe",
+            })
+        probe_reality_next = "fisher_client_probe" if use_fisher else "tcp_to_iran_probe"
+        nodes.append({
+            "name": "reality_client_probe",
+            "type": "RealityClient",
+            "settings": {
+                "sni": "$domain_to_handshake_reality$",
+                "verify": True,
+                "password": "$password$",
+                "algorithm": "chacha20-poly1305",
+                "kdf-iterations": 12000,
+            },
+            "next": probe_reality_next,
+        })
+        if use_fisher:
+            nodes.append({
+                "name": "fisher_client_probe",
+                "type": "ConnectionFisherClient",
+                "settings": {},
+                "next": "tcp_to_iran_probe",
+            })
+        nodes.append({
+            "name": "tcp_to_iran_probe",
+            "type": "TcpConnector",
+            "settings": {
+                "address": "$ip_server_iran$",
+                "port": clean_probe,
+                "nodelay": True,
+            },
+        })
 
     return {
         "name": config_name,

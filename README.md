@@ -145,7 +145,8 @@ confgen waterwall reverse-reality iran \
   -p 443 8080 5370 9008 \
   -d shariati.tums.ac.ir \
   --halfduplex \
-  --fisher
+  --fisher \
+  --probe
 
 # Copy the ONE-LINE setup command printed by Iran and run it on Kharej:
 confgen link apply 'confgen://...'
@@ -172,6 +173,7 @@ systemctl restart waterwall.service
   - `8080` on Iran ➔ `127.0.0.1:8080` on Kharej
   - `5370` on Iran ➔ `127.0.0.1:5370` on Kharej
   - `9008` on Iran ➔ `127.0.0.1:9008` on Kharej
+  - `59852` (Added automatically via `--probe`) ➔ `127.0.0.1:59852` for speed checks!
 - **Speed**: **~4.7 Gbps** aggregate wire speed with **0ms added latency**!
 
 ---
@@ -244,7 +246,25 @@ In WaterWall, `core.json` automatically loads multiple configuration files simul
 
 ### 4. How to Test & Verify Tunnels
 
-#### Test 1: Test TCP Bandwidth
+#### Test 1: Test Tunnel Bandwidth on Dedicated Probe Port (59852)
+1. On Kharej (run receiver daemon):
+   ```bash
+   confgen test server --port 59852
+   ```
+2. On Iran (instant 2-second check):
+   ```bash
+   confgen track check
+   ```
+3. On Iran (automated periodic tracking every 30 mins):
+   ```bash
+   confgen track run --interval 30
+   ```
+4. On Iran (show 24h speed degradation table):
+   ```bash
+   confgen track show
+   ```
+
+#### Test 2: Test Specific User Port (e.g. 8080)
 1. On Kharej:
    ```bash
    confgen test server --port 8080
@@ -254,17 +274,17 @@ In WaterWall, `core.json` automatically loads multiple configuration files simul
    confgen test client -t 127.0.0.1 -p 8080
    ```
 
-#### Test 2: Test UDP Bandwidth & Packet Loss
+#### Test 3: Test UDP Bandwidth & Packet Loss (e.g. 27012)
 1. On Kharej:
    ```bash
-   confgen test server --port 9001
+   confgen test server --port 27012
    ```
 2. On Iran:
    ```bash
-   confgen test client -t 127.0.0.1 -p 9001 --udp
+   confgen test client -t 127.0.0.1 -p 27012 --udp
    ```
 
-#### Test 3: Test MUX Concurrency Scaling Table
+#### Test 4: Test MUX Concurrency Scaling Table
 Measures how throughput scales across 1, 2, 8, and 16 concurrent streams:
 ```bash
 confgen test client -t 127.0.0.1 -p 8080 --matrix

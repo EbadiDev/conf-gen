@@ -1174,6 +1174,24 @@ class TestFinder(unittest.TestCase):
             # Test show_bandwidth_history doesn't throw
             show_bandwidth_history(filepath=tmp.name)
 
+    def test_probe_port_cli_flags(self):
+        """Verify --probe and --probe-port CLI flags add 59852 to ports list."""
+        from confgen.cli import create_parser
+        parser = create_parser()
+
+        # 1. Reverse Reality Iran with --probe
+        args = parser.parse_args(["waterwall", "reverse-reality", "iran", "-n", "t", "-ii", "1.1.1.1", "-ki", "2.2.2.2", "-p", "8080", "--probe"])
+        self.assertTrue(args.probe)
+        self.assertEqual(args.probe_port, None)
+
+        # 2. Reverse Reality Iran with --probe-port 60000
+        args2 = parser.parse_args(["waterwall", "reverse-reality", "iran", "-n", "t", "-ii", "1.1.1.1", "-ki", "2.2.2.2", "-p", "8080", "--probe-port", "60000"])
+        self.assertEqual(args2.probe_port, 60000)
+
+        # 3. Dual Iran with --probe
+        args3 = parser.parse_args(["waterwall", "reverse-reality", "dual", "iran", "-n", "t", "-ii", "1.1.1.1", "-ki", "2.2.2.2", "-tp", "8080", "--probe"])
+        self.assertTrue(args3.probe)
+
 
 if __name__ == "__main__":
     unittest.main()

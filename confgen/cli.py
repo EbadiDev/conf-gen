@@ -548,6 +548,8 @@ def create_parser() -> argparse.ArgumentParser:
     w_rr_d.add_argument("--float", nargs="*", default=[], help="Kharej floating IPs")
     w_rr_d.add_argument("--no-halfduplex", action="store_true", help="Disable HalfDuplex")
     w_rr_d.add_argument("--no-fisher", action="store_true", help="Disable ConnectionFisher")
+    w_rr_d.add_argument("--probe", action="store_true", help="Automatically include dedicated bandwidth probe port 59852")
+    w_rr_d.add_argument("--probe-port", type=int, help="Custom dedicated bandwidth probe port (default: 59852)")
     w_rr_d.add_argument("--no-core", action="store_true", help="Do not automatically add to core.json")
 
     # ww rr iran
@@ -578,6 +580,8 @@ def create_parser() -> argparse.ArgumentParser:
     w_rr_i.add_argument("--fisher", action="store_true", help="Enable ConnectionFisher server")
     w_rr_i.add_argument("--tls-cert", help="TLS certificate path for local termination")
     w_rr_i.add_argument("--tls-key", help="TLS key path for local termination")
+    w_rr_i.add_argument("--probe", action="store_true", help="Automatically include dedicated bandwidth probe port 59852")
+    w_rr_i.add_argument("--probe-port", type=int, help="Custom dedicated bandwidth probe port (default: 59852)")
     w_rr_i.add_argument("--no-core", action="store_true", help="Do not automatically add to core.json")
 
     # ww rr kharej
@@ -703,6 +707,8 @@ def create_parser() -> argparse.ArgumentParser:
     w_bit_i.add_argument("--private-ip", help="Custom base private IP subnet (e.g. 10.10.0.1)")
     w_bit_i.add_argument("--private-ip-2", help="Secondary internal private IP subnet")
     w_bit_i.add_argument("--pattern", default="psh/rst", help="BitSwap TCP flag pattern (default: psh/rst)")
+    w_bit_i.add_argument("--probe", action="store_true", help="Automatically include dedicated bandwidth probe port 59852")
+    w_bit_i.add_argument("--probe-port", type=int, help="Custom dedicated bandwidth probe port (default: 59852)")
     w_bit_i.add_argument("--no-core", action="store_true", help="Do not automatically add to core.json")
 
     w_bit_k = ww_bit_sub.add_parser(
@@ -1146,7 +1152,14 @@ def main(argv: Optional[List[str]] = None) -> int:
                     name = args.name or "champion"
                     iran_ip = args.iran_ip
                     kharej_ip = args.kharej_ip
-                    tcp_ports = args.tcp_ports
+                    tcp_ports = list(args.tcp_ports)
+                    probe_port = getattr(args, "probe_port", None)
+                    if getattr(args, "probe", False) and not probe_port:
+                        probe_port = 59852
+                    if probe_port:
+                        if probe_port not in tcp_ports:
+                            tcp_ports.append(probe_port)
+                        print_info(f"Dedicated bandwidth probe port {probe_port} added to tunnel.")
                     tcp_fwd = args.tcp_forward
                     udp_port = args.udp_port
                     udp_fwd = args.udp_forward
@@ -1226,7 +1239,14 @@ def main(argv: Optional[List[str]] = None) -> int:
                     name = args.name or args.pos_name
                     iran_ip = args.iran_ip or args.pos_iran_ip
                     kharej_ip = args.kharej_ip or args.pos_kharej_ip
-                    ports = args.port if isinstance(args.port, list) else [args.port or 443]
+                    ports = list(args.port) if isinstance(args.port, list) else [args.port or 443]
+                    probe_port = getattr(args, "probe_port", None)
+                    if getattr(args, "probe", False) and not probe_port:
+                        probe_port = 59852
+                    if probe_port:
+                        if probe_port not in ports:
+                            ports.append(probe_port)
+                        print_info(f"Dedicated bandwidth probe port {probe_port} added to tunnel.")
                     domain = args.domain or args.pos_domain or "shariati.tums.ac.ir"
                     from confgen.core.finder import resolve_sni_ip
                     white_ip = args.white_ip or args.pos_white_ip or resolve_sni_ip(domain)
@@ -1370,6 +1390,13 @@ def main(argv: Optional[List[str]] = None) -> int:
                 if args.side == "iran":
                     if not tcp_ports and args.listen_port:
                         tcp_ports = [args.listen_port]
+                    probe_port = getattr(args, "probe_port", None)
+                    if getattr(args, "probe", False) and not probe_port:
+                        probe_port = 59852
+                    if probe_port:
+                        if probe_port not in tcp_ports:
+                            tcp_ports.append(probe_port)
+                        print_info(f"Dedicated bandwidth probe port {probe_port} added to tunnel.")
                     tcp_tunnel_port = args.forward_port or args.tcp_tunnel_port
 
                     cert_path = args.tls_cert or (args.tls[0] if args.tls else None)

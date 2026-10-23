@@ -1,6 +1,7 @@
 """Common output, file system, and formatting utilities."""
 
 import json
+import os
 import socket
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
@@ -112,9 +113,23 @@ def write_json(data: Dict[str, Any], filepath: str | Path, indent: int = 2) -> P
     return p
 
 
-def update_core_json(config_name: str | Path, core_path: str | Path = "core.json") -> None:
+def get_waterwall_dir() -> Path:
+    """Locate active WaterWall directory (prefers cwd if core.json/Waterwall present, else /root/waterwall)."""
+    cwd = Path.cwd()
+    if (cwd / "core.json").exists() or (cwd / "Waterwall").exists():
+        return cwd
+    prod_dir = Path("/root/waterwall")
+    try:
+        if prod_dir.is_dir() and os.access(prod_dir, os.W_OK):
+            return prod_dir
+    except Exception:
+        pass
+    return cwd
+
+
+def update_core_json(config_name: str | Path, core_path: Optional[str | Path] = None) -> None:
     """Add generated config to core.json (creating core.json if not present)."""
-    cp = Path(core_path)
+    cp = Path(core_path) if core_path else (get_waterwall_dir() / "core.json")
     cfg_filename = Path(config_name).name
     if not cfg_filename.endswith(".json"):
         cfg_filename = f"{cfg_filename}.json"
@@ -172,12 +187,13 @@ def save_waterwall_config(
     core_path: Optional[Union[str, Path]] = None,
 ) -> Path:
     """Write WaterWall config and automatically synchronize with core.json."""
+    base_dir = get_waterwall_dir()
     if filepath:
         target = Path(filepath)
     elif name:
-        target = Path(f"{name}.json")
+        target = base_dir / f"{name}.json"
     else:
-        target = Path("config.json")
+        target = base_dir / "config.json"
 
     if not target.suffix:
         target = target.with_suffix(".json")

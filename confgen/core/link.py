@@ -266,8 +266,21 @@ def apply_setup_link(
             except Exception:
                 pass
 
+    # Auto-start probe receiver daemon if probe port is configured
+    detected_probe = data.get("probe_port")
+    if not detected_probe:
+        if 59852 in tcp_ports:
+            detected_probe = 59852
+        elif 59853 in tcp_ports:
+            detected_probe = 59853
+    if detected_probe and auto_restart:
+        from confgen.core.tracker import ensure_probe_server_service
+        ensure_probe_server_service(int(detected_probe))
+
     print("\n" + "=" * 76)
     print(f"🎉 TUNNEL '{name}' ACTIVATED ON KHAREJ!")
     print(f"Target Service: {final_ip}:{tcp_ports[0] if tcp_ports else 'N/A'}")
+    if detected_probe:
+        print(f"Probe Receiver: 127.0.0.1:{detected_probe} (Auto-Started ✅)")
     print("=" * 76 + "\n")
     return 0

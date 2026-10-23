@@ -1192,6 +1192,16 @@ class TestFinder(unittest.TestCase):
         args3 = parser.parse_args(["waterwall", "reverse-reality", "dual", "iran", "-n", "t", "-ii", "1.1.1.1", "-ki", "2.2.2.2", "-tp", "8080", "--probe"])
         self.assertTrue(args3.probe)
 
+        # 4. Track run --daemon and test server --daemon
+        args4 = parser.parse_args(["track", "run", "--daemon"])
+        self.assertTrue(args4.daemon)
+        args5 = parser.parse_args(["test", "server", "-p", "59852", "--daemon"])
+        self.assertTrue(args5.daemon)
+
+        # 5. Verify get_waterwall_dir returns Path
+        from confgen.core.utils import get_waterwall_dir
+        self.assertTrue(get_waterwall_dir().exists())
+
 
 if __name__ == "__main__":
     unittest.main()

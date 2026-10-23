@@ -386,6 +386,7 @@ def create_parser() -> argparse.ArgumentParser:
     t_srv = test_sub.add_parser("server", help="Start native SpeedTest server daemon", formatter_class=CustomFormatter)
     t_srv.add_argument("-p", "--port", type=int, default=9001, help="Listen port (default: 9001)")
     t_srv.add_argument("--bind", default="0.0.0.0", help="Bind IP address (default: 0.0.0.0)")
+    t_srv.add_argument("-D", "--daemon", "--service", dest="daemon", action="store_true", help="Install & start as background systemd service")
 
     t_cli = test_sub.add_parser("client", help="Run native SpeedTest against server", formatter_class=CustomFormatter)
     t_cli.add_argument("-t", "--host", default="127.0.0.1", help="Target host (default: 127.0.0.1)")
@@ -407,11 +408,14 @@ def create_parser() -> argparse.ArgumentParser:
     tr_run.add_argument("--tcp", action="store_true", help="Force TCP throughput test")
     tr_run.add_argument("--proto", choices=["tcp", "udp", "TCP", "UDP"], help="Protocol to test (TCP or UDP, auto-detected if omitted)")
     tr_run.add_argument("-c", "--count", type=int, default=0, help="Max iterations (default: 0 = continuous)")
+    tr_run.add_argument("-D", "--daemon", "--service", dest="daemon", action="store_true", help="Install & start as background systemd service on Iran")
     tr_run.add_argument("--file", help="Custom JSON history file path")
 
     tr_show = track_sub.add_parser("show", help="Display bandwidth history table & degradation trends", formatter_class=CustomFormatter)
     tr_show.add_argument("-n", "--limit", type=int, default=25, help="Number of recent samples to display (default: 25)")
     tr_show.add_argument("--file", help="Custom JSON history file path")
+
+    track_sub.add_parser("stop", help="Stop background bandwidth tracker service", formatter_class=CustomFormatter)
 
     tr_chk = track_sub.add_parser("check", help="Run a single immediate bandwidth check and record sample", formatter_class=CustomFormatter)
     tr_chk.add_argument("-p", "--port", type=int, help="Dedicated probe port (auto-detects from active tunnel if omitted)")
@@ -975,6 +979,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         elif args.command in ("test", "speedtest"):
             from confgen.core.speedtest import run_speedtest_server, run_speedtest_client, run_mux_scaling_benchmark
             if getattr(args, "test_cmd", None) == "server":
+                if getattr(args, "daemon", False):
+                    from confgen.core.tracker import ensure_probe_server_service
+                    ensure_probe_server_service(port=args.port)
+                    return 0
                 return run_speedtest_server(port=args.port, bind=args.bind)
             elif getattr(args, "test_cmd", None) == "client":
                 if getattr(args, "matrix", False):
@@ -986,10 +994,23 @@ def main(argv: Optional[List[str]] = None) -> int:
             return 1
 
         elif args.command == "track":
-            from confgen.core.tracker import run_bandwidth_tracker, show_bandwidth_history
+            from confgen.core.tracker import (
+                ensure_tracker_daemon_service,
+                run_bandwidth_tracker,
+                show_bandwidth_history,
+                stop_tracker_daemon_service,
+            )
             if getattr(args, "track_cmd", None) == "run":
                 proto_arg = getattr(args, "proto", None)
                 use_udp = True if (getattr(args, "udp", False) or (proto_arg and proto_arg.lower() == "udp")) else (False if (getattr(args, "tcp", False) or (proto_arg and proto_arg.lower() == "tcp")) else None)
+                if getattr(args, "daemon", False):
+                    ensure_tracker_daemon_service(
+                        port=getattr(args, "port", None),
+                        interval_minutes=args.interval,
+                        duration=args.duration,
+                        use_udp=use_udp,
+                    )
+                    return 0
                 run_bandwidth_tracker(
                     host=args.host,
                     port=getattr(args, "port", None),
@@ -999,6 +1020,9 @@ def main(argv: Optional[List[str]] = None) -> int:
                     use_udp=use_udp,
                     filepath=getattr(args, "file", None),
                 )
+                return 0
+            elif getattr(args, "track_cmd", None) == "stop":
+                stop_tracker_daemon_service()
                 return 0
             elif getattr(args, "track_cmd", None) == "show":
                 show_bandwidth_history(
@@ -1231,6 +1255,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                             "udp_forward_port": udp_fwd,
                             "carrier_port": carrier_p,
                             "carrier_udp_port": carrier_udp_p,
+                            "probe_port": probe_port,
                             "domain": domain,
                             "password": password,
                             "use_halfduplex": use_hd,
@@ -1304,6 +1329,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                         "kharej_ip": kharej_ip,
                         "tcp_ports": ports,
                         "tcp_tunnel_port": ports[0],
+                        "probe_port": probe_port,
                         "domain": domain,
                         "password": args.password,
                         "float_ips": args.float,

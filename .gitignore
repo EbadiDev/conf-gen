@@ -14,3 +14,5 @@ bench_suite/
 *.json
 !core.json
 log/
+# JeikCode user uploads (not project source)
+.jeikcode_store/

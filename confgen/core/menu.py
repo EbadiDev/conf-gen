@@ -11,6 +11,7 @@ Provides an intuitive terminal UI matching BackPack:
 - 0) Exit
 """
 
+import json
 import os
 import shutil
 import subprocess
@@ -26,6 +27,7 @@ from confgen.core.link import (
 )
 from confgen.core.utils import (
     get_public_ip,
+    get_waterwall_dir,
     print_error,
     print_info,
     print_success,
@@ -314,18 +316,24 @@ def wizard_apply_link() -> None:
 def manage_tunnels_menu() -> None:
     """Display active tunnel status and controls."""
     print("\n--- [4] MANAGE TUNNELS ---")
-    if os.path.exists("core.json"):
+    ww_dir = get_waterwall_dir()
+    core_file = ww_dir / "core.json"
+    print_info(f"WaterWall Directory: {ww_dir}")
+
+    if core_file.exists():
         try:
-            with open("core.json") as f:
+            with open(core_file, "r", encoding="utf-8") as f:
                 cdata = json.load(f)
             configs = cdata.get("configs", [])
-            print_info(f"Configured Tunnels in core.json ({len(configs)}):")
+            print_info(f"Configured Tunnels in {core_file} ({len(configs)}):")
             for idx, c in enumerate(configs, 1):
-                print(f"  {idx}) {c}")
+                cfg_path = ww_dir / c
+                exists_mark = "✅" if cfg_path.exists() else "⚠️ (missing file)"
+                print(f"  {idx}) {c} {exists_mark}")
         except Exception as e:
-            print_error(f"Could not read core.json: {e}")
+            print_error(f"Could not read {core_file}: {e}")
     else:
-        print_warning("No core.json found in current directory.")
+        print_warning(f"No core.json found in {ww_dir}.")
 
     if shutil.which("systemctl"):
         res = subprocess.run(["systemctl", "is-active", "waterwall"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
@@ -339,6 +347,14 @@ def manage_tunnels_menu() -> None:
 
 def run_interactive_menu() -> int:
     """Main interactive terminal loop matching BackPack."""
+    try:
+        return _interactive_menu_loop()
+    except (KeyboardInterrupt, EOFError):
+        print("\nExiting ConfGen.")
+        return 0
+
+
+def _interactive_menu_loop() -> int:
     while True:
         print_banner()
         print("Main Menu:")

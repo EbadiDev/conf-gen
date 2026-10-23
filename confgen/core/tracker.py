@@ -7,6 +7,10 @@ much line speed degrades over time (e.g. peak-hour DPI throttling).
 
 import json
 import os
+import shutil
+import socket
+import subprocess
+import sys
 import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -195,3 +199,142 @@ def run_bandwidth_tracker(
             time.sleep(interval_minutes * 60)
     except KeyboardInterrupt:
         print_info("\nBandwidth tracking stopped by user.")
+
+
+def _is_port_listening(port: int, host: str = "127.0.0.1") -> bool:
+    """Check if a TCP listener is already active on host:port."""
+    try:
+        with socket.create_connection((host, port), timeout=0.5):
+            return True
+    except Exception:
+        return False
+
+
+def ensure_probe_server_service(port: int = 59852) -> bool:
+    """Ensure the speedtest probe receiver daemon is running on Kharej (via systemd or background process)."""
+    if _is_port_listening(port):
+        print_success(f"Probe receiver daemon is already active on port {port}.")
+        return True
+
+    confgen_bin = shutil.which("confgen") or "/usr/local/bin/confgen"
+    if not os.path.exists(confgen_bin):
+        confgen_bin = f"{sys.executable} -m confgen"
+
+    # 1. Try systemd template service if running as root on a systemd Linux host
+    if shutil.which("systemctl") and os.path.isdir("/etc/systemd/system") and os.access("/etc/systemd/system", os.W_OK):
+        service_path = "/etc/systemd/system/confgen-probe@.service"
+        unit_content = f"""[Unit]
+Description=ConfGen Bandwidth Probe Receiver Daemon (Port %i)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart={confgen_bin} test server --port %i
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+"""
+        try:
+            with open(service_path, "w", encoding="utf-8") as f:
+                f.write(unit_content)
+            unit_instance = f"confgen-probe@{port}.service"
+            subprocess.run(["systemctl", "daemon-reload"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+            subprocess.run(["systemctl", "enable", "--now", unit_instance], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+            print_success(f"Started systemd probe receiver service: {unit_instance} (port {port})")
+            return True
+        except Exception as e:
+            print_warning(f"Could not install systemd probe service ({e}), falling back to background daemon...")
+
+    # 2. Fallback: spawn detached background process
+    try:
+        cmd = confgen_bin.split() + ["test", "server", "--port", str(port)]
+        subprocess.Popen(
+            cmd,
+            start_new_session=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        print_success(f"Started background probe receiver daemon on port {port}.")
+        return True
+    except Exception as e:
+        print_warning(f"Failed to auto-start probe receiver on port {port}: {e}")
+        return False
+
+
+def ensure_tracker_daemon_service(
+    port: Optional[int] = None,
+    interval_minutes: int = 30,
+    duration: int = 2,
+    use_udp: Optional[bool] = None,
+) -> bool:
+    """Install and start systemd service on Iran for continuous periodic bandwidth tracking."""
+    saved_cfg = load_probe_config()
+    final_port = port if port is not None else saved_cfg.get("port", 59852)
+    final_use_udp = use_udp if use_udp is not None else (saved_cfg.get("protocol", "TCP") == "UDP")
+    proto_flag = " --udp" if final_use_udp else " --tcp"
+
+    confgen_bin = shutil.which("confgen") or "/usr/local/bin/confgen"
+    if not os.path.exists(confgen_bin):
+        confgen_bin = f"{sys.executable} -m confgen"
+
+    if shutil.which("systemctl") and os.path.isdir("/etc/systemd/system") and os.access("/etc/systemd/system", os.W_OK):
+        service_path = "/etc/systemd/system/confgen-tracker.service"
+        unit_content = f"""[Unit]
+Description=ConfGen Automated Bandwidth Degradation Tracker (Port {final_port})
+After=network.target waterwall.service
+
+[Service]
+Type=simple
+ExecStart={confgen_bin} track run --port {final_port} --interval {interval_minutes} --duration {duration}{proto_flag}
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+"""
+        try:
+            with open(service_path, "w", encoding="utf-8") as f:
+                f.write(unit_content)
+            subprocess.run(["systemctl", "daemon-reload"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+            subprocess.run(["systemctl", "enable", "--now", "confgen-tracker.service"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+            print_success(f"Started systemd bandwidth tracker service: confgen-tracker.service (every {interval_minutes}m on port {final_port})")
+            print_info("View recorded bandwidth history anytime with: confgen track show")
+            return True
+        except Exception as e:
+            print_warning(f"Failed to create systemd tracker service: {e}")
+
+    # Fallback: background process
+    try:
+        cmd = confgen_bin.split() + [
+            "track", "run",
+            "--port", str(final_port),
+            "--interval", str(interval_minutes),
+            "--duration", str(duration),
+        ]
+        if final_use_udp:
+            cmd.append("--udp")
+        else:
+            cmd.append("--tcp")
+        subprocess.Popen(
+            cmd,
+            start_new_session=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        print_success(f"Started background bandwidth tracker daemon (every {interval_minutes}m on port {final_port}).")
+        print_info("View recorded bandwidth history anytime with: confgen track show")
+        return True
+    except Exception as e:
+        print_error(f"Failed to start background tracker: {e}")
+        return False
+
+
+def stop_tracker_daemon_service() -> None:
+    """Stop and disable the background bandwidth tracker service."""
+    if shutil.which("systemctl"):
+        subprocess.run(["systemctl", "stop", "confgen-tracker.service"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        subprocess.run(["systemctl", "disable", "confgen-tracker.service"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+    subprocess.run(["pkill", "-f", "confgen track run"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+    print_success("Stopped ConfGen bandwidth tracker daemon.")
